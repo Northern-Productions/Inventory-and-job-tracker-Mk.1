@@ -45,7 +45,7 @@ test('duplicate job creation guard migration preserves job create payload behavi
 
 test('schema guard tracks duplicate job creation guard semantics', () => {
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0180_tenant_rls_policy_hardening\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0181_tenant_direct_write_grants_hardening\.sql';/);
 
   assert.match(schemaCheck, /signature: 'public\.api_jobs_create\(uuid, text, jsonb\)'/);
   assert.match(schemaCheck, /perform app_api\.raise_http\(409, format\('Job %s already exists\.', v_job_number\)\);/);

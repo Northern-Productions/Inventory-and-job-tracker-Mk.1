@@ -68,7 +68,7 @@ test('inventory ownership mutation RPCs are explicit owner-only surfaces', async
 test('schema latest guard tracks inventory ownership objects', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
+  assert.match(schemaCheck, /0181_tenant_direct_write_grants_hardening\.sql/);
   assert.match(schemaCheck, /app\.owner_companies/);
   assert.match(schemaCheck, /app\.inventory_ownership_events/);
   assert.match(schemaCheck, /owner_company_id/);

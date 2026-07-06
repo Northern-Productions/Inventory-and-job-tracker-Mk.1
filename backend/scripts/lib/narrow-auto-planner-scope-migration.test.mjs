@@ -44,7 +44,7 @@ test('schema check keeps manual-only planner semantics after later hotfix migrat
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
+  assert.match(schemaCheck, /0181_tenant_direct_write_grants_hardening\.sql/);
 
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /'manualOnly', true/);

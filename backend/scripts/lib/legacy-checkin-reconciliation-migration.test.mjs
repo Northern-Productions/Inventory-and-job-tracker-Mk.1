@@ -28,7 +28,7 @@ test('legacy check-in reconciliation migration is mirrored and schema-guarded', 
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
+  assert.match(schemaCheck, /0181_tenant_direct_write_grants_hardening\.sql/);
 
   assert.match(schemaCheck, /legacy_match\.requirement_match_count = 1/);
   assert.match(schemaCheck, /Consumed during film box check-in after actual LF was recorded\./);
