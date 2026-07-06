@@ -15,6 +15,7 @@ const getAuthContextMock = vi.fn();
 const requestUsernameChangeApiMock = vi.fn();
 const updateDefaultWarehouseApiMock = vi.fn();
 const setClientAccessContextMock = vi.fn();
+const clearTenantPersistentBrowserCachesMock = vi.fn();
 const getStoredAuthSessionMock = vi.fn();
 const setStoredAuthSessionMock = vi.fn();
 const getSupabaseClientMock = vi.fn();
@@ -34,6 +35,11 @@ vi.mock('../../api/features/authClient', () => ({
   requestUsernameChange: (...args: unknown[]) => requestUsernameChangeApiMock(...args),
   updateDefaultWarehouse: (...args: unknown[]) => updateDefaultWarehouseApiMock(...args),
   setClientAccessContext: (...args: unknown[]) => setClientAccessContextMock(...args)
+}));
+
+vi.mock('../../lib/browserTenantCaches', () => ({
+  clearTenantPersistentBrowserCaches: (...args: unknown[]) =>
+    clearTenantPersistentBrowserCachesMock(...args)
 }));
 
 vi.mock('../../lib/storage', () => ({
@@ -188,6 +194,7 @@ describe('AuthContext', () => {
     getAuthContextMock.mockResolvedValue(createAccessContext());
     setStoredAuthSessionMock.mockReset();
     setClientAccessContextMock.mockReset();
+    clearTenantPersistentBrowserCachesMock.mockReset();
     requestUsernameChangeApiMock.mockReset();
     updateDefaultWarehouseApiMock.mockReset();
     window.history.replaceState({}, '', '/');
@@ -261,7 +268,7 @@ describe('AuthContext', () => {
     queryClient.clear();
   });
 
-  it('clears cached jobs data on sign out so stale job summaries do not survive logout', async () => {
+  it('clears cached jobs and persistent tenant caches on sign out', async () => {
     getSessionMock.mockResolvedValue({
       data: { session: createSession() },
       error: null
@@ -311,6 +318,7 @@ describe('AuthContext', () => {
     });
 
     expect(queryClient.getQueryData(jobsListKey)).toBeUndefined();
+    expect(clearTenantPersistentBrowserCachesMock).toHaveBeenCalled();
   });
 
   it('surfaces auth context failures without repeatedly refreshing access state', async () => {
@@ -436,7 +444,7 @@ describe('AuthContext', () => {
     queryClient.clear();
   });
 
-  it('clears cached jobs data when the authenticated user or org changes', async () => {
+  it('clears cached jobs and persistent tenant caches when the authenticated user or org changes', async () => {
     getSessionMock.mockResolvedValue({
       data: { session: createSession() },
       error: null
@@ -510,5 +518,6 @@ describe('AuthContext', () => {
     });
 
     expect(queryClient.getQueryData(jobsListKey)).toBeUndefined();
+    expect(clearTenantPersistentBrowserCachesMock).toHaveBeenCalled();
   });
 });

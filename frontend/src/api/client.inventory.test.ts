@@ -13,17 +13,64 @@ vi.mock('../lib/offlineInventory', () => ({
 
 vi.mock('./features/sharedClient', () => ({
   assertFeatureAccess: vi.fn(),
+  getClientOfflineInventoryScope: vi.fn(),
   requestReadWithFallback: vi.fn()
 }));
 
-import { getBoxTransferPlan, searchBoxes, suggestNextBoxId } from './client';
-import { requestReadWithFallback } from './features/sharedClient';
+import { getBox, getBoxTransferPlan, searchBoxes, suggestNextBoxId } from './client';
+import { APIError } from './http';
+import { getOfflineBox, searchOfflineBoxes, upsertOfflineInventoryBox } from '../lib/offlineInventory';
+import { getClientOfflineInventoryScope, requestReadWithFallback } from './features/sharedClient';
 
 const requestReadWithFallbackMock = vi.mocked(requestReadWithFallback);
+const getClientOfflineInventoryScopeMock = vi.mocked(getClientOfflineInventoryScope);
+const searchOfflineBoxesMock = vi.mocked(searchOfflineBoxes);
+const getOfflineBoxMock = vi.mocked(getOfflineBox);
+const upsertOfflineInventoryBoxMock = vi.mocked(upsertOfflineInventoryBox);
+const offlineScope = { userId: 'user-a', orgId: 'org-a' };
+
+function buildBox(overrides: Record<string, unknown> = {}) {
+  return {
+    boxId: 'IL1-1001',
+    warehouse: 'IL1',
+    manufacturer: '3M',
+    filmName: 'Prestige 40',
+    widthIn: 36,
+    initialFeet: 100,
+    feetAvailable: 100,
+    allocationPlanningFeet: 100,
+    lotRun: '',
+    status: 'IN_STOCK',
+    orderDate: '2026-03-01',
+    receivedDate: '2026-03-02',
+    initialWeightLbs: null,
+    lastRollWeightLbs: null,
+    lastWeighedDate: '',
+    filmKey: '3M|PRESTIGE 40',
+    coreType: '',
+    coreWeightLbs: null,
+    lfWeightLbsPerFt: null,
+    pricePerLf: null,
+    purchaseCost: null,
+    notes: '',
+    hasEverBeenCheckedOut: false,
+    lastCheckoutJob: '',
+    lastCheckoutDate: '',
+    zeroedDate: '',
+    zeroedReason: '',
+    zeroedBy: '',
+    ...overrides
+  };
+}
 
 describe('inventory API client', () => {
   beforeEach(() => {
     requestReadWithFallbackMock.mockReset();
+    getClientOfflineInventoryScopeMock.mockReset();
+    searchOfflineBoxesMock.mockReset();
+    getOfflineBoxMock.mockReset();
+    upsertOfflineInventoryBoxMock.mockReset();
+    getClientOfflineInventoryScopeMock.mockReturnValue(offlineScope);
   });
 
   it('passes repeated warehouses through GET /boxes/search', async () => {
@@ -202,6 +249,51 @@ describe('inventory API client', () => {
     expect(boxes).toHaveLength(1002);
     expect(boxes[boxes.length - 2]?.boxId).toBe('IL1-6734');
     expect(boxes[boxes.length - 1]?.boxId).toBe('IL1-6942');
+  });
+
+  it('uses the current offline scope for unreachable search fallback', async () => {
+    requestReadWithFallbackMock.mockRejectedValueOnce(new APIError('The API is unreachable.'));
+    searchOfflineBoxesMock.mockResolvedValueOnce([buildBox({ boxId: 'IL1-OFFLINE' }) as never]);
+
+    const boxes = await searchBoxes({ warehouse: 'IL1', q: 'offline' });
+
+    expect(searchOfflineBoxesMock).toHaveBeenCalledWith(offlineScope, {
+      warehouse: 'IL1',
+      q: 'offline'
+    });
+    expect(boxes.map((box) => box.boxId)).toEqual(['IL1-OFFLINE']);
+  });
+
+  it('does not read unscoped offline search data when auth scope is missing', async () => {
+    getClientOfflineInventoryScopeMock.mockReturnValueOnce(null);
+    requestReadWithFallbackMock.mockRejectedValueOnce(new APIError('The API is unreachable.'));
+    searchOfflineBoxesMock.mockResolvedValueOnce([]);
+
+    const boxes = await searchBoxes({ warehouse: 'IL1' });
+
+    expect(searchOfflineBoxesMock).toHaveBeenCalledWith(null, { warehouse: 'IL1' });
+    expect(boxes).toEqual([]);
+  });
+
+  it('writes successful box reads to the scoped offline cache', async () => {
+    requestReadWithFallbackMock.mockResolvedValueOnce(buildBox({ boxId: 'IL1-REMOTE' }));
+
+    await getBox('IL1-REMOTE');
+
+    expect(upsertOfflineInventoryBoxMock).toHaveBeenCalledWith(
+      offlineScope,
+      expect.objectContaining({ boxId: 'IL1-REMOTE' })
+    );
+  });
+
+  it('uses the current offline scope for unreachable box detail fallback', async () => {
+    requestReadWithFallbackMock.mockRejectedValueOnce(new APIError('The API is unreachable.'));
+    getOfflineBoxMock.mockResolvedValueOnce(buildBox({ boxId: 'IL1-OFFLINE-DETAIL' }) as never);
+
+    const box = await getBox('IL1-OFFLINE-DETAIL');
+
+    expect(getOfflineBoxMock).toHaveBeenCalledWith(offlineScope, 'IL1-OFFLINE-DETAIL');
+    expect(box.boxId).toBe('IL1-OFFLINE-DETAIL');
   });
 
   it('passes transfer-plan query params through GET /boxes/transfer/plan', async () => {

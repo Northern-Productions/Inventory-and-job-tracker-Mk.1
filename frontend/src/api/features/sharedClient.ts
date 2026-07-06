@@ -22,6 +22,8 @@ import type {
 } from '../../domain';
 import { createDefaultFeatureAccessMap } from '../../domain';
 import { isReadRoute } from '../../domain/runtimeContract.mjs';
+import type { OfflineInventoryScope } from '../../lib/offlineInventory';
+import { getStoredAuthSession } from '../../lib/storage';
 import { APIError, request } from '../http';
 
 const CAULK_FULL_CASE_TUBE_COUNT = 16;
@@ -33,6 +35,17 @@ export function __resetJobsApiAvailabilityForTests() {
 
 export function setClientAccessContext(context: EffectiveAccessContext | null) {
   cachedAccessContext = context;
+}
+
+export function getClientOfflineInventoryScope(): OfflineInventoryScope | null {
+  const session = getStoredAuthSession();
+  const userId = String(session?.user?.sub || '').trim();
+  const orgId = String(cachedAccessContext?.orgId || '').trim();
+  if (!userId || !orgId || cachedAccessContext?.accessStatus !== 'approved') {
+    return null;
+  }
+
+  return { userId, orgId };
 }
 
 export function ensureRole(value: unknown): Role {

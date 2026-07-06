@@ -20,7 +20,8 @@ vi.mock('./http', () => {
 vi.mock('../lib/offlineInventory', () => ({
   getOfflineBox: vi.fn(),
   replaceOfflineInventoryBoxes: vi.fn(),
-  searchOfflineBoxes: vi.fn()
+  searchOfflineBoxes: vi.fn(),
+  upsertOfflineInventoryBox: vi.fn()
 }));
 
 import {

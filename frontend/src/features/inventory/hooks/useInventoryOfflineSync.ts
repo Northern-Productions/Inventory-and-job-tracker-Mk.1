@@ -1,6 +1,7 @@
 // Purpose: Shared offline inventory cache helpers used by inventory mutations.
 import type { QueryClient } from '@tanstack/react-query';
 import { syncAllOfflineInventorySnapshots } from '../../../api/features/inventoryClient';
+import { getClientOfflineInventoryScope } from '../../../api/features/sharedClient';
 import type { Box } from '../../../domain';
 import { deleteOfflineInventoryBox, upsertOfflineInventoryBox } from '../../../lib/offlineInventory';
 
@@ -20,7 +21,7 @@ export async function syncOfflineInventoryQueries(queryClient: QueryClient) {
 
 export async function persistOfflineInventoryBox(queryClient: QueryClient, box: Box) {
   try {
-    await upsertOfflineInventoryBox(box);
+    await upsertOfflineInventoryBox(getClientOfflineInventoryScope(), box);
   } catch (_error) {
     // The online mutation already succeeded. A local cache write failure should not block it.
   }
@@ -33,7 +34,7 @@ export async function removeOfflineInventoryBox(
   box: Pick<Box, 'boxId' | 'warehouse'>
 ) {
   try {
-    await deleteOfflineInventoryBox(box);
+    await deleteOfflineInventoryBox(getClientOfflineInventoryScope(), box);
   } catch (_error) {
     // The online mutation already succeeded. A local cache write failure should not block it.
   }

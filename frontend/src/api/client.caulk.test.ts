@@ -20,6 +20,7 @@ vi.mock('./http', () => {
 vi.mock('./features/sharedClient', () => ({
   assertFeatureAccess: vi.fn(),
   assertOwnerAccess: vi.fn(),
+  getClientOfflineInventoryScope: vi.fn(() => null),
   mapCaulkManufacturerEntry: vi.fn(),
   mapCaulkProductEntry: (value: unknown) => value,
   mapCaulkStockEntry: vi.fn(),

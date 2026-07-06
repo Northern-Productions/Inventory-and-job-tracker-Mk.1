@@ -32,11 +32,13 @@ import {
   replaceOfflineInventoryBoxes,
   searchOfflineBoxes,
   upsertOfflineInventoryBox,
+  type OfflineInventoryScope,
   type OfflineInventorySyncMeta
 } from '../../lib/offlineInventory';
 import { APIError, request } from '../http';
 import {
   assertFeatureAccess,
+  getClientOfflineInventoryScope,
   mapBoxDealerEntry,
   requestReadWithFallback
 } from './sharedClient';
@@ -214,7 +216,7 @@ export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
     return await fetchRemoteBoxes(params);
   } catch (error) {
     if (shouldUseOfflineInventoryFallback(error)) {
-      return dedupeBoxesByDisplayBoxId(await searchOfflineBoxes(params));
+      return dedupeBoxesByDisplayBoxId(await searchOfflineBoxes(getClientOfflineInventoryScope(), params));
     }
 
     throw error;
@@ -223,11 +225,12 @@ export async function searchBoxes(params: SearchBoxesParams): Promise<Box[]> {
 
 export async function getBox(boxId: string): Promise<Box> {
   assertFeatureAccess('inventory', 'read');
+  const offlineScope = getClientOfflineInventoryScope();
   try {
     const box = normalizeBox(await requestReadWithFallback<Box>('/boxes/get', { boxId }, { boxId }));
 
     try {
-      await upsertOfflineInventoryBox(box);
+      await upsertOfflineInventoryBox(offlineScope, box);
     } catch {
       // Keep the live box read successful even if the offline cache write fails.
     }
@@ -235,7 +238,7 @@ export async function getBox(boxId: string): Promise<Box> {
     return box;
   } catch (error) {
     if (shouldUseOfflineInventoryFallback(error)) {
-      const offlineBox = await getOfflineBox(boxId);
+      const offlineBox = await getOfflineBox(offlineScope, boxId);
       if (offlineBox) {
         return offlineBox;
       }
@@ -432,10 +435,15 @@ export async function cancelBoxTransfer(
 }
 
 export async function syncOfflineInventorySnapshot(
-  warehouse: Warehouse
+  warehouse: Warehouse,
+  scope: OfflineInventoryScope | null = getClientOfflineInventoryScope()
 ): Promise<OfflineInventorySyncMeta | null> {
+  if (!scope) {
+    return null;
+  }
+
   const boxes = await fetchRemoteBoxes({ warehouse, showRetired: true });
-  return replaceOfflineInventoryBoxes(warehouse, boxes);
+  return replaceOfflineInventoryBoxes(scope, warehouse, boxes);
 }
 
 function prioritizeWarehouseCodes(
@@ -471,8 +479,13 @@ function prioritizeWarehouseCodes(
  * Parallel all-warehouse refreshes can hit database statement timeouts; failed snapshots must not erase the last good copy.
  */
 export async function syncAllOfflineInventorySnapshots(
-  preferredWarehouse?: Warehouse | ''
+  preferredWarehouse?: Warehouse | '',
+  scope: OfflineInventoryScope | null = getClientOfflineInventoryScope()
 ): Promise<OfflineInventorySyncMeta[]> {
+  if (!scope) {
+    return [];
+  }
+
   let warehouseCodes: Warehouse[] = [];
   try {
     warehouseCodes = (await listWarehouses()).map((entry) => entry.code);
@@ -488,7 +501,7 @@ export async function syncAllOfflineInventorySnapshots(
   const orderedWarehouseCodes = prioritizeWarehouseCodes(warehouseCodes, preferredWarehouse);
 
   for (const warehouse of orderedWarehouseCodes) {
-    snapshots.push(await syncOfflineInventorySnapshot(warehouse));
+    snapshots.push(await syncOfflineInventorySnapshot(warehouse, scope));
   }
 
   return snapshots.filter((snapshot): snapshot is OfflineInventorySyncMeta => Boolean(snapshot));

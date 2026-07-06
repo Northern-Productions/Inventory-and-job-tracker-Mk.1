@@ -3,16 +3,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { syncAllOfflineInventorySnapshots } from '../../../api/features/inventoryClient';
 import type { Warehouse } from '../../../domain';
 import {
+  buildOfflineInventoryScopeKey,
   getOfflineInventorySnapshotBoxes,
   getOfflineInventorySyncMeta,
+  type OfflineInventoryScope,
   type OfflineInventorySyncMeta
 } from '../../../lib/offlineInventory';
+import { useAuth } from '../../auth/AuthContext';
 import { useWarehouseRegistry } from './useWarehouseRegistry';
 
 const offlineInventoryKeys = {
   root: ['inventory', 'offline'] as const,
-  snapshot: (warehouse: Warehouse | '') => ['inventory', 'offline', 'snapshot', warehouse || 'ALL'] as const,
-  meta: (warehouses: readonly Warehouse[]) => ['inventory', 'offline', 'meta', warehouses.join('|')] as const
+  scope: (scopeKey: string) => ['inventory', 'offline', scopeKey || 'NO_SCOPE'] as const,
+  snapshot: (scopeKey: string, warehouse: Warehouse | '') =>
+    ['inventory', 'offline', scopeKey || 'NO_SCOPE', 'snapshot', warehouse || 'ALL'] as const,
+  meta: (scopeKey: string, warehouses: readonly Warehouse[]) =>
+    ['inventory', 'offline', scopeKey || 'NO_SCOPE', 'meta', warehouses.join('|')] as const
 };
 
 function aggregateSyncMeta(entries: Array<OfflineInventorySyncMeta | null>) {
@@ -39,6 +45,7 @@ function aggregateSyncMeta(entries: Array<OfflineInventorySyncMeta | null>) {
 
 export function useOfflineInventorySearch(warehouse: Warehouse | '') {
   const queryClient = useQueryClient();
+  const auth = useAuth();
   const isSyncingRef = useRef(false);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine
@@ -53,14 +60,28 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
         : warehouseRegistry.entries.map((entry) => entry.code),
     [warehouse, warehouseRegistry.entries]
   );
+  const offlineScope = useMemo<OfflineInventoryScope | null>(() => {
+    const userId = String(auth.session?.user?.sub || '').trim();
+    const orgId = String(auth.accessContext?.orgId || '').trim();
+    if (!auth.isAccessReady || !auth.isApproved || !userId || !orgId) {
+      return null;
+    }
+
+    return { userId, orgId };
+  }, [auth.accessContext?.orgId, auth.isAccessReady, auth.isApproved, auth.session?.user?.sub]);
+  const offlineScopeKey = buildOfflineInventoryScopeKey(offlineScope);
   const snapshotQuery = useQuery({
-    queryKey: offlineInventoryKeys.snapshot(warehouse),
-    queryFn: () => getOfflineInventorySnapshotBoxes(warehouse)
+    queryKey: offlineInventoryKeys.snapshot(offlineScopeKey, warehouse),
+    queryFn: () => getOfflineInventorySnapshotBoxes(offlineScope, warehouse)
   });
   const metaQuery = useQuery({
-    queryKey: offlineInventoryKeys.meta(selectedWarehouses),
+    queryKey: offlineInventoryKeys.meta(offlineScopeKey, selectedWarehouses),
     queryFn: async () =>
-      aggregateSyncMeta(await Promise.all(selectedWarehouses.map((warehouse) => getOfflineInventorySyncMeta(warehouse))))
+      aggregateSyncMeta(
+        await Promise.all(
+          selectedWarehouses.map((warehouse) => getOfflineInventorySyncMeta(offlineScope, warehouse))
+        )
+      )
   });
   const hasSnapshot = Boolean(metaQuery.data?.lastSyncedAt);
   const isInitialLoad =
@@ -80,6 +101,12 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
 
     if (!currentlyOnline) {
       setSyncError(null);
+      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.scope(offlineScopeKey) });
+      return;
+    }
+
+    if (!offlineScope) {
+      setSyncError(null);
       await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
       return;
     }
@@ -89,16 +116,16 @@ export function useOfflineInventorySearch(warehouse: Warehouse | '') {
     setSyncError(null);
 
     try {
-      await syncAllOfflineInventorySnapshots(warehouse);
-      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
+      await syncAllOfflineInventorySnapshots(warehouse, offlineScope);
+      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.scope(offlineScopeKey) });
     } catch (error) {
       setSyncError(error instanceof Error ? error : new Error('Unable to sync the offline inventory copy.'));
-      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.root });
+      await queryClient.invalidateQueries({ queryKey: offlineInventoryKeys.scope(offlineScopeKey) });
     } finally {
       isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [queryClient, warehouse]);
+  }, [offlineScope, offlineScopeKey, queryClient, warehouse]);
 
   useEffect(() => {
     function handleStatusChange() {

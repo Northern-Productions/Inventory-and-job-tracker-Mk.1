@@ -20,23 +20,63 @@ vi.mock('./http', () => {
 vi.mock('../lib/offlineInventory', () => ({
   getOfflineBox: vi.fn(),
   replaceOfflineInventoryBoxes: vi.fn(),
-  searchOfflineBoxes: vi.fn()
+  searchOfflineBoxes: vi.fn(),
+  upsertOfflineInventoryBox: vi.fn()
+}));
+
+vi.mock('../lib/storage', () => ({
+  getStoredAuthSession: vi.fn(() => ({
+    token: 'token',
+    user: {
+      email: 'user@example.com',
+      hasProfileName: true,
+      name: 'User Example',
+      sub: 'user-a'
+    },
+    issuedAt: 0,
+    expiresAt: Date.now() + 60_000
+  }))
 }));
 
 import {
   __resetJobsApiAvailabilityForTests,
   listWarehouses,
+  setClientAccessContext,
   syncAllOfflineInventorySnapshots
 } from './client';
 import { request } from './http';
 import { replaceOfflineInventoryBoxes } from '../lib/offlineInventory';
+import { createDefaultFeatureAccessMap } from '../domain';
 
 const requestMock = vi.mocked(request);
 const replaceOfflineInventoryBoxesMock = vi.mocked(replaceOfflineInventoryBoxes);
+const offlineScope = { userId: 'user-a', orgId: 'org-a' };
+
+function buildOfflineMeta(warehouse: string, lastSyncedAt: string) {
+  return {
+    warehouse,
+    boxCount: 0,
+    lastSyncedAt,
+    scopeKey: 'v2|user:user-a|org:org-a',
+    userId: 'user-a',
+    orgId: 'org-a',
+    cacheVersion: 2
+  };
+}
 
 describe('warehouse client APIs', () => {
   beforeEach(() => {
     __resetJobsApiAvailabilityForTests();
+    setClientAccessContext({
+      orgId: 'org-a',
+      accessStatus: 'approved',
+      role: 'owner',
+      permissions: createDefaultFeatureAccessMap(),
+      isAdminConsoleAllowed: true,
+      pendingCount: 0,
+      receivesInAppNotifications: true,
+      defaultWarehouse: ''
+    });
     requestMock.mockReset();
     replaceOfflineInventoryBoxesMock.mockReset();
   });
@@ -82,16 +122,8 @@ describe('warehouse client APIs', () => {
       });
 
     replaceOfflineInventoryBoxesMock
-      .mockResolvedValueOnce({
-        warehouse: 'IL1',
-        boxCount: 0,
-        lastSyncedAt: '2026-03-13T00:00:00.000Z'
-      })
-      .mockResolvedValueOnce({
-        warehouse: 'TX1',
-        boxCount: 0,
-        lastSyncedAt: '2026-03-13T00:00:00.000Z'
-      });
+      .mockResolvedValueOnce(buildOfflineMeta('IL1', '2026-03-13T00:00:00.000Z') as never)
+      .mockResolvedValueOnce(buildOfflineMeta('TX1', '2026-03-13T00:00:00.000Z') as never);
 
     const snapshots = await syncAllOfflineInventorySnapshots();
 
@@ -115,8 +147,8 @@ describe('warehouse client APIs', () => {
         showRetired: true
       }
     });
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, 'IL1', []);
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, 'TX1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, offlineScope, 'IL1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, offlineScope, 'TX1', []);
     expect(snapshots.map((entry) => entry.warehouse)).toEqual(['IL1', 'TX1']);
   });
 
@@ -146,21 +178,9 @@ describe('warehouse client APIs', () => {
       });
 
     replaceOfflineInventoryBoxesMock
-      .mockResolvedValueOnce({
-        warehouse: 'MO1',
-        boxCount: 0,
-        lastSyncedAt: '2026-04-24T00:00:00.000Z'
-      })
-      .mockResolvedValueOnce({
-        warehouse: 'IL1',
-        boxCount: 0,
-        lastSyncedAt: '2026-04-24T00:00:01.000Z'
-      })
-      .mockResolvedValueOnce({
-        warehouse: 'MS1',
-        boxCount: 0,
-        lastSyncedAt: '2026-04-24T00:00:02.000Z'
-      });
+      .mockResolvedValueOnce(buildOfflineMeta('MO1', '2026-04-24T00:00:00.000Z') as never)
+      .mockResolvedValueOnce(buildOfflineMeta('IL1', '2026-04-24T00:00:01.000Z') as never)
+      .mockResolvedValueOnce(buildOfflineMeta('MS1', '2026-04-24T00:00:02.000Z') as never);
 
     const snapshots = await syncAllOfflineInventorySnapshots('MO1');
 
@@ -194,9 +214,9 @@ describe('warehouse client APIs', () => {
         showRetired: true
       }
     });
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, 'MO1', []);
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, 'IL1', []);
-    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(3, 'MS1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(1, offlineScope, 'MO1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(2, offlineScope, 'IL1', []);
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(3, offlineScope, 'MS1', []);
     expect(snapshots.map((entry) => entry.warehouse)).toEqual(['MO1', 'IL1', 'MS1']);
   });
 });

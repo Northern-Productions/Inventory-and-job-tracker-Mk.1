@@ -10,6 +10,7 @@ import {
   getAuthContext,
   setClientAccessContext
 } from '../../api/features/authClient';
+import { clearTenantPersistentBrowserCaches } from '../../lib/browserTenantCaches';
 import { getStoredAuthSession, setStoredAuthSession } from '../../lib/storage';
 import { getSupabaseClient, isSupabaseAuthConfigured } from '../../lib/supabase';
 import { isPasswordRecoveryUrl } from './authRecovery';
@@ -87,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resetAppQueryCache = useCallback(() => {
     void queryClient.cancelQueries();
     queryClient.clear();
+    void clearTenantPersistentBrowserCaches();
   }, [queryClient]);
 
   const applyAccessContext = useCallback((nextContext: EffectiveAccessContext | null) => {

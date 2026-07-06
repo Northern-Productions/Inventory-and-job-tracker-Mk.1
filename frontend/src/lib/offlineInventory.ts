@@ -3,7 +3,8 @@ import { matchesBoxSearchQuery, rankBoxSearchCandidates } from '../domain/boxSea
 import { normalizeManufacturerLookupKey } from './manufacturerCanonicalization';
 
 const OFFLINE_DB_NAME = 'inventory-offline';
-const OFFLINE_DB_VERSION = 1;
+export const OFFLINE_CACHE_VERSION = 2;
+const OFFLINE_DB_VERSION = 2;
 const BOX_STORE = 'boxes';
 const SYNC_META_STORE = 'sync-meta';
 const LOW_STOCK_THRESHOLD_LF = 10;
@@ -26,10 +27,19 @@ function shouldHideFromDefaultInventory(box: Pick<Box, 'status'>, status: string
   return !showRetired && !status && (box.status === 'ZEROED' || box.status === 'RETIRED');
 }
 
+export interface OfflineInventoryScope {
+  userId: string;
+  orgId: string;
+}
+
 export interface OfflineInventorySyncMeta {
   warehouse: Warehouse;
   boxCount: number;
   lastSyncedAt: string;
+  scopeKey: string;
+  userId: string;
+  orgId: string;
+  cacheVersion: number;
 }
 
 export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'warehouse' | 'warehouses'> {
@@ -38,8 +48,116 @@ export interface OfflineSearchBoxesParams extends Omit<SearchBoxesParams, 'wareh
   widths?: string[];
 }
 
+type ScopedOfflineBoxRecord = Box & {
+  cacheKey: string;
+  scopeKey: string;
+  scopeWarehouseKey: string;
+  userId: string;
+  orgId: string;
+  cacheVersion: number;
+};
+
+type ScopedOfflineSyncMetaRecord = OfflineInventorySyncMeta & {
+  scopeWarehouseKey: string;
+};
+
 export function isOfflineInventorySupported(): boolean {
   return typeof indexedDB !== 'undefined';
+}
+
+export function buildOfflineInventoryScopeKey(
+  scope: OfflineInventoryScope | null | undefined
+): string {
+  const normalizedScope = normalizeOfflineInventoryScope(scope);
+  if (!normalizedScope) {
+    return '';
+  }
+
+  return `v${OFFLINE_CACHE_VERSION}|user:${normalizedScope.userId}|org:${normalizedScope.orgId}`;
+}
+
+export function isOfflineInventoryScopeValid(
+  scope: OfflineInventoryScope | null | undefined
+): scope is OfflineInventoryScope {
+  return Boolean(normalizeOfflineInventoryScope(scope));
+}
+
+export function createScopedOfflineBoxRecord(
+  scope: OfflineInventoryScope,
+  box: Box
+): ScopedOfflineBoxRecord | null {
+  const normalizedScope = normalizeOfflineInventoryScope(scope);
+  const scopeKey = buildOfflineInventoryScopeKey(normalizedScope);
+  const boxId = String(box.boxId || '').trim();
+  const warehouse = String(box.warehouse || '').trim().toUpperCase() as Warehouse;
+  if (!normalizedScope || !scopeKey || !boxId || !warehouse) {
+    return null;
+  }
+
+  return {
+    ...box,
+    warehouse,
+    cacheKey: buildScopedBoxCacheKey(scopeKey, boxId),
+    scopeKey,
+    scopeWarehouseKey: buildScopedWarehouseKey(scopeKey, warehouse),
+    userId: normalizedScope.userId,
+    orgId: normalizedScope.orgId,
+    cacheVersion: OFFLINE_CACHE_VERSION
+  };
+}
+
+export function stripScopedOfflineBoxRecord(record: unknown): Box | null {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  const scopedRecord = record as Partial<ScopedOfflineBoxRecord>;
+  if (
+    scopedRecord.cacheVersion !== OFFLINE_CACHE_VERSION ||
+    !scopedRecord.scopeKey ||
+    !scopedRecord.userId ||
+    !scopedRecord.orgId ||
+    !scopedRecord.boxId
+  ) {
+    return null;
+  }
+
+  const {
+    cacheKey: _cacheKey,
+    scopeKey: _scopeKey,
+    scopeWarehouseKey: _scopeWarehouseKey,
+    userId: _userId,
+    orgId: _orgId,
+    cacheVersion: _cacheVersion,
+    ...box
+  } = scopedRecord;
+
+  return box as Box;
+}
+
+export function createScopedOfflineSyncMetaRecord(
+  scope: OfflineInventoryScope,
+  warehouse: Warehouse,
+  boxCount: number,
+  lastSyncedAt: string
+): ScopedOfflineSyncMetaRecord | null {
+  const normalizedScope = normalizeOfflineInventoryScope(scope);
+  const scopeKey = buildOfflineInventoryScopeKey(normalizedScope);
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase() as Warehouse;
+  if (!normalizedScope || !scopeKey || !normalizedWarehouse) {
+    return null;
+  }
+
+  return {
+    warehouse: normalizedWarehouse,
+    boxCount: Math.max(0, Math.trunc(Number(boxCount || 0))),
+    lastSyncedAt,
+    scopeKey,
+    scopeWarehouseKey: buildScopedWarehouseKey(scopeKey, normalizedWarehouse),
+    userId: normalizedScope.userId,
+    orgId: normalizedScope.orgId,
+    cacheVersion: OFFLINE_CACHE_VERSION
+  };
 }
 
 export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParams): Box[] {
@@ -109,19 +227,40 @@ export function filterOfflineBoxes(boxes: Box[], params: OfflineSearchBoxesParam
   return ordered;
 }
 
-export async function searchOfflineBoxes(params: OfflineSearchBoxesParams): Promise<Box[]> {
+export async function searchOfflineBoxes(
+  scope: OfflineInventoryScope | null | undefined,
+  params: OfflineSearchBoxesParams
+): Promise<Box[]> {
+  if (!isOfflineInventoryScopeValid(scope)) {
+    return [];
+  }
+
   const snapshotWarehouse =
     !params.warehouses?.length && params.warehouse ? params.warehouse : '';
-  const boxes = await getOfflineInventorySnapshotBoxes(snapshotWarehouse || '');
+  const boxes = await getOfflineInventorySnapshotBoxes(scope, snapshotWarehouse || '');
   return filterOfflineBoxes(boxes, params);
 }
 
-export async function getOfflineInventorySnapshotBoxes(warehouse: Warehouse | ''): Promise<Box[]> {
-  return warehouse ? await getOfflineBoxesByWarehouse(warehouse) : await getAllOfflineBoxes();
+export async function getOfflineInventorySnapshotBoxes(
+  scope: OfflineInventoryScope | null | undefined,
+  warehouse: Warehouse | ''
+): Promise<Box[]> {
+  if (!isOfflineInventoryScopeValid(scope)) {
+    return [];
+  }
+
+  return warehouse
+    ? await getOfflineBoxesByWarehouse(scope, warehouse)
+    : await getAllOfflineBoxes(scope);
 }
 
-export async function getOfflineBox(boxId: string): Promise<Box | null> {
-  if (!isOfflineInventorySupported()) {
+export async function getOfflineBox(
+  scope: OfflineInventoryScope | null | undefined,
+  boxId: string
+): Promise<Box | null> {
+  const scopeKey = buildOfflineInventoryScopeKey(scope);
+  const normalizedBoxId = String(boxId || '').trim();
+  if (!isOfflineInventorySupported() || !scopeKey || !normalizedBoxId) {
     return null;
   }
 
@@ -129,78 +268,85 @@ export async function getOfflineBox(boxId: string): Promise<Box | null> {
 
   try {
     const transaction = database.transaction(BOX_STORE, 'readonly');
-    const request = transaction.objectStore(BOX_STORE).get(boxId);
-    const result = await requestToPromise<Box | undefined>(request);
-    return result || null;
+    const request = transaction
+      .objectStore(BOX_STORE)
+      .index('scopeBoxId')
+      .get(IDBKeyRange.only([scopeKey, normalizedBoxId]));
+    const result = await requestToPromise<ScopedOfflineBoxRecord | undefined>(request);
+    return stripScopedOfflineBoxRecord(result);
   } finally {
     database.close();
   }
 }
 
 export async function getOfflineInventorySyncMeta(
+  scope: OfflineInventoryScope | null | undefined,
   warehouse: Warehouse
 ): Promise<OfflineInventorySyncMeta | null> {
-  if (!isOfflineInventorySupported()) {
-    return null;
-  }
-
-  const database = await openOfflineInventoryDatabase();
-
-  try {
-    const transaction = database.transaction(SYNC_META_STORE, 'readonly');
-    const request = transaction.objectStore(SYNC_META_STORE).get(warehouse);
-    const result = await requestToPromise<OfflineInventorySyncMeta | undefined>(request);
-    return result || null;
-  } finally {
-    database.close();
-  }
+  const metaRecord = await getOfflineInventorySyncMetaRecord(scope, warehouse);
+  return metaRecord ? stripScopedOfflineSyncMetaRecord(metaRecord) : null;
 }
 
 export async function replaceOfflineInventoryBoxes(
+  scope: OfflineInventoryScope | null | undefined,
   warehouse: Warehouse,
   boxes: Box[],
   lastSyncedAt = new Date().toISOString()
 ): Promise<OfflineInventorySyncMeta | null> {
-  if (!isOfflineInventorySupported()) {
+  const normalizedScope = normalizeOfflineInventoryScope(scope);
+  if (!isOfflineInventorySupported() || !normalizedScope) {
     return null;
   }
 
-  const existingBoxes = await getOfflineBoxesByWarehouse(warehouse);
-  const database = await openOfflineInventoryDatabase();
-  const nextMeta: OfflineInventorySyncMeta = {
+  const nextMetaRecord = createScopedOfflineSyncMetaRecord(
+    normalizedScope,
     warehouse,
-    boxCount: boxes.length,
+    boxes.length,
     lastSyncedAt
-  };
+  );
+  if (!nextMetaRecord) {
+    return null;
+  }
+
+  const existingBoxes = await getOfflineBoxesByWarehouse(normalizedScope, nextMetaRecord.warehouse);
+  const scopedBoxRecords = boxes
+    .map((box) => createScopedOfflineBoxRecord(normalizedScope, box))
+    .filter((record): record is ScopedOfflineBoxRecord => Boolean(record));
+  const database = await openOfflineInventoryDatabase();
 
   try {
     const transaction = database.transaction([BOX_STORE, SYNC_META_STORE], 'readwrite');
     const boxStore = transaction.objectStore(BOX_STORE);
 
     for (let index = 0; index < existingBoxes.length; index += 1) {
-      boxStore.delete(existingBoxes[index].boxId);
+      boxStore.delete(buildScopedBoxCacheKey(nextMetaRecord.scopeKey, existingBoxes[index].boxId));
     }
 
-    for (let index = 0; index < boxes.length; index += 1) {
-      boxStore.put(boxes[index]);
+    for (let index = 0; index < scopedBoxRecords.length; index += 1) {
+      boxStore.put(scopedBoxRecords[index]);
     }
 
-    transaction.objectStore(SYNC_META_STORE).put(nextMeta);
+    transaction.objectStore(SYNC_META_STORE).put(nextMetaRecord);
     await waitForTransaction(transaction);
-    return nextMeta;
+    return stripScopedOfflineSyncMetaRecord(nextMetaRecord);
   } finally {
     database.close();
   }
 }
 
-export async function upsertOfflineInventoryBox(box: Box): Promise<void> {
-  if (!isOfflineInventorySupported()) {
+export async function upsertOfflineInventoryBox(
+  scope: OfflineInventoryScope | null | undefined,
+  box: Box
+): Promise<void> {
+  const normalizedScope = normalizeOfflineInventoryScope(scope);
+  const scopedRecord = normalizedScope ? createScopedOfflineBoxRecord(normalizedScope, box) : null;
+  if (!isOfflineInventorySupported() || !normalizedScope || !scopedRecord) {
     return;
   }
 
   const [existingBox, warehouseMeta] = await Promise.all([
-    getOfflineBox(box.boxId),
-    getOfflineInventorySyncMeta(box.warehouse)
+    getOfflineBox(normalizedScope, box.boxId),
+    getOfflineInventorySyncMetaRecord(normalizedScope, scopedRecord.warehouse)
   ]);
   const database = await openOfflineInventoryDatabase();
 
@@ -209,19 +355,19 @@ export async function upsertOfflineInventoryBox(box: Box): Promise<void> {
     const boxStore = transaction.objectStore(BOX_STORE);
     const metaStore = transaction.objectStore(SYNC_META_STORE);
 
-    boxStore.put(box);
+    boxStore.put(scopedRecord);
 
     if (!warehouseMeta) {
       await waitForTransaction(transaction);
       return;
     }
 
-    const nextMeta: OfflineInventorySyncMeta = {
+    const nextMetaRecord: ScopedOfflineSyncMetaRecord = {
       ...warehouseMeta,
       boxCount: existingBox ? warehouseMeta.boxCount : warehouseMeta.boxCount + 1
     };
 
-    metaStore.put(nextMeta);
+    metaStore.put(nextMetaRecord);
     await waitForTransaction(transaction);
   } finally {
     database.close();
@@ -229,15 +375,20 @@ export async function upsertOfflineInventoryBox(box: Box): Promise<void> {
 }
 
 export async function deleteOfflineInventoryBox(
+  scope: OfflineInventoryScope | null | undefined,
   box: Pick<Box, 'boxId' | 'warehouse'>
 ): Promise<void> {
-  if (!isOfflineInventorySupported()) {
+  const normalizedScope = normalizeOfflineInventoryScope(scope);
+  const normalizedBoxId = String(box.boxId || '').trim();
+  const normalizedWarehouse = String(box.warehouse || '').trim().toUpperCase() as Warehouse;
+  if (!isOfflineInventorySupported() || !normalizedScope || !normalizedBoxId || !normalizedWarehouse) {
     return;
   }
 
+  const scopeKey = buildOfflineInventoryScopeKey(normalizedScope);
   const [existingBox, warehouseMeta] = await Promise.all([
-    getOfflineBox(box.boxId),
-    getOfflineInventorySyncMeta(box.warehouse)
+    getOfflineBox(normalizedScope, normalizedBoxId),
+    getOfflineInventorySyncMetaRecord(normalizedScope, normalizedWarehouse)
   ]);
 
   if (!existingBox) {
@@ -251,7 +402,7 @@ export async function deleteOfflineInventoryBox(
     const boxStore = transaction.objectStore(BOX_STORE);
     const metaStore = transaction.objectStore(SYNC_META_STORE);
 
-    boxStore.delete(box.boxId);
+    boxStore.delete(buildScopedBoxCacheKey(scopeKey, normalizedBoxId));
 
     if (warehouseMeta) {
       metaStore.put({
@@ -266,8 +417,27 @@ export async function deleteOfflineInventoryBox(
   }
 }
 
-async function getOfflineBoxesByWarehouse(warehouse: Warehouse): Promise<Box[]> {
-  if (!isOfflineInventorySupported()) {
+export function clearOfflineInventoryDatabase(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!isOfflineInventorySupported()) {
+      resolve();
+      return;
+    }
+
+    const request = indexedDB.deleteDatabase(OFFLINE_DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
+}
+
+async function getOfflineBoxesByWarehouse(
+  scope: OfflineInventoryScope,
+  warehouse: Warehouse
+): Promise<Box[]> {
+  const scopeKey = buildOfflineInventoryScopeKey(scope);
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase() as Warehouse;
+  if (!isOfflineInventorySupported() || !scopeKey || !normalizedWarehouse) {
     return [];
   }
 
@@ -275,16 +445,22 @@ async function getOfflineBoxesByWarehouse(warehouse: Warehouse): Promise<Box[]> 
 
   try {
     const transaction = database.transaction(BOX_STORE, 'readonly');
-    const request = transaction.objectStore(BOX_STORE).index('warehouse').getAll(IDBKeyRange.only(warehouse));
-    const result = await requestToPromise<Box[]>(request);
-    return result;
+    const request = transaction
+      .objectStore(BOX_STORE)
+      .index('scopeWarehouse')
+      .getAll(IDBKeyRange.only([scopeKey, normalizedWarehouse]));
+    const result = await requestToPromise<ScopedOfflineBoxRecord[]>(request);
+    return result
+      .map((record) => stripScopedOfflineBoxRecord(record))
+      .filter((box): box is Box => Boolean(box));
   } finally {
     database.close();
   }
 }
 
-async function getAllOfflineBoxes(): Promise<Box[]> {
-  if (!isOfflineInventorySupported()) {
+async function getAllOfflineBoxes(scope: OfflineInventoryScope): Promise<Box[]> {
+  const scopeKey = buildOfflineInventoryScopeKey(scope);
+  if (!isOfflineInventorySupported() || !scopeKey) {
     return [];
   }
 
@@ -292,12 +468,72 @@ async function getAllOfflineBoxes(): Promise<Box[]> {
 
   try {
     const transaction = database.transaction(BOX_STORE, 'readonly');
-    const request = transaction.objectStore(BOX_STORE).getAll();
-    const result = await requestToPromise<Box[]>(request);
-    return result;
+    const request = transaction
+      .objectStore(BOX_STORE)
+      .index('scopeKey')
+      .getAll(IDBKeyRange.only(scopeKey));
+    const result = await requestToPromise<ScopedOfflineBoxRecord[]>(request);
+    return result
+      .map((record) => stripScopedOfflineBoxRecord(record))
+      .filter((box): box is Box => Boolean(box));
   } finally {
     database.close();
   }
+}
+
+async function getOfflineInventorySyncMetaRecord(
+  scope: OfflineInventoryScope | null | undefined,
+  warehouse: Warehouse
+): Promise<ScopedOfflineSyncMetaRecord | null> {
+  const scopeKey = buildOfflineInventoryScopeKey(scope);
+  const normalizedWarehouse = String(warehouse || '').trim().toUpperCase() as Warehouse;
+  if (!isOfflineInventorySupported() || !scopeKey || !normalizedWarehouse) {
+    return null;
+  }
+
+  const database = await openOfflineInventoryDatabase();
+
+  try {
+    const transaction = database.transaction(SYNC_META_STORE, 'readonly');
+    const request = transaction
+      .objectStore(SYNC_META_STORE)
+      .get(buildScopedWarehouseKey(scopeKey, normalizedWarehouse));
+    const result = await requestToPromise<ScopedOfflineSyncMetaRecord | undefined>(request);
+    return result || null;
+  } finally {
+    database.close();
+  }
+}
+
+function stripScopedOfflineSyncMetaRecord(
+  record: ScopedOfflineSyncMetaRecord
+): OfflineInventorySyncMeta {
+  const {
+    scopeWarehouseKey: _scopeWarehouseKey,
+    ...meta
+  } = record;
+
+  return meta;
+}
+
+function normalizeOfflineInventoryScope(
+  scope: OfflineInventoryScope | null | undefined
+): OfflineInventoryScope | null {
+  const userId = String(scope?.userId || '').trim();
+  const orgId = String(scope?.orgId || '').trim();
+  if (!userId || !orgId) {
+    return null;
+  }
+
+  return { userId, orgId };
+}
+
+function buildScopedBoxCacheKey(scopeKey: string, boxId: string): string {
+  return `${scopeKey}|box:${boxId}`;
+}
+
+function buildScopedWarehouseKey(scopeKey: string, warehouse: Warehouse): string {
+  return `${scopeKey}|warehouse:${warehouse}`;
 }
 
 function isLowStockBox(box: Box): boolean {
@@ -413,17 +649,23 @@ function openOfflineInventoryDatabase(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = () => {
       const database = request.result;
-      const boxStore = database.objectStoreNames.contains(BOX_STORE)
-        ? request.transaction?.objectStore(BOX_STORE)
-        : database.createObjectStore(BOX_STORE, { keyPath: 'boxId' });
 
-      if (boxStore && !boxStore.indexNames.contains('warehouse')) {
-        boxStore.createIndex('warehouse', 'warehouse', { unique: false });
+      if (database.objectStoreNames.contains(BOX_STORE)) {
+        database.deleteObjectStore(BOX_STORE);
       }
 
-      if (!database.objectStoreNames.contains(SYNC_META_STORE)) {
-        database.createObjectStore(SYNC_META_STORE, { keyPath: 'warehouse' });
+      if (database.objectStoreNames.contains(SYNC_META_STORE)) {
+        database.deleteObjectStore(SYNC_META_STORE);
       }
+
+      const boxStore = database.createObjectStore(BOX_STORE, { keyPath: 'cacheKey' });
+      boxStore.createIndex('scopeKey', 'scopeKey', { unique: false });
+      boxStore.createIndex('scopeWarehouse', ['scopeKey', 'warehouse'], { unique: false });
+      boxStore.createIndex('scopeBoxId', ['scopeKey', 'boxId'], { unique: true });
+
+      const metaStore = database.createObjectStore(SYNC_META_STORE, { keyPath: 'scopeWarehouseKey' });
+      metaStore.createIndex('scopeKey', 'scopeKey', { unique: false });
+      metaStore.createIndex('scopeWarehouse', ['scopeKey', 'warehouse'], { unique: true });
     };
 
     request.onsuccess = () => resolve(request.result);

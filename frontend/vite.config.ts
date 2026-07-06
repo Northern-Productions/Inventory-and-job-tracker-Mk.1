@@ -79,14 +79,6 @@ export default defineConfig(({ mode }) => {
                   maxAgeSeconds: 60 * 60 * 24 * 30
                 }
               }
-            },
-            {
-              urlPattern: ({ url }) => url.pathname.startsWith('/api'),
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-cache',
-                networkTimeoutSeconds: 5
-              }
             }
           ]
         }

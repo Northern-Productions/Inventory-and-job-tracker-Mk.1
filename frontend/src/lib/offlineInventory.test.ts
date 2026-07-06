@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { Box } from '../domain';
-import { filterOfflineBoxes } from './offlineInventory';
+import type { Box, Warehouse } from '../domain';
+import {
+  OFFLINE_CACHE_VERSION,
+  buildOfflineInventoryScopeKey,
+  createScopedOfflineBoxRecord,
+  createScopedOfflineSyncMetaRecord,
+  filterOfflineBoxes,
+  getOfflineInventorySnapshotBoxes,
+  isOfflineInventoryScopeValid,
+  searchOfflineBoxes,
+  stripScopedOfflineBoxRecord
+} from './offlineInventory';
 
 function createBox(overrides: Partial<Box>): Box {
   return {
@@ -37,6 +47,76 @@ function createBox(overrides: Partial<Box>): Box {
 }
 
 describe('offline inventory filters', () => {
+  it('builds scoped cache keys from user, org, and cache version', () => {
+    expect(buildOfflineInventoryScopeKey({ userId: 'user-a', orgId: 'org-a' })).toBe(
+      `v${OFFLINE_CACHE_VERSION}|user:user-a|org:org-a`
+    );
+    expect(buildOfflineInventoryScopeKey({ userId: ' user-a ', orgId: ' org-a ' })).toBe(
+      `v${OFFLINE_CACHE_VERSION}|user:user-a|org:org-a`
+    );
+    expect(buildOfflineInventoryScopeKey({ userId: '', orgId: 'org-a' })).toBe('');
+    expect(buildOfflineInventoryScopeKey(null)).toBe('');
+    expect(isOfflineInventoryScopeValid({ userId: 'user-a', orgId: 'org-a' })).toBe(true);
+    expect(isOfflineInventoryScopeValid({ userId: 'user-a', orgId: '' })).toBe(false);
+  });
+
+  it('creates scoped records and rejects legacy unscoped records', () => {
+    const box = createBox({ boxId: 'IL1-1001', warehouse: 'IL1' });
+    const scopedRecord = createScopedOfflineBoxRecord({ userId: 'user-a', orgId: 'org-a' }, box);
+
+    expect(scopedRecord).toMatchObject({
+      boxId: 'IL1-1001',
+      warehouse: 'IL1',
+      userId: 'user-a',
+      orgId: 'org-a',
+      cacheVersion: OFFLINE_CACHE_VERSION,
+      scopeKey: `v${OFFLINE_CACHE_VERSION}|user:user-a|org:org-a`,
+      cacheKey: `v${OFFLINE_CACHE_VERSION}|user:user-a|org:org-a|box:IL1-1001`
+    });
+    expect(stripScopedOfflineBoxRecord(scopedRecord)).toMatchObject({
+      boxId: 'IL1-1001',
+      warehouse: 'IL1'
+    });
+    expect(stripScopedOfflineBoxRecord(box)).toBeNull();
+    expect(stripScopedOfflineBoxRecord({ ...scopedRecord, cacheVersion: 1 })).toBeNull();
+  });
+
+  it('keeps user/org cache records isolated even for the same box id', () => {
+    const box = createBox({ boxId: 'IL1-1001', warehouse: 'IL1' });
+    const userAOrgA = createScopedOfflineBoxRecord({ userId: 'user-a', orgId: 'org-a' }, box);
+    const userBOrgB = createScopedOfflineBoxRecord({ userId: 'user-b', orgId: 'org-b' }, box);
+    const userAOrgB = createScopedOfflineBoxRecord({ userId: 'user-a', orgId: 'org-b' }, box);
+
+    expect(userAOrgA?.scopeKey).not.toBe(userBOrgB?.scopeKey);
+    expect(userAOrgA?.cacheKey).not.toBe(userBOrgB?.cacheKey);
+    expect(userAOrgA?.scopeKey).not.toBe(userAOrgB?.scopeKey);
+    expect(userAOrgA?.cacheKey).not.toBe(userAOrgB?.cacheKey);
+  });
+
+  it('creates scoped sync metadata per user, org, cache version, and warehouse', () => {
+    const meta = createScopedOfflineSyncMetaRecord(
+      { userId: 'user-a', orgId: 'org-a' },
+      'il1' as Warehouse,
+      3,
+      '2026-07-06T00:00:00.000Z'
+    );
+
+    expect(meta).toMatchObject({
+      warehouse: 'IL1',
+      boxCount: 3,
+      lastSyncedAt: '2026-07-06T00:00:00.000Z',
+      userId: 'user-a',
+      orgId: 'org-a',
+      cacheVersion: OFFLINE_CACHE_VERSION,
+      scopeWarehouseKey: `v${OFFLINE_CACHE_VERSION}|user:user-a|org:org-a|warehouse:IL1`
+    });
+  });
+
+  it('returns safe-empty offline results when scope is missing', async () => {
+    await expect(searchOfflineBoxes(null, { warehouse: 'IL1' })).resolves.toEqual([]);
+    await expect(getOfflineInventorySnapshotBoxes(null, 'IL1')).resolves.toEqual([]);
+  });
+
   it('matches the default inventory behavior and hides retired or zeroed boxes', () => {
     const boxes = [
       createBox({ boxId: 'IL1-1001', manufacturer: '3M' }),
