@@ -39,7 +39,7 @@ test('latest schema check forbids reservation-order planner internals after manu
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0179_film_weight_initial_values_only\.sql/);
+  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
 
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /perform app_api\.reconcile_auto_planned_allocations/);

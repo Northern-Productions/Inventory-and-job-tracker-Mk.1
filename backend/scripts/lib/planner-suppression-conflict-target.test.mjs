@@ -85,7 +85,7 @@ test('schema latest guard tracks the planner suppression conflict-target hotfix'
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0179_film_weight_initial_values_only\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0180_tenant_rls_policy_hardening\.sql';/);
 
   assert.match(schemaCheck, /app_api\.record_auto_planned_allocation_suppression\(uuid, text, text, text\)/);
   assert.match(schemaCheck, /app_api\.record_auto_planned_caulk_allocation_suppression\(uuid, text, text, text\)/);

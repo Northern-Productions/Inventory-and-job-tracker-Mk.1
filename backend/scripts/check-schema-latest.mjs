@@ -5,7 +5,13 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0179_film_weight_initial_values_only.sql';
+const LATEST_MIGRATION = '0180_tenant_rls_policy_hardening.sql';
+
+const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
+const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
+const ORG_TABLE_DIRECT_WRITE_GRANTEES = ['public', 'anon', 'authenticated'];
+const SUSPICIOUS_POLICY_TAUTOLOGY_PATTERN =
+  /\b([a-z_][a-z0-9_]*)\.(org_id|organization_id)\s*=\s*\1\.\2\b/i;
 
 
 const REQUIRED_OBJECTS = [
@@ -125,6 +131,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_get_film_weight_pending_review_count(uuid)' },
   { kind: 'function', signature: 'app_api.record_film_weight_sample_from_box(uuid, text, text)' },
   { kind: 'function', signature: 'app_api.recalculate_film_weight_profile(uuid, uuid)' },
+  { kind: 'function', signature: 'app.is_org_owner(uuid)' },
   { kind: 'function', signature: 'public.api_acl_box_film_order_origins(uuid, text)' },
   { kind: 'function', signature: 'app_api.append_film_order_event(uuid, text, text, text, uuid, jsonb, jsonb, text, timestamp with time zone, text, text)' },
   { kind: 'function', signature: 'public.api_acl_jobs_update(uuid, text, jsonb)' },
@@ -1936,6 +1943,139 @@ async function runSchemaCheck() {
         '[schema-check] Service-role app schema permissions are out of date for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           serviceRoleIssues.join('\n')
+      );
+    }
+
+    const orgBearingTableRows = await client.query(
+      `
+        select
+          format('%I.%I', n.nspname, c.relname) as table_signature,
+          c.relrowsecurity as rls_enabled
+        from pg_class c
+        join pg_namespace n
+          on n.oid = c.relnamespace
+        where n.nspname = 'app'
+          and c.relkind in ('r', 'p')
+          and exists (
+            select 1
+            from pg_attribute a
+            where a.attrelid = c.oid
+              and a.attname in ('org_id', 'organization_id')
+              and a.attnum > 0
+              and not a.attisdropped
+          )
+        order by n.nspname, c.relname;
+      `
+    );
+
+    const tenantRlsIssues = orgBearingTableRows.rows
+      .filter((row) => row.rls_enabled !== true)
+      .filter((row) => !ORG_TABLE_RLS_ALLOWLIST.has(String(row.table_signature || '')))
+      .map((row) => `- RLS disabled on org-bearing table: ${row.table_signature}`);
+
+    if (tenantRlsIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Tenant RLS coverage is out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          tenantRlsIssues.join('\n')
+      );
+    }
+
+    const directWriteGrantRows = await client.query(
+      `
+        with org_tables as (
+          select
+            n.nspname as table_schema,
+            c.relname as table_name,
+            format('%I.%I', n.nspname, c.relname) as table_signature
+          from pg_class c
+          join pg_namespace n
+            on n.oid = c.relnamespace
+          where n.nspname = 'app'
+            and c.relkind in ('r', 'p')
+            and exists (
+              select 1
+              from pg_attribute a
+              where a.attrelid = c.oid
+                and a.attname in ('org_id', 'organization_id')
+                and a.attnum > 0
+                and not a.attisdropped
+            )
+        )
+        select
+          t.table_signature,
+          g.grantee,
+          g.privilege_type
+        from information_schema.role_table_grants g
+        join org_tables t
+          on t.table_schema = g.table_schema
+         and t.table_name = g.table_name
+        where g.privilege_type in ('INSERT', 'UPDATE', 'DELETE')
+          and g.grantee = any($1::text[])
+        order by t.table_signature, g.grantee, g.privilege_type;
+      `,
+      [ORG_TABLE_DIRECT_WRITE_GRANTEES]
+    );
+
+    const directWriteIssues = directWriteGrantRows.rows
+      .filter((row) => !ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST.has(String(row.table_signature || '')))
+      .map(
+        (row) =>
+          `- direct ${row.privilege_type} grant to ${row.grantee} on org-bearing table: ${row.table_signature}`
+      );
+
+    if (directWriteIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Tenant direct table write grants are out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          directWriteIssues.join('\n')
+      );
+    }
+
+    const tenantPolicyRows = await client.query(
+      `
+        select
+          schemaname,
+          tablename,
+          policyname,
+          coalesce(qual, '') as qual,
+          coalesce(with_check, '') as with_check
+        from pg_policies
+        where schemaname = 'app'
+        order by schemaname, tablename, policyname;
+      `
+    );
+
+    const suspiciousPolicyIssues = tenantPolicyRows.rows
+      .filter((row) => SUSPICIOUS_POLICY_TAUTOLOGY_PATTERN.test(`${row.qual} ${row.with_check}`))
+      .map((row) => `- suspicious policy predicate on ${row.schemaname}.${row.tablename}.${row.policyname}`);
+
+    const policyByName = new Map(
+      tenantPolicyRows.rows.map((row) => [`${row.tablename}.${row.policyname}`, row])
+    );
+    for (const [key, label] of [
+      ['organization_members.members_write_owner', 'organization_members.members_write_owner'],
+      [
+        'owner_notification_preferences.owner_notification_preferences_write_self',
+        'owner_notification_preferences.owner_notification_preferences_write_self'
+      ]
+    ]) {
+      const policy = policyByName.get(key);
+      if (!policy) {
+        suspiciousPolicyIssues.push(`- missing tenant owner policy: app.${label}`);
+        continue;
+      }
+      const predicate = `${policy.qual} ${policy.with_check}`;
+      if (!/is_org_owner\(/i.test(predicate)) {
+        suspiciousPolicyIssues.push(`- tenant owner policy no longer calls app.is_org_owner: app.${label}`);
+      }
+    }
+
+    if (suspiciousPolicyIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Tenant RLS policy predicates are out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          suspiciousPolicyIssues.join('\n')
       );
     }
 

@@ -41,7 +41,7 @@ test('latest schema check points to the authenticated app schema usage revoke', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0179_film_weight_initial_values_only\.sql/);
+  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
 
   assert.match(schemaCheck, /authenticated_app_schema_usage/);
   assert.match(schemaCheck, /service_role_app_schema_usage/);

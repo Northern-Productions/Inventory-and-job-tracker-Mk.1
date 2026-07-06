@@ -52,7 +52,7 @@ test('latest schema check tracks ordered receive core type semantics', async () 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0179_film_weight_initial_values_only\.sql/);
+  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
 
   assert.match(schemaCheck, /v_core_type := app_api\.normalize_core_type\(v_payload->>'coreType', true\);/);
   assert.match(

@@ -55,7 +55,7 @@ test('caulk owner resolution avoids min(uuid) and uses exact-one stock row behav
 test('schema latest guard requires the caulk owner resolution hotfix semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0179_film_weight_initial_values_only\.sql/);
+  assert.match(schemaCheck, /0180_tenant_rls_policy_hardening\.sql/);
   assert.match(schemaCheck, /app_api\.resolve_caulk_stock_owner_company_id\(uuid, uuid, text, uuid, uuid\)/);
   assert.match(schemaCheck, /select count\(\*\)::integer/);
   assert.match(schemaCheck, /min\(s\.owner_company_id\)/);

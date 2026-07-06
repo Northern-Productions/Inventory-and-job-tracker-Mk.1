@@ -145,7 +145,7 @@ test('caulk remove jobId scope migration keeps non-scope workflows and duplicate
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0179_film_weight_initial_values_only\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0180_tenant_rls_policy_hardening\.sql';/);
 
   assert.match(schemaCheck, /public\.api_acl_allocations_caulk_remove\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_job\.id\)/);
