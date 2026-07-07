@@ -71,7 +71,65 @@ export function formatWarehouseDisplayLabel(entry: WarehouseEntry): string {
     return code;
   }
 
-  return `${name} (${code})`;
+  if (name.toUpperCase().endsWith(` ${code}`)) {
+    return name;
+  }
+
+  return `${name} ${code}`;
+}
+
+export function normalizeWarehouseCity(value: string | null | undefined): string {
+  return String(value || '').trim();
+}
+
+export function normalizeWarehouseStateCode(value: string | null | undefined): string {
+  return String(value || '').trim().toUpperCase();
+}
+
+export function isValidWarehouseStateCode(value: string | null | undefined): boolean {
+  return /^[A-Z]{2}$/.test(normalizeWarehouseStateCode(value));
+}
+
+export function getNextWarehouseCodeForState(
+  entries: WarehouseEntry[],
+  stateCode: string | null | undefined
+): Warehouse | '' {
+  const normalizedState = normalizeWarehouseStateCode(stateCode);
+  if (!isValidWarehouseStateCode(normalizedState)) {
+    return '';
+  }
+
+  const maxIndex = entries.reduce((max, entry) => {
+    const code = normalizeWarehouseCode(entry.code);
+    const match = code.match(/^([A-Z]{2})([1-9][0-9]{0,6})$/);
+    if (!match || match[1] !== normalizedState) {
+      return max;
+    }
+    const index = Number.parseInt(match[2], 10);
+    return Number.isFinite(index) ? Math.max(max, index) : max;
+  }, 0);
+
+  return `${normalizedState}${maxIndex + 1}`;
+}
+
+export function buildWarehouseCreateDraft(
+  entries: WarehouseEntry[],
+  city: string | null | undefined,
+  stateCode: string | null | undefined
+): { city: string; stateCode: string; code: Warehouse | ''; name: string; boxIdPrefix: string; label: string } {
+  const normalizedCity = normalizeWarehouseCity(city);
+  const normalizedState = normalizeWarehouseStateCode(stateCode);
+  const code = getNextWarehouseCodeForState(entries, normalizedState);
+  const name = normalizedCity && code ? `${normalizedCity} ${code}` : '';
+
+  return {
+    city: normalizedCity,
+    stateCode: normalizedState,
+    code,
+    name,
+    boxIdPrefix: code,
+    label: name
+  };
 }
 
 export function toWarehouseSelectOptions(entries: WarehouseEntry[]) {

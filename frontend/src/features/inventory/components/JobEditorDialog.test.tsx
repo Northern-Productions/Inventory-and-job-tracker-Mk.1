@@ -126,7 +126,7 @@ describe('JobEditorDialog', () => {
     const options = within(warehouseSelect).getAllByRole('option');
 
     expect(options.map((option) => option.textContent)).toEqual([
-      'Auburn Hills (MI1)',
+      'Auburn Hills MI1',
       'Add New Warehouse...'
     ]);
     expect(screen.queryByText('Wauconda IL1')).toBeNull();

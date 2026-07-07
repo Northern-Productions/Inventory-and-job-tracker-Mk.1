@@ -11,6 +11,7 @@ import type {
   WarehouseEntry
 } from '../../../domain';
 import { formatOwnerCompanyLabel } from '../../../domain';
+import { formatWarehouseDisplayLabel } from '../../inventory/utils/warehouseOptions';
 
 interface NewCaulkProductDialogProps {
   open: boolean;
@@ -73,7 +74,7 @@ export function NewCaulkProductDialog({
       warehouseEntries
         .map((entry) => ({
           value: entry.code,
-          label: entry.name || entry.code
+          label: formatWarehouseDisplayLabel(entry)
         }))
         .sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })),
     [warehouseEntries]

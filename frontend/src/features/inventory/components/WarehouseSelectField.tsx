@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { addWarehouse } from '../../../api/features/warehouseClient';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import type { Warehouse } from '../../../domain';
@@ -10,15 +11,17 @@ import { useWarehouseRegistry, warehouseRegistryQueryKey } from '../hooks/useWar
 import {
   ADD_WAREHOUSE_OPTION_VALUE,
   ALL_WAREHOUSES_OPTION_VALUE,
+  buildWarehouseCreateDraft,
   getSafeSpecificWarehouseValue,
   isWarehouseInRegistry,
+  isValidWarehouseStateCode,
+  normalizeWarehouseCity,
   normalizeWarehouseCode,
+  normalizeWarehouseStateCode,
   toWarehouseFilterOptionValue,
   toWarehouseFilterSelectOptions,
   toWarehouseSelectOptions
 } from '../utils/warehouseOptions';
-
-const INDEXED_WAREHOUSE_PATTERN = /^[A-Z]{2}[1-9][0-9]{0,6}$/;
 
 interface WarehouseSelectFieldProps {
   label?: string;
@@ -42,9 +45,8 @@ export function WarehouseSelectField({
   const warehouseRegistry = useWarehouseRegistry();
   const canAddWarehouse = auth.isOwner && includeAddOption;
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [codeDraft, setCodeDraft] = useState('');
-  const [nameDraft, setNameDraft] = useState('');
-  const [prefixDraft, setPrefixDraft] = useState('');
+  const [cityDraft, setCityDraft] = useState('');
+  const [stateDraft, setStateDraft] = useState('');
   const [formError, setFormError] = useState('');
   const safeSpecificValue = getSafeSpecificWarehouseValue(warehouseRegistry.entries, value);
   const selectValue = allowAll ? toWarehouseFilterOptionValue(safeSpecificValue) : safeSpecificValue;
@@ -73,51 +75,40 @@ export function WarehouseSelectField({
     return base;
   }, [allowAll, canAddWarehouse, warehouseRegistry.entries]);
 
-  const suggestedName = useMemo(() => {
-    const normalized = normalizeWarehouseCode(codeDraft);
-    if (!normalized) {
-      return '';
-    }
-
-    const existing = warehouseRegistry.entries.find((entry) => entry.code === normalized);
-    return existing?.name || normalized;
-  }, [codeDraft, warehouseRegistry.entries]);
+  const generatedWarehouse = useMemo(
+    () => buildWarehouseCreateDraft(warehouseRegistry.entries, cityDraft, stateDraft),
+    [cityDraft, stateDraft, warehouseRegistry.entries]
+  );
 
   function closeAddDialog() {
     setIsAddDialogOpen(false);
     setFormError('');
-    setCodeDraft('');
-    setNameDraft('');
-    setPrefixDraft('');
+    setCityDraft('');
+    setStateDraft('');
   }
 
   async function handleCreateWarehouse() {
-    const normalizedCode = normalizeWarehouseCode(codeDraft);
-    const normalizedPrefix = String(prefixDraft || normalizedCode).trim().toUpperCase();
-    const resolvedName = String(nameDraft || '').trim() || suggestedName;
+    const normalizedCity = normalizeWarehouseCity(cityDraft);
+    const normalizedState = normalizeWarehouseStateCode(stateDraft);
 
-    if (!normalizedCode) {
-      setFormError('Warehouse code must match AA1, AA2, ... with a 1-based index.');
+    if (!normalizedCity) {
+      setFormError('City is required.');
       return;
     }
-    if (!resolvedName) {
-      setFormError('Warehouse name is required.');
+    if (!isValidWarehouseStateCode(normalizedState)) {
+      setFormError('State must be a valid two-letter abbreviation, such as MI.');
       return;
     }
-    if (!INDEXED_WAREHOUSE_PATTERN.test(normalizedPrefix)) {
-      setFormError('BoxID prefix must match AA1, AA2, ... with a 1-based index.');
-      return;
-    }
-    if (normalizedPrefix !== normalizedCode) {
-      setFormError('Warehouse code and BoxID prefix must match.');
+    if (!generatedWarehouse.code || !generatedWarehouse.name) {
+      setFormError('Unable to generate a warehouse code for this state.');
       return;
     }
 
     try {
       const created = await addWarehouseMutation.mutateAsync({
-        code: normalizedCode,
-        name: resolvedName,
-        boxIdPrefix: normalizedPrefix
+        code: generatedWarehouse.code,
+        name: generatedWarehouse.name,
+        boxIdPrefix: generatedWarehouse.boxIdPrefix
       });
       await queryClient.invalidateQueries({ queryKey: warehouseRegistryQueryKey });
       onChange(created.code);
@@ -156,79 +147,67 @@ export function WarehouseSelectField({
         options={options}
       />
 
-      {isAddDialogOpen ? (
-        <div className="dialog-backdrop" role="presentation" onClick={closeAddDialog}>
-          <div
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-warehouse-title"
-            onClick={(event) => event.stopPropagation()}
+      <DialogSurface
+        open={isAddDialogOpen}
+        onClose={closeAddDialog}
+        titleId="add-warehouse-title"
+        closeOnBackdrop
+      >
+        <div className="dialog-header">
+          <h2 id="add-warehouse-title">Add Warehouse</h2>
+          <button
+            type="button"
+            className="dialog-close"
+            aria-label="Close add warehouse dialog"
+            onClick={closeAddDialog}
           >
-            <div className="dialog-header">
-              <h2 id="add-warehouse-title">Add Warehouse</h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close add warehouse dialog"
-                onClick={closeAddDialog}
-              >
-                X
-              </button>
-            </div>
-            <div className="form-grid">
-              <Input
-                label="Warehouse Code"
-                value={codeDraft}
-                onChange={(event) => {
-                  const nextCode = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                  setCodeDraft(nextCode);
-                  if (!prefixDraft || prefixDraft === codeDraft) {
-                    setPrefixDraft(nextCode);
-                  }
-                  setFormError('');
-                }}
-                placeholder="CA1"
-                maxLength={8}
-                autoFocus
-              />
-              <Input
-                label="Display Name"
-                value={nameDraft}
-                onChange={(event) => {
-                  setNameDraft(event.target.value);
-                  setFormError('');
-                }}
-                placeholder={suggestedName || 'Texas'}
-                maxLength={80}
-              />
-              <Input
-                label="BoxID Prefix"
-                value={prefixDraft}
-                onChange={(event) => {
-                  setPrefixDraft(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
-                  setFormError('');
-                }}
-                placeholder="CA1"
-                maxLength={8}
-              />
-            </div>
-            {formError ? <p className="error-text">{formError}</p> : null}
-            <div className="dialog-actions">
-              <Button type="button" variant="ghost" onClick={closeAddDialog}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void handleCreateWarehouse()}
-                disabled={addWarehouseMutation.isPending}
-              >
-                {addWarehouseMutation.isPending ? 'Saving...' : 'Add Warehouse'}
-              </Button>
-            </div>
-          </div>
+            X
+          </button>
         </div>
-      ) : null}
+        <div className="form-grid">
+          <Input
+            label="City"
+            value={cityDraft}
+            onChange={(event) => {
+              setCityDraft(event.target.value);
+              setFormError('');
+            }}
+            placeholder="Auburn Hills"
+            maxLength={80}
+            autoFocus
+          />
+          <Input
+            label="State"
+            value={stateDraft}
+            onChange={(event) => {
+              setStateDraft(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2));
+              setFormError('');
+            }}
+            placeholder="MI"
+            maxLength={2}
+          />
+        </div>
+        <p className="field-hint">
+          Enter the city name, for example Auburn Hills. Enter the two-letter state abbreviation,
+          for example MI. The app will create the next warehouse code automatically, such as MI1 or MI2.
+        </p>
+        {generatedWarehouse.label ? (
+          <p className="field-hint">This will create: {generatedWarehouse.label}</p>
+        ) : null}
+        {formError ? <p className="error-text">{formError}</p> : null}
+        <div className="dialog-actions">
+          <Button type="button" variant="ghost" onClick={closeAddDialog}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void handleCreateWarehouse()}
+            disabled={addWarehouseMutation.isPending}
+          >
+            {addWarehouseMutation.isPending ? 'Saving...' : 'Add Warehouse'}
+          </Button>
+        </div>
+      </DialogSurface>
     </>
   );
 }

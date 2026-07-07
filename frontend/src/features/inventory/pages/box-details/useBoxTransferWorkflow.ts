@@ -17,6 +17,7 @@ import {
 } from '../../../../lib/boxIds';
 import { formatMutationWarningDescription } from '../../../../lib/mutationWarnings';
 import { useBoxTransferPlan } from '../../hooks/useInventoryQueries';
+import { formatWarehouseDisplayLabel } from '../../utils/warehouseOptions';
 import type { TransferActionState, TransferDestinationAnalysis } from './types';
 
 type PushToast = ReturnType<typeof useToast>['push'];
@@ -104,7 +105,7 @@ export function useBoxTransferWorkflow({
 
       seenCodes.add(entry.code);
       options.push({
-        label: `${entry.code} - ${entry.name}`,
+        label: formatWarehouseDisplayLabel(entry),
         value: entry.code
       });
     }

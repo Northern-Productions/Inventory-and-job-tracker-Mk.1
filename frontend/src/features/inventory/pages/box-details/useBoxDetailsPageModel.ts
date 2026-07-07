@@ -27,6 +27,7 @@ import {
 } from '../../hooks/useInventoryQueries';
 import { useActionAccess } from '../../hooks/useActionAccess';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
+import { formatWarehouseDisplayLabel } from '../../utils/warehouseOptions';
 import {
   boxNeedsAllocationsToResolveCurrentFeet,
   createDraftFromBox,
@@ -137,7 +138,7 @@ export function useBoxDetailsPageModel() {
 
       seenCodes.add(entry.code);
       options.push({
-        label: `${entry.code} Â· ${entry.name}`,
+        label: formatWarehouseDisplayLabel(entry),
         value: entry.code
       });
     }

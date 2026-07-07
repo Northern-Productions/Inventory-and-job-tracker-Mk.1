@@ -25,6 +25,7 @@ import {
   usePendingReceiveCaulkTransferIds
 } from '../../inventory/hooks/useInventoryQueries';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
+import { formatWarehouseDisplayLabel } from '../../inventory/utils/warehouseOptions';
 import {
   normalizeWholeNumberInput,
   toFullCasesFromTubes,
@@ -114,8 +115,8 @@ export default function CaulkStockDetailsPage() {
     enabled: Boolean(stockEntry?.warehouse && stockEntry?.productId)
   });
   const tubesPerCase = stockEntry?.tubesPerCase || 16;
-  const warehouseLabel =
-    warehouseRegistry.entries.find((entry) => entry.code === warehouse)?.name || warehouse;
+  const warehouseEntry = warehouseRegistry.entries.find((entry) => entry.code === warehouse);
+  const warehouseLabel = warehouseEntry ? formatWarehouseDisplayLabel(warehouseEntry) : warehouse;
   const canEdit = auth.hasFeatureAccess('inventory', 'write');
   const canChangeOwner = auth.isOwner;
   const stockOwnerLabel = formatOwnerCompanyLabel({

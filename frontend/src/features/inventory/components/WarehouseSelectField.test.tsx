@@ -1,12 +1,17 @@
+// @vitest-environment jsdom
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { addWarehouse } from '../../../api/features/warehouseClient';
 import { WarehouseSelectField } from './WarehouseSelectField';
 
 const useAuthMock = vi.fn();
 const useWarehouseRegistryMock = vi.fn();
+const addWarehouseMock = vi.mocked(addWarehouse);
 
 vi.mock('../../auth/AuthContext', () => ({
   useAuth: () => useAuthMock()
@@ -36,12 +41,29 @@ function renderWarehouseField(props: Partial<ComponentProps<typeof WarehouseSele
   return html;
 }
 
+function renderWarehouseFieldDom(props: Partial<ComponentProps<typeof WarehouseSelectField>> = {}) {
+  const queryClient = new QueryClient();
+  const onChange = vi.fn();
+  const result = render(
+    <QueryClientProvider client={queryClient}>
+      <WarehouseSelectField
+        value=""
+        onChange={onChange}
+        {...props}
+      />
+    </QueryClientProvider>
+  );
+  return { ...result, queryClient, onChange };
+}
+
 function optionLabels(html: string) {
   return Array.from(html.matchAll(/<option[^>]*>(.*?)<\/option>/g)).map((match) => match[1]);
 }
 
 describe('WarehouseSelectField', () => {
   beforeEach(() => {
+    cleanup();
+    addWarehouseMock.mockReset();
     useWarehouseRegistryMock.mockReturnValue({
       entries: [
         { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
@@ -60,8 +82,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All Warehouses',
-      'Wauconda IL1 (IL1)',
-      'Ridgeland MS1 (MS1)',
+      'Wauconda IL1',
+      'Ridgeland MS1',
       'Add New Warehouse...'
     ]);
   });
@@ -76,8 +98,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All Warehouses',
-      'Wauconda IL1 (IL1)',
-      'Ridgeland MS1 (MS1)'
+      'Wauconda IL1',
+      'Ridgeland MS1'
     ]);
     expect(html).not.toContain('Add New Warehouse...');
   });
@@ -92,7 +114,7 @@ describe('WarehouseSelectField', () => {
       value: 'MI1'
     });
 
-    expect(optionLabels(html)).toEqual(['Auburn Hills (MI1)']);
+    expect(optionLabels(html)).toEqual(['Auburn Hills MI1']);
     expect(html).not.toContain('Wauconda IL1');
     expect(html).not.toContain('Ridgeland MS1');
   });
@@ -108,7 +130,7 @@ describe('WarehouseSelectField', () => {
       allowAll: true
     });
 
-    expect(optionLabels(html)).toEqual(['All Warehouses', 'Auburn Hills (MI1)']);
+    expect(optionLabels(html)).toEqual(['All Warehouses', 'Auburn Hills MI1']);
     expect(html).not.toContain('Wauconda IL1');
     expect(html).not.toContain('Ridgeland MS1');
   });
@@ -123,8 +145,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All Warehouses',
-      'Wauconda IL1 (IL1)',
-      'Ridgeland MS1 (MS1)'
+      'Wauconda IL1',
+      'Ridgeland MS1'
     ]);
     expect(html).not.toContain('MI1');
   });
@@ -146,6 +168,99 @@ describe('WarehouseSelectField', () => {
     expect(html).not.toContain('Ridgeland MS1');
   });
 
+  it('lets owners add warehouses with city/state instead of manual code and prefix fields', async () => {
+    useAuthMock.mockReturnValue({ isOwner: true });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: []
+    });
+    addWarehouseMock.mockResolvedValueOnce({
+      code: 'MI1',
+      name: 'Auburn Hills MI1',
+      boxIdPrefix: 'MI1'
+    });
+    const { onChange, queryClient } = renderWarehouseFieldDom();
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: '__add_warehouse__' }
+    });
+
+    expect(screen.getByRole('dialog', { name: 'Add Warehouse' })).toBeTruthy();
+    expect(screen.getByLabelText('City')).toBeTruthy();
+    expect(screen.getByLabelText('State')).toBeTruthy();
+    expect(screen.queryByLabelText('Warehouse Code')).toBeNull();
+    expect(screen.queryByLabelText('BoxID Prefix')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Auburn Hills' } });
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'mi' } });
+
+    expect((screen.getByLabelText('State') as HTMLInputElement).value).toBe('MI');
+    expect(screen.getByText('This will create: Auburn Hills MI1')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Warehouse' }));
+
+    await waitFor(() => {
+      expect(addWarehouseMock.mock.calls[0]?.[0]).toEqual({
+        code: 'MI1',
+        name: 'Auburn Hills MI1',
+        boxIdPrefix: 'MI1'
+      });
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('MI1'));
+    queryClient.clear();
+  });
+
+  it('generates the next warehouse code for existing same-state warehouses', async () => {
+    useAuthMock.mockReturnValue({ isOwner: true });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [
+        { code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' },
+        { code: 'MI2', name: 'Auburn Hills MI2', boxIdPrefix: 'MI2' }
+      ]
+    });
+    addWarehouseMock.mockResolvedValueOnce({
+      code: 'MI3',
+      name: 'Auburn Hills MI3',
+      boxIdPrefix: 'MI3'
+    });
+    const { queryClient } = renderWarehouseFieldDom();
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: '__add_warehouse__' }
+    });
+    fireEvent.change(screen.getByLabelText('City'), { target: { value: '  Auburn Hills  ' } });
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'MI' } });
+
+    expect(screen.getByText('This will create: Auburn Hills MI3')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Warehouse' }));
+
+    await waitFor(() => {
+      expect(addWarehouseMock.mock.calls[0]?.[0]).toEqual({
+        code: 'MI3',
+        name: 'Auburn Hills MI3',
+        boxIdPrefix: 'MI3'
+      });
+    });
+    queryClient.clear();
+  });
+
+  it('validates blank city and invalid state before creating a warehouse', () => {
+    useAuthMock.mockReturnValue({ isOwner: true });
+    const { queryClient } = renderWarehouseFieldDom();
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: '__add_warehouse__' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Warehouse' }));
+    expect(screen.getByText('City is required.')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Auburn Hills' } });
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'M' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Warehouse' }));
+    expect(screen.getByText('State must be a valid two-letter abbreviation, such as MI.')).toBeTruthy();
+    expect(addWarehouseMock).not.toHaveBeenCalled();
+    queryClient.clear();
+  });
+
   it('shows a safe empty warehouse state instead of injecting IL1/MS1', () => {
     useAuthMock.mockReturnValue({ isOwner: false });
     useWarehouseRegistryMock.mockReturnValue({
@@ -163,7 +278,7 @@ describe('WarehouseSelectField', () => {
   });
 
   it('keeps native select options readable in dark theme', () => {
-    const css = readFileSync(new URL('../../../styles.css', import.meta.url), 'utf8');
+    const css = readFileSync('src/styles.css', 'utf8');
 
     expect(css).toMatch(/select option\s*{/);
     expect(css).toMatch(/background-color:\s*var\(--color-surface-solid\)/);
