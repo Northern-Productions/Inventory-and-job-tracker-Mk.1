@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0182_client_pilot_explicit_warehouses.sql';
+const LATEST_MIGRATION = '0183_restore_api_list_memberships_execute_grant.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -70,6 +70,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.film_weight_samples.normalized_lbs_per_inch_foot' },
   { kind: 'column', signature: 'app.film_weight_pending_reviews.user_action_hint' },
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
+  { kind: 'function', signature: 'public.api_list_memberships()' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
   { kind: 'function', signature: 'app_api.default_owner_company_code_for_warehouse(text)' },
   { kind: 'function', signature: 'app_api.default_owner_company_id_for_warehouse(uuid, text)' },
@@ -1427,6 +1428,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
 ];
 
 const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
+  'api_list_memberships',
   'api_get_auth_context',
   'api_list_access_requests',
   'api_approve_access_request',
@@ -1719,6 +1721,16 @@ async function runSchemaCheck() {
           has_schema_privilege('authenticated', 'public', 'USAGE') as authenticated_public_schema_usage,
           has_function_privilege(
             'authenticated',
+            'public.api_list_memberships()'::regprocedure,
+            'EXECUTE'
+          ) as authenticated_list_memberships_execute,
+          has_function_privilege(
+            'anon',
+            'public.api_list_memberships()'::regprocedure,
+            'EXECUTE'
+          ) as anon_list_memberships_execute,
+          has_function_privilege(
+            'authenticated',
             'public.api_get_auth_context(uuid)'::regprocedure,
             'EXECUTE'
           ) as authenticated_auth_context_execute,
@@ -1829,6 +1841,12 @@ async function runSchemaCheck() {
     const permissionIssues = [];
     if (permissionState.authenticated_public_schema_usage !== true) {
       permissionIssues.push('- privilege mismatch: authenticated lacks USAGE on schema public');
+    }
+    if (permissionState.authenticated_list_memberships_execute !== true) {
+      permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_list_memberships()');
+    }
+    if (permissionState.anon_list_memberships_execute === true) {
+      permissionIssues.push('- privilege mismatch: anon can execute public.api_list_memberships()');
     }
     if (permissionState.authenticated_auth_context_execute !== true) {
       permissionIssues.push('- privilege mismatch: authenticated cannot execute public.api_get_auth_context(uuid)');

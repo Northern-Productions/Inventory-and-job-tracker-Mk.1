@@ -48,7 +48,7 @@ test('caulk cancel-return hotfix only adds the missing reserved-tube release act
 test('schema latest guard requires caulk cancel-return support on owner-aware stock delta helper', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0182_client_pilot_explicit_warehouses\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0183_restore_api_list_memberships_execute_grant\.sql';/);
   assert.match(
     schemaCheck,
     /app_api\.caulk_apply_stock_delta_for_owner\(uuid, text, uuid, text, uuid, text, integer, text, text, text, text\)/
