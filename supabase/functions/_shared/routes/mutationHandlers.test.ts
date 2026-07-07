@@ -198,6 +198,93 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
   );
 });
 
+Deno.test("mutation dispatchers ignore client-supplied org IDs and use the authenticated org", async () => {
+  const canonicalizationCalls: Array<Record<string, unknown>> = [];
+  const rpcCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/boxes/delete",
+    {
+      boxId: "ORG-B-BOX",
+      orgId: "org-from-payload",
+      organizationId: "org-from-payload",
+    },
+    buildDeps({
+      canonicalizeMutationPayloadForRoute: async (
+        _client: unknown,
+        orgId: string,
+        logicalPath: string,
+        payload: Record<string, unknown>,
+      ) => {
+        canonicalizationCalls.push({
+          orgId,
+          logicalPath,
+          payloadOrgId: payload.orgId,
+          payloadOrganizationId: payload.organizationId,
+        });
+        return payload;
+      },
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({
+          fn,
+          orgId,
+          actor,
+          payloadOrgId: payload.orgId,
+          payloadOrganizationId: payload.organizationId,
+          boxId: payload.boxId,
+        });
+        return {
+          boxId: payload.boxId,
+          logId: "LOG-1",
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    canonicalizationCalls,
+    [
+      {
+        orgId: "org-from-auth",
+        logicalPath: "/boxes/delete",
+        payloadOrgId: "org-from-payload",
+        payloadOrganizationId: "org-from-payload",
+      },
+    ],
+    "Expected canonicalization to receive the resolved auth org, not the payload org.",
+  );
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_boxes_delete",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payloadOrgId: "org-from-payload",
+        payloadOrganizationId: "org-from-payload",
+        boxId: "ORG-B-BOX",
+      },
+    ],
+    "Expected guarded SQL RPC call to use the resolved auth org.",
+  );
+  assertEquals(
+    response.data,
+    {
+      boxId: "ORG-B-BOX",
+      logId: "LOG-1",
+    },
+    "Expected existing box delete response shape to stay stable.",
+  );
+});
+
 Deno.test("job mutation identity rejects mismatched jobId and jobNumber", async () => {
   try {
     await resolveEdgeJobMutationTargetById(

@@ -2573,3 +2573,255 @@ Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true
     "Expected route to pass full-org boxes into the planner.",
   );
 });
+
+Deno.test("Edge read routes ignore client-supplied org IDs and use the authenticated org", async () => {
+  const orgFromAuth = "org-from-auth";
+  const orgFromParams = "org-from-params";
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  const calls: string[] = [];
+  const sourceBox = {
+    id: "source-record",
+    boxId: "ORG-B-BOX",
+    warehouse: "IL1",
+    status: "IN_STOCK",
+    feetAvailable: 100,
+    physicalFeetAvailable: 100,
+    widthIn: 36,
+  };
+
+  function record(label: string, orgId: string) {
+    calls.push(`${label}:${orgId}`);
+    if (orgId !== orgFromAuth) {
+      throw new Error(`Expected ${label} to use authenticated org ${orgFromAuth}, received ${orgId}.`);
+    }
+  }
+
+  const deps = {
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    requireString: (value: unknown, fieldName: string) => {
+      const trimmed = String(value || "").trim();
+      if (!trimmed) {
+        throw new Error(`${fieldName} is required.`);
+      }
+      return trimmed;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    normalizeDateString: (value: unknown) => String(value || "").trim(),
+    normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toLowerCase(),
+    normalizeJobNumberDigits: (value: unknown) => String(value || "").replace(/[^0-9]/g, ""),
+    normalizeJobLifecycleStatus: () => "ACTIVE",
+    parseCrossWarehouseFlag: (value: unknown) => value === true || String(value || "").toLowerCase() === "true",
+    buildActiveAllocationsByBoxIndex: () => ({}),
+    buildSearchBoxes: async (_client: unknown, orgId: string, params: Record<string, unknown>) => {
+      record("buildSearchBoxes", orgId);
+      return { entries: [{ boxId: params.q }] };
+    },
+    findBoxById: async (_client: unknown, orgId: string, boxIdValue: string) => {
+      record(`findBoxById:${boxIdValue}`, orgId);
+      return { ...sourceBox, boxId: boxIdValue };
+    },
+    listAllocationsByBox: async (_client: unknown, orgId: string, boxIdValue: string) => {
+      record(`listAllocationsByBox:${boxIdValue}`, orgId);
+      return [];
+    },
+    buildBoxFilmOrderOrigins: async (_client: unknown, orgId: string, boxIdValue: string) => {
+      record(`buildBoxFilmOrderOrigins:${boxIdValue}`, orgId);
+      return [];
+    },
+    toPublicBox: (box: Record<string, unknown>) => ({ boxId: box.boxId }),
+    toPublicAllocation: (entry: Record<string, unknown>) => entry,
+    buildJobDetailById: async (_client: unknown, orgId: string, jobIdValue: unknown) => {
+      record(`buildJobDetailById:${String(jobIdValue)}`, orgId);
+      return { jobId: jobIdValue };
+    },
+    buildJobsList: async (_client: unknown, orgId: string) => {
+      record("buildJobsList", orgId);
+      return [{ jobId: "org-a-job" }];
+    },
+    buildFilmOrdersList: async (_client: unknown, orgId: string) => {
+      record("buildFilmOrdersList", orgId);
+      return [{ filmOrderId: "org-a-film-order" }];
+    },
+    buildFilmOrderDetail: async (_client: unknown, orgId: string, filmOrderId: unknown) => {
+      record(`buildFilmOrderDetail:${String(filmOrderId)}`, orgId);
+      return { filmOrderId };
+    },
+    listFilmWeightProfiles: async (_client: unknown, orgId: string) => {
+      record("listFilmWeightProfiles", orgId);
+      return [{ profileId: "org-a-profile" }];
+    },
+    listOpenFilmWeightPendingReviews: async (_client: unknown, orgId: string) => {
+      record("listOpenFilmWeightPendingReviews", orgId);
+      return [{ reviewId: "org-a-review" }];
+    },
+    buildReportsSummary: async (_client: unknown, orgId: string, params: Record<string, unknown>) => {
+      record("buildReportsSummary", orgId);
+      return { reportType: params.reportType || "most-used-film" };
+    },
+    listAuditEntriesByBox: async (_client: unknown, orgId: string, boxIdValue: string) => {
+      record(`listAuditEntriesByBox:${boxIdValue}`, orgId);
+      return [];
+    },
+    rpcOrThrow: async (_client: unknown, fn: string, params: Record<string, unknown>) => {
+      record(`rpcOrThrow:${fn}:${String(params.p_org_id)}`, String(params.p_org_id));
+      if (fn === "api_acl_list_warehouses") {
+        return [{ code: "IL1", name: "Wauconda IL1", box_id_prefix: "IL1" }];
+      }
+      if (fn === "api_acl_owner_companies_list") {
+        return [{
+          owner_company_id: "owner-a",
+          code: "OWN",
+          display_name: "Owner A",
+          lookup_key: "owner-a",
+          is_active: true,
+        }];
+      }
+      return [];
+    },
+    resolveJobContext: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+      record(`resolveJobContext:${String(jobNumber)}`, orgId);
+      return { jobNumber: String(jobNumber || ""), installDate: "", crewLeader: "" };
+    },
+    resolveAllocationJobWarehouse: async (_client: unknown, orgId: string, jobNumber: unknown) => {
+      record(`resolveAllocationJobWarehouse:${String(jobNumber)}`, orgId);
+      return "IL1";
+    },
+    listBoxes: async (_client: unknown, orgId: string) => {
+      record("listBoxes", orgId);
+      return [sourceBox];
+    },
+    listBoxesByWarehouses: async (_client: unknown, orgId: string, warehouses: string[]) => {
+      record(`listBoxesByWarehouses:${warehouses.join(",")}`, orgId);
+      return [sourceBox];
+    },
+    listJobRequirementsByJob: async (_client: unknown, orgId: string, jobNumber: string) => {
+      record(`listJobRequirementsByJob:${jobNumber}`, orgId);
+      return [];
+    },
+    listJobRequirementsByJobId: async (_client: unknown, orgId: string, selectedJobId: string) => {
+      record(`listJobRequirementsByJobId:${selectedJobId}`, orgId);
+      return [];
+    },
+    listActiveAllocations: async (_client: unknown, orgId: string) => {
+      record("listActiveAllocations", orgId);
+      return [];
+    },
+    buildPendingTransfersByBoxRecordId: async (_client: unknown, orgId: string) => {
+      record("buildPendingTransfersByBoxRecordId", orgId);
+      return {};
+    },
+    buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown, options: any) => ({
+      jobContext,
+      allBoxIds: options.allBoxes.map((box: Record<string, unknown>) => box.boxId),
+    }),
+  } as any;
+
+  const routeCases = [
+    {
+      route: "/boxes/search",
+      params: { q: "ORG-B-BOX", orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["buildSearchBoxes:org-from-auth"],
+    },
+    {
+      route: "/boxes/get",
+      params: { boxId: "ORG-B-BOX", orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: [
+        "findBoxById:ORG-B-BOX:org-from-auth",
+        "listAllocationsByBox:ORG-B-BOX:org-from-auth",
+        "buildBoxFilmOrderOrigins:ORG-B-BOX:org-from-auth",
+      ],
+    },
+    {
+      route: "/jobs/get-by-id",
+      params: { jobId, orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: [`buildJobDetailById:${jobId}:org-from-auth`],
+    },
+    {
+      route: "/jobs/list",
+      params: { orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["buildJobsList:org-from-auth"],
+    },
+    {
+      route: "/film-orders/list",
+      params: { orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["buildFilmOrdersList:org-from-auth"],
+    },
+    {
+      route: "/film-orders/get",
+      params: { filmOrderId: "ORG-B-ORDER", orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["buildFilmOrderDetail:ORG-B-ORDER:org-from-auth"],
+    },
+    {
+      route: "/warehouses/list",
+      params: { orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["rpcOrThrow:api_acl_list_warehouses:org-from-auth:org-from-auth"],
+    },
+    {
+      route: "/owner-companies/list",
+      params: { orgId: orgFromParams, organizationId: orgFromParams, includeInactive: true },
+      expectedCalls: ["rpcOrThrow:api_acl_owner_companies_list:org-from-auth:org-from-auth"],
+    },
+    {
+      route: "/reports/summary",
+      params: { reportType: "most-used-film", orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["buildReportsSummary:org-from-auth"],
+    },
+    {
+      route: "/film-weight/profiles",
+      params: { orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["listFilmWeightProfiles:org-from-auth"],
+    },
+    {
+      route: "/film-weight/pending-reviews",
+      params: { orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["listOpenFilmWeightPendingReviews:org-from-auth"],
+    },
+    {
+      route: "/audit/by-box",
+      params: { boxId: "ORG-B-BOX", orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: ["listAuditEntriesByBox:ORG-B-BOX:org-from-auth"],
+    },
+    {
+      route: "/allocations/by-box",
+      params: { boxId: "ORG-B-BOX", orgId: orgFromParams, organizationId: orgFromParams },
+      expectedCalls: [
+        "listAllocationsByBox:ORG-B-BOX:org-from-auth",
+        "findBoxById:ORG-B-BOX:org-from-auth",
+      ],
+    },
+    {
+      route: "/allocations/preview",
+      params: {
+        boxId: "ORG-B-BOX",
+        jobNumber: "81234",
+        requestedFeet: 10,
+        orgId: orgFromParams,
+        organizationId: orgFromParams,
+      },
+      expectedCalls: [
+        "findBoxById:ORG-B-BOX:org-from-auth",
+        "resolveJobContext:81234:org-from-auth",
+        "resolveAllocationJobWarehouse:81234:org-from-auth",
+        "listBoxesByWarehouses:IL1:org-from-auth",
+        "listActiveAllocations:org-from-auth",
+        "buildPendingTransfersByBoxRecordId:org-from-auth",
+      ],
+    },
+  ];
+
+  for (const routeCase of routeCases) {
+    calls.length = 0;
+    await dispatchReadWithHandlers(
+      {},
+      orgFromAuth,
+      routeCase.route,
+      routeCase.params,
+      { orgId: orgFromAuth, actor: "tester", role: "owner" } as any,
+      deps,
+    );
+    assertEquals(calls, routeCase.expectedCalls, `Expected ${routeCase.route} to use only the auth-derived org.`);
+  }
+});

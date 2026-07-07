@@ -51,6 +51,68 @@ describe('getClientOfflineInventoryScope', () => {
     });
   });
 
+  it('recomputes scope from the current user and current approved org', () => {
+    getStoredAuthSessionMock.mockReturnValue({
+      token: 'token',
+      user: {
+        email: 'user-a@example.com',
+        hasProfileName: true,
+        name: 'User A',
+        sub: 'user-a'
+      },
+      issuedAt: 0,
+      expiresAt: Date.now() + 60_000
+    });
+    setClientAccessContext({
+      orgId: 'org-a',
+      accessStatus: 'approved',
+      role: 'owner',
+      permissions: createDefaultFeatureAccessMap(),
+      isAdminConsoleAllowed: true,
+      pendingCount: 0,
+      receivesInAppNotifications: true,
+      defaultWarehouse: ''
+    });
+
+    expect(getClientOfflineInventoryScope()).toEqual({
+      userId: 'user-a',
+      orgId: 'org-a'
+    });
+
+    setClientAccessContext({
+      orgId: 'org-b',
+      accessStatus: 'approved',
+      role: 'owner',
+      permissions: createDefaultFeatureAccessMap(),
+      isAdminConsoleAllowed: true,
+      pendingCount: 0,
+      receivesInAppNotifications: true,
+      defaultWarehouse: ''
+    });
+
+    expect(getClientOfflineInventoryScope()).toEqual({
+      userId: 'user-a',
+      orgId: 'org-b'
+    });
+
+    getStoredAuthSessionMock.mockReturnValue({
+      token: 'token',
+      user: {
+        email: 'user-b@example.com',
+        hasProfileName: true,
+        name: 'User B',
+        sub: 'user-b'
+      },
+      issuedAt: 0,
+      expiresAt: Date.now() + 60_000
+    });
+
+    expect(getClientOfflineInventoryScope()).toEqual({
+      userId: 'user-b',
+      orgId: 'org-b'
+    });
+  });
+
   it('fails closed when user, org, or approval state is missing', () => {
     getStoredAuthSessionMock.mockReturnValue(null);
     setClientAccessContext({
