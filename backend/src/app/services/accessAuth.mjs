@@ -448,10 +448,30 @@ async function resolveAuthContext(headers, bodyJson) {
   }
 
   return withReadClient(async (client) => {
+    await client.query(
+      `
+        update app.organization_members m
+        set
+          status = 'active',
+          updated_at = now(),
+          updated_by_actor = 'accepted invite',
+          disabled_at = null,
+          disabled_by_user_id = null
+        from auth.users u
+        where m.user_id = $1::uuid
+          and u.id = m.user_id
+          and m.status = 'invited'
+          and (
+            u.email_confirmed_at is not null
+            or u.confirmed_at is not null
+          )
+      `,
+      [identity.userId]
+    );
     const memberships = await queryRows(
       client,
       `
-        select org_id, role, created_at
+        select org_id, role, status, created_at
         from app.organization_members
         where user_id = $1
         order by created_at asc, org_id asc
@@ -485,7 +505,9 @@ async function resolveAuthContext(headers, bodyJson) {
     }
 
     const orgId = decision.orgId;
-    const membership = memberships.find((entry) => entry.org_id === orgId) || null;
+    const membership = memberships.find(
+      (entry) => entry.org_id === orgId && asTrimmedString(entry.status).toLowerCase() === 'active'
+    ) || null;
     await ensureGeneralFeaturePermissions(client, orgId, actor);
 
     if (!membership) {

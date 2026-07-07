@@ -71,6 +71,12 @@ import {
   updateUserFeaturePermissionsInternal,
   updateUserDefaultWarehouse,
 } from '../services/access.mjs';
+import {
+  changeTeamUserRole,
+  disableTeamUser,
+  inviteTeamUser,
+  reenableTeamUser,
+} from '../services/teamUsers.mjs';
 import { addWarehouse } from '../services/warehouses.mjs';
 import { withMutation } from '../../db/client.mjs';
 import {
@@ -119,6 +125,14 @@ const mutationHandlers = {
         params
       )
     ),
+  '/owner/team/invite': async ({ client, orgId, authContext, params }) =>
+    ok(await inviteTeamUser(client, orgId, authContext.actor, params)),
+  '/owner/team/change-role': async ({ client, orgId, authContext, params }) =>
+    ok(await changeTeamUserRole(client, orgId, authContext.actor, params)),
+  '/owner/team/disable': async ({ client, orgId, authContext, params }) =>
+    ok(await disableTeamUser(client, orgId, authContext.actor, params)),
+  '/owner/team/reenable': async ({ client, orgId, authContext, params }) =>
+    ok(await reenableTeamUser(client, orgId, authContext.actor, params)),
   '/owner/warehouses/add': async ({ client, orgId, authContext, params }) =>
     ok(await addWarehouse(client, orgId, authContext.actor, params)),
   '/owner/owner-companies/upsert': async ({ client, orgId, authContext, params }) =>

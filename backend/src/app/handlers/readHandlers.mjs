@@ -62,6 +62,7 @@ import {
   listAdminFeaturePermissions,
   listUsernameChangeRequests,
 } from '../services/access.mjs';
+import { listTeamUsers } from '../services/teamUsers.mjs';
 import { withReadClient } from '../../db/client.mjs';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -228,6 +229,7 @@ const readHandlers = {
     ok({ entries: await listAdminFeaturePermissions(client, orgId) }),
   '/owner/notification-preferences': async ({ client, orgId, authContext }) =>
     ok(await getOwnerNotificationPreferencesInternal(client, orgId, authContext.userId)),
+  '/owner/team/users': async ({ client, orgId }) => ok({ entries: await listTeamUsers(client, orgId) }),
   '/warehouses/list': async ({ client, orgId, authContext }) =>
     ok({ entries: await listWarehouses(client, orgId, authContext) }),
   '/owner-companies/list': async ({ client, orgId, params }) =>

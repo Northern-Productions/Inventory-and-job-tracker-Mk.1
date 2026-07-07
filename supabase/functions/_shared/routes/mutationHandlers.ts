@@ -42,6 +42,12 @@ export type MutationHandlerDeps = {
     actor: string,
     payload: Record<string, unknown>,
   ) => Promise<any>;
+  inviteTeamUser: (
+    client: any,
+    orgId: string,
+    actor: string,
+    payload: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
   findPendingBoxTransferByDestinationBoxId: (
     client: any,
     orgId: string,
@@ -437,6 +443,22 @@ const mutationHandlers: Record<string, MutationHandler> = {
       actor,
       normalizedPayload,
     );
+    return ok(result);
+  },
+  "/owner/team/invite": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.inviteTeamUser(client, orgId, actor, normalizedPayload);
+    return ok(result);
+  },
+  "/owner/team/change-role": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_change_team_user_role", orgId, actor, normalizedPayload);
+    return ok(result);
+  },
+  "/owner/team/disable": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_disable_team_user", orgId, actor, normalizedPayload);
+    return ok(result);
+  },
+  "/owner/team/reenable": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_reenable_team_user", orgId, actor, normalizedPayload);
     return ok(result);
   },
   "/owner/owner-companies/upsert": async ({ client, orgId, actor, normalizedPayload }, deps) => {

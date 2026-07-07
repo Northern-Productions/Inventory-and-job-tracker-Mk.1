@@ -5,6 +5,7 @@ import type {
   FeatureAccessMap,
   OwnerNotificationPreferences,
   Role,
+  TeamUserEntry,
   UsernameChangeRequestEntry
 } from '../../domain';
 import { request } from '../http';
@@ -13,6 +14,7 @@ import {
   mapAccessRequestEntry,
   mapAdminPermissionEntry,
   mapFeaturePermissions,
+  mapTeamUserEntry,
   mapUsernameChangeRequestEntry,
   requestReadWithFallback
 } from './sharedClient';
@@ -227,4 +229,62 @@ export async function updateOwnerNotificationPreferences(payload: {
     inAppOptIn: data.inAppOptIn === true || String(data.inAppOptIn).toLowerCase() === 'true',
     emailOptIn: data.emailOptIn === true || String(data.emailOptIn).toLowerCase() === 'true'
   };
+}
+
+export async function listTeamUsers(): Promise<TeamUserEntry[]> {
+  const data = await requestReadWithFallback<{ entries: unknown[] }>('/owner/team/users', {}, {});
+  if (!Array.isArray(data.entries)) {
+    return [];
+  }
+
+  return data.entries
+    .map((entry) => mapTeamUserEntry(entry))
+    .filter((entry): entry is TeamUserEntry => Boolean(entry));
+}
+
+export async function inviteTeamUser(payload: {
+  email: string;
+  name: string;
+  role: Exclude<Role, ''>;
+}): Promise<TeamUserEntry> {
+  const { data } = await request<unknown>('POST', '/owner/team/invite', { body: payload });
+  const entry = mapTeamUserEntry(data);
+  if (!entry) {
+    throw new Error('Team invite response was not readable.');
+  }
+  return entry;
+}
+
+export async function changeTeamUserRole(payload: {
+  userId: string;
+  role: Exclude<Role, ''>;
+}): Promise<TeamUserEntry> {
+  const { data } = await request<unknown>('POST', '/owner/team/change-role', { body: payload });
+  const entry = mapTeamUserEntry(data);
+  if (!entry) {
+    throw new Error('Team role response was not readable.');
+  }
+  return entry;
+}
+
+export async function disableTeamUser(payload: {
+  userId: string;
+}): Promise<TeamUserEntry> {
+  const { data } = await request<unknown>('POST', '/owner/team/disable', { body: payload });
+  const entry = mapTeamUserEntry(data);
+  if (!entry) {
+    throw new Error('Team disable response was not readable.');
+  }
+  return entry;
+}
+
+export async function reenableTeamUser(payload: {
+  userId: string;
+}): Promise<TeamUserEntry> {
+  const { data } = await request<unknown>('POST', '/owner/team/reenable', { body: payload });
+  const entry = mapTeamUserEntry(data);
+  if (!entry) {
+    throw new Error('Team re-enable response was not readable.');
+  }
+  return entry;
 }

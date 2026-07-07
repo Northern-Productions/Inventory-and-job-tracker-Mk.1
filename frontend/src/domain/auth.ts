@@ -64,6 +64,20 @@ export interface OwnerNotificationPreferences {
   emailOptIn: boolean;
 }
 
+export type TeamUserStatus = 'active' | 'invited' | 'disabled';
+
+export interface TeamUserEntry {
+  userId: string;
+  name: string;
+  email: string;
+  role: Exclude<Role, ''>;
+  status: TeamUserStatus;
+  createdAt: string;
+  invitedAt: string;
+  disabledAt: string;
+  updatedAt: string;
+}
+
 export interface AdminPermissionEntry {
   userId: string;
   name: string;

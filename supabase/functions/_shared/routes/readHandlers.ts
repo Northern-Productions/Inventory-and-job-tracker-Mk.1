@@ -544,6 +544,12 @@ const readHandlers: Record<string, ReadHandler> = {
     });
     return ok(preferences);
   },
+  "/owner/team/users": async ({ client, orgId }, deps) => {
+    const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_list_team_users", {
+      p_org_id: orgId,
+    });
+    return ok({ entries: Array.isArray(entriesRaw) ? entriesRaw : [] });
+  },
   "/owner-companies/list": async ({ client, orgId, params }, deps) => {
     const entriesRaw = await deps.rpcOrThrow<any[]>(client, "api_acl_owner_companies_list", {
       p_org_id: orgId,

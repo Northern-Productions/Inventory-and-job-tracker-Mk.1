@@ -17,9 +17,14 @@ function normalizeMembership(entry) {
   if (!orgId) {
     return null;
   }
+  const status = trim(entry?.status).toLowerCase() || 'active';
+  if (status !== 'active') {
+    return null;
+  }
   return {
     orgId,
     role: trim(entry?.role).toLowerCase(),
+    status,
     createdAt: trim(entry?.createdAt || entry?.created_at),
   };
 }

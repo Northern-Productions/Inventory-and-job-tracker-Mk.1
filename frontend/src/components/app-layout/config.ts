@@ -123,6 +123,14 @@ export const navItems: NavItem[] = [
     adminConsoleOnly: true
   },
   {
+    to: '/owner/team',
+    desktopLabel: 'Team / Users',
+    mobileLabel: 'Team / Users',
+    desktopPlacement: 'more',
+    mobilePlacement: 'more',
+    ownerOnly: true
+  },
+  {
     to: '/owner/companies',
     desktopLabel: 'Owner Companies',
     mobileLabel: 'Owner Companies',

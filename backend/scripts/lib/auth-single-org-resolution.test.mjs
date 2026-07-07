@@ -45,6 +45,25 @@ test('auth org resolver uses a single approved membership when no default is con
   assert.equal(decision.orgId, CLIENT_ORG);
 });
 
+test('auth org resolver ignores invited and disabled memberships for app access', () => {
+  const invitedOnly = resolvePilotOrgAccess({
+    memberships: [{ org_id: CLIENT_ORG, role: 'member', status: 'invited' }],
+  });
+  assert.equal(invitedOnly.kind, 'no_access');
+  assert.equal(invitedOnly.orgId, '');
+
+  const disabledWithDefault = resolvePilotOrgAccess({
+    defaultOrgId: DEFAULT_ORG,
+    memberships: [
+      { org_id: DEFAULT_ORG, role: 'owner', status: 'disabled' },
+      { org_id: CLIENT_ORG, role: 'member', status: 'active' },
+    ],
+  });
+  assert.equal(disabledWithDefault.kind, 'approved');
+  assert.equal(disabledWithDefault.orgId, CLIENT_ORG);
+  assert.equal(disabledWithDefault.reason, 'single-approved-membership');
+});
+
 test('auth org resolver fails closed for multiple approved memberships', () => {
   const decision = resolvePilotOrgAccess({
     defaultOrgId: DEFAULT_ORG,

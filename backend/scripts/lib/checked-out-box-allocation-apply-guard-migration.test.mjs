@@ -35,7 +35,7 @@ test('checked-out allocation apply guard allows checked-out sources and candidat
 test('schema latest checks checked-out allocation apply guard semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0183_restore_api_list_memberships_execute_grant\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0186_team_user_rpc_execute_grants\.sql';/);
   assert.match(schemaLatest, /Only in-stock, checked-out, ordered, or transfer boxes can be allocated\./);
   assert.match(schemaLatest, /not in \('IN_STOCK', 'ORDERED', 'TRANSFER', 'CHECKED_OUT'\)/);
   assert.match(schemaLatest, /in \('IN_STOCK', 'ORDERED', 'TRANSFER', 'CHECKED_OUT'\)/);

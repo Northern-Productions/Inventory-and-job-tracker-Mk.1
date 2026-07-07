@@ -119,7 +119,12 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/admin/username-requests/deny': 'access_management',
   '/admin/member-permissions': 'access_management',
   '/admin/user-permissions': 'access_management',
-  '/admin/roles/promote-member-to-admin': 'access_management'
+  '/admin/roles/promote-member-to-admin': 'access_management',
+  '/owner/team/users': 'access_management',
+  '/owner/team/invite': 'access_management',
+  '/owner/team/change-role': 'access_management',
+  '/owner/team/disable': 'access_management',
+  '/owner/team/reenable': 'access_management'
 });
 
 export const READ_PATHS = Object.freeze([
@@ -163,7 +168,8 @@ export const READ_PATHS = Object.freeze([
   '/admin/member-permissions',
   '/admin/user-permissions',
   '/owner/admin-permissions',
-  '/owner/notification-preferences'
+  '/owner/notification-preferences',
+  '/owner/team/users'
 ]);
 
 export const OWNER_ONLY_ROUTES = Object.freeze([
@@ -171,6 +177,11 @@ export const OWNER_ONLY_ROUTES = Object.freeze([
   '/owner/roles/demote-admin-to-member',
   '/owner/roles/promote-admin-to-owner',
   '/owner/notification-preferences',
+  '/owner/team/users',
+  '/owner/team/invite',
+  '/owner/team/change-role',
+  '/owner/team/disable',
+  '/owner/team/reenable',
   '/owner/reports/asset-total-cost',
   '/owner/warehouses/add',
   '/owner/owner-companies/upsert',

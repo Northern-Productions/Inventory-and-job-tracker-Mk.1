@@ -47,6 +47,9 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     callMutationRpc: async () => {
       throw new Error("Unexpected RPC call.");
     },
+    inviteTeamUser: async () => {
+      throw new Error("Unexpected inviteTeamUser call.");
+    },
     findPendingBoxTransferByDestinationBoxId: async () => null,
     findBoxById: async () => null,
     listAllocationsByBox: async () => [],
@@ -83,6 +86,119 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
 
   return deps as any;
 }
+
+Deno.test("/owner/team/invite delegates to server-side invite helper with auth-derived org", async () => {
+  const inviteCalls: Array<Record<string, unknown>> = [];
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "Owner User <owner@example.com>", role: "owner" } as any,
+    "/owner/team/invite",
+    {
+      email: "Invited.User@Example.com",
+      name: "Invited User",
+      role: "member",
+      orgId: "client-org-ignored",
+    },
+    buildDeps({
+      inviteTeamUser: async (
+        _client: unknown,
+        orgId: string,
+        actor: string,
+        payload: Record<string, unknown>,
+      ) => {
+        inviteCalls.push({ orgId, actor, payload });
+        return {
+          userId: "invited-user-1",
+          email: "invited.user@example.com",
+          role: "member",
+          status: "invited",
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    inviteCalls,
+    [
+      {
+        orgId: "org-from-auth",
+        actor: "Owner User <owner@example.com>",
+        payload: {
+          email: "Invited.User@Example.com",
+          name: "Invited User",
+          role: "member",
+          orgId: "client-org-ignored",
+        },
+      },
+    ],
+    "Expected owner team invite to use the authenticated org and server-side invite helper.",
+  );
+  assertEquals(
+    response.data,
+    {
+      userId: "invited-user-1",
+      email: "invited.user@example.com",
+      role: "member",
+      status: "invited",
+    },
+    "Expected invite helper response to be returned unchanged.",
+  );
+});
+
+Deno.test("/owner/team role and status mutations use team RPCs with auth-derived org", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+
+  for (const route of [
+    { path: "/owner/team/change-role", fn: "api_change_team_user_role", payload: { userId: "user-1", role: "admin" } },
+    { path: "/owner/team/disable", fn: "api_disable_team_user", payload: { userId: "user-1" } },
+    { path: "/owner/team/reenable", fn: "api_reenable_team_user", payload: { userId: "user-1" } },
+  ]) {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "owner", role: "owner" } as any,
+      route.path,
+      { ...route.payload, orgId: "client-org-ignored" },
+      buildDeps({
+        callMutationRpc: async (
+          _client: unknown,
+          fn: string,
+          orgId: string,
+          actor: string,
+          payload: Record<string, unknown>,
+        ) => {
+          rpcCalls.push({ fn, orgId, actor, payload });
+          return { userId: payload.userId, role: payload.role || "member", status: "active" };
+        },
+      }),
+    );
+  }
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_change_team_user_role",
+        orgId: "org-from-auth",
+        actor: "owner",
+        payload: { userId: "user-1", role: "admin", orgId: "client-org-ignored" },
+      },
+      {
+        fn: "api_disable_team_user",
+        orgId: "org-from-auth",
+        actor: "owner",
+        payload: { userId: "user-1", orgId: "client-org-ignored" },
+      },
+      {
+        fn: "api_reenable_team_user",
+        orgId: "org-from-auth",
+        actor: "owner",
+        payload: { userId: "user-1", orgId: "client-org-ignored" },
+      },
+    ],
+    "Expected owner team mutations to use authenticated org and dedicated team RPCs.",
+  );
+});
 
 Deno.test("job mutation identity resolves jobId using auth-derived org and validates jobNumber", async () => {
   const findJobCalls: Array<Record<string, unknown>> = [];

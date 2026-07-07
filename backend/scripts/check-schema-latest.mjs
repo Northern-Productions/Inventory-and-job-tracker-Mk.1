@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0183_restore_api_list_memberships_execute_grant.sql';
+const LATEST_MIGRATION = '0186_team_user_rpc_execute_grants.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -24,6 +24,14 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.user_preferences' },
   { kind: 'table', signature: 'app.owner_companies' },
   { kind: 'table', signature: 'app.inventory_ownership_events' },
+  { kind: 'table', signature: 'app.team_user_audit_log' },
+  { kind: 'column', signature: 'app.organization_members.status' },
+  { kind: 'column', signature: 'app.organization_members.invited_at' },
+  { kind: 'column', signature: 'app.organization_members.invited_by_user_id' },
+  { kind: 'column', signature: 'app.organization_members.disabled_at' },
+  { kind: 'column', signature: 'app.organization_members.disabled_by_user_id' },
+  { kind: 'column', signature: 'app.organization_members.updated_at' },
+  { kind: 'column', signature: 'app.organization_members.updated_by_actor' },
   { kind: 'column', signature: 'app.user_preferences.default_warehouse' },
   { kind: 'column', signature: 'app.boxes.owner_company_id' },
   { kind: 'column', signature: 'app.caulk_stock.owner_company_id' },
@@ -72,6 +80,13 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_list_memberships()' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
+  { kind: 'function', signature: 'public.api_list_team_users(uuid)' },
+  { kind: 'function', signature: 'public.api_prepare_team_invite(uuid, jsonb)' },
+  { kind: 'function', signature: 'public.api_record_team_invite(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_change_team_user_role(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_disable_team_user(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_reenable_team_user(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.activate_confirmed_invite_membership(uuid)' },
   { kind: 'function', signature: 'app_api.default_owner_company_code_for_warehouse(text)' },
   { kind: 'function', signature: 'app_api.default_owner_company_id_for_warehouse(uuid, text)' },
   { kind: 'function', signature: 'app_api.require_owner_company(uuid, uuid, boolean)' },
@@ -1447,6 +1462,12 @@ const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
   'api_demote_admin_to_member',
   'api_promote_admin_to_owner',
   'api_update_user_default_warehouse',
+  'api_list_team_users',
+  'api_prepare_team_invite',
+  'api_record_team_invite',
+  'api_change_team_user_role',
+  'api_disable_team_user',
+  'api_reenable_team_user',
 ];
 
 const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
@@ -1468,6 +1489,12 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_demote_admin_to_member(uuid, text, jsonb)',
   'public.api_promote_admin_to_owner(uuid, text, jsonb)',
   'public.api_update_user_default_warehouse(uuid, text, jsonb)',
+  'public.api_list_team_users(uuid)',
+  'public.api_prepare_team_invite(uuid, jsonb)',
+  'public.api_record_team_invite(uuid, text, jsonb)',
+  'public.api_change_team_user_role(uuid, text, jsonb)',
+  'public.api_disable_team_user(uuid, text, jsonb)',
+  'public.api_reenable_team_user(uuid, text, jsonb)',
   'public.api_acl_list_film_orders(uuid, text)',
   'public.api_acl_list_jobs(uuid, text)',
   'public.api_acl_owner_companies_list(uuid, boolean)',

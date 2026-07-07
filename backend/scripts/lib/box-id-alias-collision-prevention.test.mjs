@@ -72,7 +72,7 @@ test('Add Box uses the backend safe suggestion before falling back to visible bo
   const boxDrafts = await readRepoFile('../frontend/src/features/inventory/utils/box/boxDrafts.ts');
   const crud = await readRepoFile('src/app/services/runtime/boxes/crud.mjs');
 
-  assert.match(addBoxPage, /useSuggestedNextBoxId\(warehouse/);
+  assert.match(addBoxPage, /useSuggestedNextBoxId\(safeWarehouse/);
   assert.match(addBoxPage, /suggestedBoxIdIsAlreadyKnown/);
   assert.match(addBoxPage, /suggestedBoxId && !suggestedBoxIdIsAlreadyKnown/);
   assert.doesNotMatch(boxDrafts, /ACTIVE_CANONICAL_BOX_STATUSES/);

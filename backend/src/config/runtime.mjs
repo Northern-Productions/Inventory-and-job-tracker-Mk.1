@@ -8,6 +8,9 @@ import {
 
 export const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/g, '');
 export const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
+export const SUPABASE_SERVICE_ROLE_KEY = String(
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || ''
+).trim();
 export const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 export const DEFAULT_ORG_ID = String(process.env.DEFAULT_ORG_ID || '').trim();
 export const API_BUILD_SHA = String(process.env.API_BUILD_SHA || '').trim();

@@ -10153,6 +10153,86 @@ async function callMutationRpc(client: any, fn: string, orgId: string, actor: st
   });
 }
 
+function normalizeTeamRole(value: unknown): "owner" | "admin" | "member" {
+  const role = asTrimmedString(value).toLowerCase();
+  if (role === "owner" || role === "admin" || role === "member") {
+    return role;
+  }
+  throw new HttpError(400, "A valid role is required.");
+}
+
+async function inviteTeamUser(
+  client: any,
+  orgId: string,
+  actor: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const email = asTrimmedString(payload.email).toLowerCase();
+  const name = asTrimmedString(payload.name);
+  const role = normalizeTeamRole(payload.role || "member");
+  const prepared = await rpcOrThrow<Record<string, unknown>>(client, "api_prepare_team_invite", {
+    p_org_id: orgId,
+    p_payload: { email, name, role },
+  });
+
+  const action = asTrimmedString(prepared.action);
+  if (action === "already-member" || action === "already-invited") {
+    return prepared;
+  }
+  if (action === "current-disabled") {
+    throw new HttpError(409, "This user is disabled in this organization. Re-enable them instead of inviting again.");
+  }
+  if (action === "existing-user-unsupported") {
+    throw new HttpError(
+      409,
+      "This email already has a login. Attaching existing users without a fresh invite is not enabled yet.",
+    );
+  }
+  if (action !== "invite-new-user") {
+    throw new HttpError(400, "The invite could not be prepared safely.");
+  }
+
+  const serviceClient = createServiceRoleClient();
+  if (!serviceClient) {
+    throw new HttpError(500, "Supabase admin invite is not configured.");
+  }
+
+  const { data, error } = await serviceClient.auth.admin.inviteUserByEmail(email, {
+    data: {
+      name,
+      full_name: name,
+    },
+  });
+  if (error) {
+    throw new HttpError(Number(error.status) || 502, asTrimmedString(error.message) || "Supabase invite could not be sent.");
+  }
+
+  const invitedUser = data?.user || null;
+  const userId = asTrimmedString(invitedUser?.id);
+  if (!userId) {
+    throw new HttpError(502, "Supabase invite did not return a user identifier.");
+  }
+
+  try {
+    return await callMutationRpc(client, "api_record_team_invite", orgId, actor, {
+      userId,
+      email: asTrimmedString(invitedUser?.email).toLowerCase() || email,
+      name,
+      role,
+    });
+  } catch (err) {
+    if (err instanceof HttpError) {
+      throw new HttpError(
+        err.statusCode,
+        `${err.message} Supabase invite may have been sent, but app membership was not recorded. Retry the invite or inspect the target email in Auth before re-sending.`,
+        err.warnings,
+        err.details,
+      );
+    }
+    throw err;
+  }
+}
+
 async function reconcileAutoPlannedAllocations(
   client: any,
   orgId: string,
@@ -10261,6 +10341,7 @@ async function dispatchMutation(
     normalizeCaulkCaseMath,
     canonicalizeMutationPayloadForRoute,
     callMutationRpc,
+    inviteTeamUser,
     findPendingBoxTransferByDestinationBoxId,
     findBoxById,
     listAllocationsByBox,

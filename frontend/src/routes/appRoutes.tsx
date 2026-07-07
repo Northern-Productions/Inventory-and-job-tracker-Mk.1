@@ -23,6 +23,7 @@ const CheckoutHistoryPage = lazy(
 const LabelMakerPage = lazy(() => import('../features/inventory/pages/LabelMakerPage'));
 const CaulkStockDetailsPage = lazy(() => import('../features/caulk/pages/CaulkStockDetailsPage'));
 const AdminAccessPage = lazy(() => import('../features/access/pages/AdminAccessPage'));
+const TeamUsersPage = lazy(() => import('../features/access/pages/TeamUsersPage'));
 const OwnerNotificationPreferencesPage = lazy(
   () => import('../features/access/pages/OwnerNotificationPreferencesPage')
 );
@@ -129,6 +130,14 @@ export const appRoutes: RouteObject[] = [
       {
         path: '/owner/admin-permissions',
         element: <Navigate to="/admin/access" replace />
+      },
+      {
+        path: '/owner/team',
+        element: withSuspense(
+          <AccessRoute requireOwner>
+            <TeamUsersPage />
+          </AccessRoute>
+        )
       },
       {
         path: '/owner/companies',

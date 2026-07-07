@@ -158,17 +158,26 @@ Deno.test("Edge ACL denies admins missing required access management permission"
 
 Deno.test("Edge ACL denies non-owner access to owner-only routes", () => {
   for (const role of ["member", "admin"] as const) {
-    assertDenied(
-      "GET",
-      "/owner/reports/asset-total-cost",
-      identity({
-        role,
-        permissions: permissions({ reports: { read: true, write: true } }),
-      }),
-      403,
-      "Owner access is required.",
-      `${role} users must not reach owner-only routes.`,
-    );
+    for (const route of [
+      { method: "GET", path: "/owner/reports/asset-total-cost", feature: "reports" },
+      { method: "GET", path: "/owner/team/users", feature: "access_management" },
+      { method: "POST", path: "/owner/team/invite", feature: "access_management" },
+      { method: "POST", path: "/owner/team/change-role", feature: "access_management" },
+      { method: "POST", path: "/owner/team/disable", feature: "access_management" },
+      { method: "POST", path: "/owner/team/reenable", feature: "access_management" },
+    ] as const) {
+      assertDenied(
+        route.method,
+        route.path,
+        identity({
+          role,
+          permissions: permissions({ [route.feature]: { read: true, write: true } }),
+        }),
+        403,
+        "Owner access is required.",
+        `${role} users must not reach owner-only route ${route.path}.`,
+      );
+    }
   }
 });
 

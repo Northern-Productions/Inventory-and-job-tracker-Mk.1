@@ -6,6 +6,10 @@ export const LOCAL_FALLBACK_MUTATION_PATHS = new Set([
   "/admin/user-permissions",
   "/owner/admin-permissions",
   "/owner/notification-preferences",
+  "/owner/team/invite",
+  "/owner/team/change-role",
+  "/owner/team/disable",
+  "/owner/team/reenable",
   "/owner/warehouses/add",
   "/owner/owner-companies/upsert",
   "/owner/owner-companies/deactivate",
@@ -91,6 +95,7 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   "/admin/access/requests",
   "/admin/feature-permissions",
   "/admin/username-requests",
+  "/owner/team/users",
 ]);
 
 export function shouldUseLocalFallbackRoute(method, logicalPath) {

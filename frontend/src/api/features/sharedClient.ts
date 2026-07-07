@@ -16,6 +16,8 @@ import type {
   OwnerCompanyEntry,
   OwnershipEventEntry,
   Role,
+  TeamUserEntry,
+  TeamUserStatus,
   UsernameChangeRequestEntry,
   Warehouse,
   WarehouseEntry
@@ -162,6 +164,39 @@ export function mapUsernameChangeRequestEntry(value: unknown): UsernameChangeReq
     decidedByActor: String(source.decidedByActor || '').trim(),
     decisionNote: String(source.decisionNote || '').trim(),
     currentRole: ensureRole(source.currentRole)
+  };
+}
+
+function ensureTeamUserStatus(value: unknown): TeamUserStatus {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'invited' || normalized === 'disabled') {
+    return normalized;
+  }
+  return 'active';
+}
+
+export function mapTeamUserEntry(value: unknown): TeamUserEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const userId = String(source.userId || '').trim();
+  const role = ensureRole(source.role);
+  if (!userId || (role !== 'owner' && role !== 'admin' && role !== 'member')) {
+    return null;
+  }
+
+  return {
+    userId,
+    name: String(source.name || '').trim(),
+    email: String(source.email || '').trim(),
+    role,
+    status: ensureTeamUserStatus(source.status),
+    createdAt: String(source.createdAt || '').trim(),
+    invitedAt: String(source.invitedAt || '').trim(),
+    disabledAt: String(source.disabledAt || '').trim(),
+    updatedAt: String(source.updatedAt || '').trim()
   };
 }
 
