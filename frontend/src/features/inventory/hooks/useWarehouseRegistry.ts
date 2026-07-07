@@ -1,17 +1,9 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listWarehouses } from '../../../api/features/warehouseClient';
-import { WAREHOUSE_CODES, WAREHOUSE_LABELS, type WarehouseEntry } from '../../../domain';
+import type { WarehouseEntry } from '../../../domain';
 
 export const warehouseRegistryQueryKey = ['warehouses'] as const;
-
-function defaultEntries(): WarehouseEntry[] {
-  return WAREHOUSE_CODES.map((code) => ({
-    code,
-    name: WAREHOUSE_LABELS[code] || code,
-    boxIdPrefix: code
-  }));
-}
 
 function normalizeEntry(entry: WarehouseEntry): WarehouseEntry {
   return {
@@ -53,7 +45,6 @@ function mergeEntries(remote: WarehouseEntry[] | undefined): WarehouseEntry[] {
     });
   };
 
-  defaultEntries().forEach(addEntry);
   (remote || []).forEach(addEntry);
 
   return Array.from(byCode.values()).sort((left, right) => {
@@ -81,5 +72,5 @@ export function useWarehouseRegistry() {
 }
 
 export function getDefaultWarehouseEntries(): WarehouseEntry[] {
-  return defaultEntries();
+  return [];
 }

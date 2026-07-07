@@ -1,7 +1,7 @@
 ﻿// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ComponentProps, ReactElement } from 'react';
 import { JobEditorDialog } from './JobEditorDialog';
 
@@ -18,7 +18,15 @@ vi.mock('../../../api/features/warehouseClient', () => ({
   listWarehouses: vi.fn(async () => [])
 }));
 
-function createQueryClient() {
+function createQueryClient(
+  warehouses = [
+    {
+      code: 'IL1',
+      name: 'Wauconda IL1',
+      boxIdPrefix: 'IL1'
+    }
+  ]
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -28,13 +36,7 @@ function createQueryClient() {
     }
   });
 
-  queryClient.setQueryData(['warehouses'], [
-    {
-      code: 'IL1',
-      name: 'Wauconda IL1',
-      boxIdPrefix: 'IL1'
-    }
-  ]);
+  queryClient.setQueryData(['warehouses'], warehouses);
 
   return queryClient;
 }
@@ -97,6 +99,34 @@ afterEach(() => {
   cleanup();
 });
 describe('JobEditorDialog', () => {
+  it('renders job warehouse choices from the current org registry without injecting internal defaults', () => {
+    const queryClient = createQueryClient([
+      {
+        code: 'MI1',
+        name: 'Auburn Hills',
+        boxIdPrefix: 'MI1'
+      }
+    ]);
+
+    render(
+      buildDialogTree(queryClient, {
+        initialWarehouse: 'MI1'
+      })
+    );
+
+    const warehouseSelect = screen.getByRole('combobox', { name: 'Warehouse' });
+    const options = within(warehouseSelect).getAllByRole('option');
+
+    expect(options.map((option) => option.textContent)).toEqual([
+      'Auburn Hills',
+      'Add New Warehouse...'
+    ]);
+    expect(screen.queryByText('Wauconda IL1')).toBeNull();
+    expect(screen.queryByText('Ridgeland MS1')).toBeNull();
+
+    queryClient.clear();
+  });
+
   it('uses the shared sticky footer action class for the final save row', () => {
     const queryClient = createQueryClient();
     render(buildDialogTree(queryClient));

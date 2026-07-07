@@ -115,6 +115,13 @@ export function buildJobEditorSubmitPayload({
     };
   }
 
+  if (!String(warehouse || '').trim()) {
+    return {
+      error: 'Warehouse is required. Add or select a configured warehouse before saving this job.',
+      payload: null
+    };
+  }
+
   const pendingDrafts = getPendingJobEditorDrafts({
     filmName: filmNameDraft,
     widthIn: widthDraft,

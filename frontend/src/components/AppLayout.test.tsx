@@ -212,6 +212,42 @@ describe('AppLayout', () => {
     expect(within(headerCorner).getByText('Warehouse: Ridgeland MS1')).toBeTruthy();
   });
 
+  it('keeps the default warehouse picker scoped to the current org warehouse registry', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        accessContext: {
+          defaultWarehouse: 'MI1',
+          pendingCount: 0,
+          role: 'Owner'
+        }
+      })
+    );
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }]
+    });
+
+    const view = renderLayout('/');
+    const headerCorner = view.container.querySelector('.app-header-corner');
+    if (!(headerCorner instanceof HTMLElement)) {
+      throw new Error('Expected app header corner to render.');
+    }
+
+    expect(within(headerCorner).getByText('Warehouse: Auburn Hills')).toBeTruthy();
+
+    fireEvent.click(within(headerCorner).getByRole('button', { name: 'Account actions' }));
+    const menu = screen.getByRole('menu', { name: 'Account actions' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Change warehouse' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Change warehouse' });
+    const options = within(within(dialog).getByRole('combobox', { name: 'Warehouse' })).getAllByRole(
+      'option'
+    );
+
+    expect(options.map((option) => option.textContent)).toEqual(['All Warehouses', 'Auburn Hills']);
+    expect(within(dialog).queryByText('Wauconda IL1')).toBeNull();
+    expect(within(dialog).queryByText('Ridgeland MS1')).toBeNull();
+  });
+
   it('applies a saved dark theme from localStorage', () => {
     window.localStorage.setItem(APP_THEME_STORAGE_KEY, 'dark');
 

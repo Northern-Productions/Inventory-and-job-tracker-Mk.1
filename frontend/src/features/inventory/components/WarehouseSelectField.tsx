@@ -45,6 +45,12 @@ export function WarehouseSelectField({
   const [prefixDraft, setPrefixDraft] = useState('');
   const [formError, setFormError] = useState('');
   const selectValue = allowAll ? toWarehouseFilterOptionValue(value) : value;
+  const hasConfiguredWarehouses = warehouseRegistry.entries.length > 0;
+  const emptyWarehouseHint = hasConfiguredWarehouses
+    ? undefined
+    : canAddWarehouse
+      ? 'No warehouses are configured for this organization yet. Add a warehouse to continue.'
+      : 'No warehouses are configured for this organization yet.';
   const addWarehouseMutation = useMutation({
     mutationFn: addWarehouse
   });
@@ -53,6 +59,9 @@ export function WarehouseSelectField({
     const base = allowAll
       ? toWarehouseFilterSelectOptions(warehouseRegistry.entries)
       : toWarehouseSelectOptions(warehouseRegistry.entries);
+    if (!allowAll && base.length === 0) {
+      base.push({ label: 'No warehouses configured', value: '' });
+    }
     const hasSelectedValue =
       !selectValue ||
       selectValue === ALL_WAREHOUSES_OPTION_VALUE ||
@@ -132,6 +141,7 @@ export function WarehouseSelectField({
         label={label}
         value={selectValue}
         disabled={disabled}
+        hint={emptyWarehouseHint}
         onChange={(event) => {
           const nextValue = event.target.value;
           if (nextValue === ADD_WAREHOUSE_OPTION_VALUE && canAddWarehouse) {

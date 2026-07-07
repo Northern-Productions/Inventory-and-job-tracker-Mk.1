@@ -88,7 +88,7 @@ test('latest schema check tracks ordered receipt canonicalization semantics', as
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0181_tenant_direct_write_grants_hardening\.sql/);
+  assert.match(schemaCheck, /0182_client_pilot_explicit_warehouses\.sql/);
 
   assert.match(schemaCheck, /app_api\.physical_film_commitment_feet_for_box\(uuid, text, text\)/);
   assert.match(schemaCheck, /app_api\.find_order_receipt_requirement_id\(uuid, text, text, text, numeric\)/);

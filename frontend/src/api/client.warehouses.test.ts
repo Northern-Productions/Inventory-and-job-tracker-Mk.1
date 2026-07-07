@@ -219,4 +219,14 @@ describe('warehouse client APIs', () => {
     expect(replaceOfflineInventoryBoxesMock).toHaveBeenNthCalledWith(3, offlineScope, 'MS1', []);
     expect(snapshots.map((entry) => entry.warehouse)).toEqual(['MO1', 'IL1', 'MS1']);
   });
+
+  it('does not fall back to static internal warehouses when the warehouse list cannot be loaded', async () => {
+    requestMock.mockRejectedValueOnce(new Error('warehouses unavailable'));
+
+    const snapshots = await syncAllOfflineInventorySnapshots();
+
+    expect(snapshots).toEqual([]);
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(replaceOfflineInventoryBoxesMock).not.toHaveBeenCalled();
+  });
 });

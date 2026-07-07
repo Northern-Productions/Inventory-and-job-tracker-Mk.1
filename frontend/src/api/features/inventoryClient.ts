@@ -25,7 +25,6 @@ import type {
   UpdateBoxPayload,
   Warehouse
 } from '../../domain';
-import { WAREHOUSE_CODES } from '../../domain';
 import { dedupeBoxesByDisplayBoxId } from '../../lib/boxIds';
 import {
   getOfflineBox,
@@ -490,7 +489,7 @@ export async function syncAllOfflineInventorySnapshots(
   try {
     warehouseCodes = (await listWarehouses()).map((entry) => entry.code);
   } catch {
-    warehouseCodes = [...WAREHOUSE_CODES];
+    warehouseCodes = [];
   }
 
   if (warehouseCodes.length === 0) {

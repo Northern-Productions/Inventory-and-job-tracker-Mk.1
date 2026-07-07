@@ -134,6 +134,10 @@ function renderPage(props: {
       }
     }
   });
+  queryClient.setQueryData(['warehouses'], [
+    { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+    { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+  ]);
 
   const rendered = render(
     <QueryClientProvider client={queryClient}>

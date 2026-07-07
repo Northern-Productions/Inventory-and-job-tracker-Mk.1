@@ -82,6 +82,70 @@ describe('WarehouseSelectField', () => {
     expect(html).not.toContain('Add New Warehouse...');
   });
 
+  it('renders only MI1 when the current org warehouse list contains only MI1', () => {
+    useAuthMock.mockReturnValue({ isOwner: false });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }]
+    });
+
+    const html = renderWarehouseField({
+      value: 'MI1'
+    });
+
+    expect(optionLabels(html)).toEqual(['Auburn Hills']);
+    expect(html).not.toContain('Wauconda IL1');
+    expect(html).not.toContain('Ridgeland MS1');
+  });
+
+  it('keeps filter dropdowns scoped to All plus the current org warehouses', () => {
+    useAuthMock.mockReturnValue({ isOwner: false });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }]
+    });
+
+    const html = renderWarehouseField({
+      value: '',
+      allowAll: true
+    });
+
+    expect(optionLabels(html)).toEqual(['All Warehouses', 'Auburn Hills']);
+    expect(html).not.toContain('Wauconda IL1');
+    expect(html).not.toContain('Ridgeland MS1');
+  });
+
+  it('allows owners to add a first warehouse without showing internal defaults', () => {
+    useAuthMock.mockReturnValue({ isOwner: true });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: []
+    });
+
+    const html = renderWarehouseField({
+      value: '',
+      allowAll: true
+    });
+
+    expect(optionLabels(html)).toEqual(['All Warehouses', 'Add New Warehouse...']);
+    expect(html).toContain('No warehouses are configured for this organization yet. Add a warehouse to continue.');
+    expect(html).not.toContain('Wauconda IL1');
+    expect(html).not.toContain('Ridgeland MS1');
+  });
+
+  it('shows a safe empty warehouse state instead of injecting IL1/MS1', () => {
+    useAuthMock.mockReturnValue({ isOwner: false });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: []
+    });
+
+    const html = renderWarehouseField({
+      value: ''
+    });
+
+    expect(optionLabels(html)).toEqual(['No warehouses configured']);
+    expect(html).toContain('No warehouses are configured for this organization yet.');
+    expect(html).not.toContain('Wauconda IL1');
+    expect(html).not.toContain('Ridgeland MS1');
+  });
+
   it('keeps native select options readable in dark theme', () => {
     const css = readFileSync(new URL('../../../styles.css', import.meta.url), 'utf8');
 
