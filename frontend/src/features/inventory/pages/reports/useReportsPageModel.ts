@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type {
   MostUsedFilmRankBy,
   ReportsSummaryFilters,
@@ -6,8 +6,9 @@ import type {
 } from '../../../../domain';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { useDefaultWarehouse } from '../../hooks/useDefaultWarehouse';
+import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import { useReportsSummary } from '../../hooks/useInventoryQueries';
-import { parseWarehouseFilterValue } from '../../utils/warehouseOptions';
+import { getSafeWarehouseFilterValue, parseWarehouseFilterValue } from '../../utils/warehouseOptions';
 
 export type ReportType = 'most_used_film';
 export type MostUsedFilmDateRange =
@@ -130,6 +131,8 @@ function ensureWidthOption(options: number[], value: string) {
 
 export function useReportsPageModel() {
   const defaultWarehouse = useDefaultWarehouse();
+  const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const isPhoneLayout = useIsPhoneLayout();
   const [reportType, setReportType] = useState<ReportType>('most_used_film');
   const [filters, setFilters] = useState<MostUsedFilmFilters>(() => ({
@@ -143,29 +146,50 @@ export function useReportsPageModel() {
     rankBy: 'actual_used_lf'
   }));
 
+  const safeWarehouse = warehouseScopeReady
+    ? getSafeWarehouseFilterValue(warehouseRegistry.entries, filters.warehouse)
+    : '';
+  const safeFilters = useMemo<MostUsedFilmFilters>(
+    () => ({
+      ...filters,
+      warehouse: safeWarehouse
+    }),
+    [filters, safeWarehouse]
+  );
+
+  useEffect(() => {
+    if (!warehouseScopeReady || filters.warehouse === safeWarehouse) {
+      return;
+    }
+    setFilters((current) => ({
+      ...current,
+      warehouse: safeWarehouse
+    }));
+  }, [filters.warehouse, safeWarehouse, warehouseScopeReady]);
+
   const dateBounds = useMemo(
-    () => resolveMostUsedFilmDateBounds(filters),
-    [filters.customFrom, filters.customTo, filters.dateRange]
+    () => resolveMostUsedFilmDateBounds(safeFilters),
+    [safeFilters]
   );
 
   const summaryFilters: ReportsSummaryFilters = useMemo(
     () => ({
-      warehouse: filters.warehouse,
-      manufacturer: filters.manufacturer,
-      film: filters.filmName,
-      width: filters.width,
+      warehouse: safeFilters.warehouse,
+      manufacturer: safeFilters.manufacturer,
+      film: safeFilters.filmName,
+      width: safeFilters.width,
       from: dateBounds.from,
       to: dateBounds.to,
-      rankBy: filters.rankBy
+      rankBy: safeFilters.rankBy
     }),
     [
       dateBounds.from,
       dateBounds.to,
-      filters.filmName,
-      filters.manufacturer,
-      filters.rankBy,
-      filters.warehouse,
-      filters.width
+      safeFilters.filmName,
+      safeFilters.manufacturer,
+      safeFilters.rankBy,
+      safeFilters.warehouse,
+      safeFilters.width
     ]
   );
   const reportsQuery = useReportsSummary(summaryFilters);
@@ -195,13 +219,13 @@ export function useReportsPageModel() {
       warehouse:
         next.warehouse === undefined
           ? current.warehouse
-          : parseWarehouseFilterValue(next.warehouse)
+          : getSafeWarehouseFilterValue(warehouseRegistry.entries, parseWarehouseFilterValue(next.warehouse))
     }));
   }
 
   return {
     isPhoneLayout,
-    filters,
+    filters: safeFilters,
     reportType,
     setReportType,
     reportTypeOptions: REPORT_TYPE_OPTIONS,

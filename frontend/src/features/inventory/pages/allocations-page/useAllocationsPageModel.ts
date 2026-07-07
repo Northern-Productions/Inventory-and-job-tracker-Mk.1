@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useEffect, useDeferredValue, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
@@ -7,6 +7,7 @@ import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
 import { todayDateString } from '../../../../lib/date';
 import { useAuth } from '../../../auth/AuthContext';
 import { useDefaultWarehouse } from '../../hooks/useDefaultWarehouse';
+import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import {
   useCreateJob,
   useCaulkProducts,
@@ -21,6 +22,7 @@ import {
 } from '../../utils/jobCalendar';
 import { sortSearchedJobs, sortJobs, type JobSortOption } from '../../utils/jobSorts';
 import { buildAllocationJobRoute } from '../../utils/jobRoutes';
+import { getSafeWarehouseFilterValue } from '../../utils/warehouseOptions';
 import { useJobCreationWorkflow } from './useJobCreationWorkflow';
 import { useJobsCalendarWorkflow } from './useJobsCalendarWorkflow';
 
@@ -49,10 +51,15 @@ export function useAllocationsPageModel({
   const toast = useToast();
   const auth = useAuth();
   const defaultWarehouse = useDefaultWarehouse();
+  const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const [jobsWorkflowView, setJobsWorkflowView] = useState<'active' | 'completed'>(
     initialWorkflowView
   );
   const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
+  const safeWarehouseFilter = warehouseScopeReady
+    ? getSafeWarehouseFilterValue(warehouseRegistry.entries, warehouseFilter)
+    : '';
   const [jobsViewMode, setJobsViewMode] = useState<'list' | 'calendar'>(initialJobsViewMode);
   const [calendarGranularity, setCalendarGranularity] = useState<'week' | 'month'>(
     initialCalendarGranularity
@@ -74,13 +81,13 @@ export function useAllocationsPageModel({
   const jobsQuery = useJobsList(0, {
     enabled: !isCalendarView,
     lifecycleStatus: selectedLifecycleStatus,
-    warehouse: warehouseFilter
+    warehouse: safeWarehouseFilter
   });
   const jobsCalendarQuery = useJobsCalendarEntries(calendarAnchorDate, {
     enabled: isCalendarView,
     view: calendarGranularity,
     lifecycleStatus: selectedLifecycleStatus,
-    warehouse: warehouseFilter
+    warehouse: safeWarehouseFilter
   });
   const createJobMutation = useCreateJob();
   const jobCreationWorkflow = useJobCreationWorkflow({
@@ -98,7 +105,7 @@ export function useAllocationsPageModel({
   const calendarWorkflow = useJobsCalendarWorkflow({
     isCalendarView,
     selectedLifecycleStatus,
-    selectedWarehouse: warehouseFilter,
+    selectedWarehouse: safeWarehouseFilter,
     calendarGranularity,
     calendarAnchorDate,
     jobsCalendarQuery,
@@ -106,6 +113,13 @@ export function useAllocationsPageModel({
     onCalendarAnchorDateChange: setCalendarAnchorDate,
     onCalendarGranularityChange: setCalendarGranularity
   });
+
+  useEffect(() => {
+    if (!warehouseScopeReady || !warehouseFilter || warehouseFilter === safeWarehouseFilter) {
+      return;
+    }
+    setWarehouseFilter(safeWarehouseFilter);
+  }, [safeWarehouseFilter, warehouseFilter, warehouseScopeReady]);
 
   const listJobsSource = isCalendarView ? [] : jobsQuery.data || [];
   const listJobs = useMemo(() => {
@@ -183,7 +197,7 @@ export function useAllocationsPageModel({
     calendarWorkflow,
     jobsViewMode,
     setJobsViewMode,
-    warehouseFilter,
+    warehouseFilter: safeWarehouseFilter,
     setWarehouseFilter,
     isCompletedWorkflow,
     isCalendarView,

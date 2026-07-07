@@ -11,6 +11,7 @@ import {
 } from '../utils/boxHelpers';
 import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { useDefaultSpecificWarehouse } from '../hooks/useDefaultWarehouse';
+import { getSafeSpecificWarehouseValue } from '../utils/warehouseOptions';
 import { FilmNameAutocompleteInput } from './FilmNameAutocompleteInput';
 import { WarehouseSelectField } from './WarehouseSelectField';
 
@@ -41,9 +42,11 @@ export function CreateFilmOrderDialog({
     [filmCatalogEntries]
   );
   const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const defaultSpecificWarehouse = useDefaultSpecificWarehouse();
   const defaultWarehouse = defaultSpecificWarehouse || warehouseRegistry.entries[0]?.code || '';
   const [warehouse, setWarehouse] = useState<Warehouse>(defaultWarehouse);
+  const safeWarehouse = getSafeSpecificWarehouseValue(warehouseRegistry.entries, warehouse);
   const [jobNumber, setJobNumber] = useState('');
   const [manufacturer, setManufacturer] = useState<string>(manufacturerOptions[0] || '');
   const [filmName, setFilmName] = useState('');
@@ -81,6 +84,13 @@ export function CreateFilmOrderDialog({
     setError('');
   }, [defaultWarehouse, manufacturerOptions, open]);
 
+  useEffect(() => {
+    if (!open || !warehouseScopeReady || !warehouse || safeWarehouse) {
+      return;
+    }
+    setWarehouse(defaultWarehouse);
+  }, [defaultWarehouse, open, safeWarehouse, warehouse, warehouseScopeReady]);
+
   if (!open) {
     return null;
   }
@@ -105,6 +115,11 @@ export function CreateFilmOrderDialog({
       return;
     }
 
+    if (!safeWarehouse) {
+      setError('Warehouse is required. Add or select a configured warehouse before ordering film.');
+      return;
+    }
+
     if (!Number.isFinite(parsedWidth) || parsedWidth <= 0) {
       setError('Width must be greater than zero.');
       return;
@@ -118,7 +133,7 @@ export function CreateFilmOrderDialog({
     setError('');
     onSubmit({
       jobNumber: jobNumber.trim(),
-      warehouse,
+      warehouse: safeWarehouse,
       manufacturer: normalizedManufacturer.trim(),
       filmName: filmName.trim(),
       widthIn: parsedWidth,
@@ -165,7 +180,7 @@ export function CreateFilmOrderDialog({
         <div className="form-grid">
           <WarehouseSelectField
             label="Warehouse"
-            value={warehouse}
+            value={safeWarehouse}
             onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
           />
           <Input

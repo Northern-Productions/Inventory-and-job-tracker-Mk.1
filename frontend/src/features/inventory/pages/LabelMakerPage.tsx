@@ -17,6 +17,7 @@ import {
 } from '../components/labels/PrintableLabelSheet';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { useBox, useFilmCatalog, useMarkLabelsPrinted } from '../hooks/useInventoryQueries';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
 import {
@@ -41,7 +42,7 @@ import {
   normalizeSelectedWidths,
   readSelectedWidths
 } from '../utils/widthFilters';
-import { parseWarehouseFilterValue } from '../utils/warehouseOptions';
+import { getSafeWarehouseFilterValue, parseWarehouseFilterValue } from '../utils/warehouseOptions';
 import { buildBoxQrPayload, createBoxQrCodeDataUrl } from '../utils/qrCode';
 
 type SlotBoxState = Record<LabelSlot, Box | null>;
@@ -136,7 +137,19 @@ export default function LabelMakerPage() {
   const [draftsBySlot, setDraftsBySlot] = useState<SlotDraftState>(EMPTY_SLOT_DRAFTS);
   const [qrStateBySlot, setQrStateBySlot] = useState<SlotQrState>(EMPTY_SLOT_QR);
   const [pendingPrintedBoxIds, setPendingPrintedBoxIds] = useState<string[]>([]);
-  const boxesQuery = useOfflineInventorySearch(filters.warehouse);
+  const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
+  const safeWarehouseFilter = warehouseScopeReady
+    ? getSafeWarehouseFilterValue(warehouseRegistry.entries, filters.warehouse)
+    : '';
+  const safeFilters = useMemo<InventoryFilterValues>(
+    () => ({
+      ...filters,
+      warehouse: safeWarehouseFilter
+    }),
+    [filters, safeWarehouseFilter]
+  );
+  const boxesQuery = useOfflineInventorySearch(safeWarehouseFilter);
   const filmCatalogQuery = useFilmCatalog();
   const markLabelsPrintedMutation = useMarkLabelsPrinted();
   const selectedBoxAQuery = useBox(selectedBoxesBySlot.A?.boxId || '');
@@ -157,14 +170,14 @@ export default function LabelMakerPage() {
 
   const searchFilters = useMemo<InventoryFilterValues>(
     () => ({
-      ...filters,
+      ...safeFilters,
       q: debouncedQuery,
-      status: labelStatusFilter === 'unlabeled' ? '' : filters.status,
+      status: labelStatusFilter === 'unlabeled' ? '' : safeFilters.status,
       film: '',
-      widths: normalizeSelectedWidths(filters.widths),
+      widths: normalizeSelectedWidths(safeFilters.widths),
       showRetired: false
     }),
-    [debouncedQuery, filters, labelStatusFilter]
+    [debouncedQuery, labelStatusFilter, safeFilters]
   );
   const hasSearchTerm = debouncedQuery.trim().length > 0;
   const shouldShowMatchingBoxes = hasSearchTerm || labelStatusFilter === 'unlabeled';
@@ -310,6 +323,10 @@ export default function LabelMakerPage() {
     setFilters((current) => ({
       ...current,
       ...next,
+      warehouse:
+        next.warehouse === undefined
+          ? current.warehouse
+          : getSafeWarehouseFilterValue(warehouseRegistry.entries, next.warehouse),
       film: '',
       widths: normalizeSelectedWidths(next.widths ?? current.widths),
       showRetired: false
@@ -480,7 +497,7 @@ export default function LabelMakerPage() {
             />
           </div>
           <InventoryFilters
-            values={filters}
+            values={safeFilters}
             manufacturerOptions={manufacturerOptions}
             searchSuggestions={searchSuggestions}
             rememberedCustomWidth={rememberedCustomWidth}

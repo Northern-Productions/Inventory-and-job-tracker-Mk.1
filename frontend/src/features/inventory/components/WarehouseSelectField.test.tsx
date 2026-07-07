@@ -60,8 +60,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All Warehouses',
-      'Wauconda IL1',
-      'Ridgeland MS1',
+      'Wauconda IL1 (IL1)',
+      'Ridgeland MS1 (MS1)',
       'Add New Warehouse...'
     ]);
   });
@@ -76,8 +76,8 @@ describe('WarehouseSelectField', () => {
 
     expect(optionLabels(html)).toEqual([
       'All Warehouses',
-      'Wauconda IL1',
-      'Ridgeland MS1'
+      'Wauconda IL1 (IL1)',
+      'Ridgeland MS1 (MS1)'
     ]);
     expect(html).not.toContain('Add New Warehouse...');
   });
@@ -92,7 +92,7 @@ describe('WarehouseSelectField', () => {
       value: 'MI1'
     });
 
-    expect(optionLabels(html)).toEqual(['Auburn Hills']);
+    expect(optionLabels(html)).toEqual(['Auburn Hills (MI1)']);
     expect(html).not.toContain('Wauconda IL1');
     expect(html).not.toContain('Ridgeland MS1');
   });
@@ -108,9 +108,25 @@ describe('WarehouseSelectField', () => {
       allowAll: true
     });
 
-    expect(optionLabels(html)).toEqual(['All Warehouses', 'Auburn Hills']);
+    expect(optionLabels(html)).toEqual(['All Warehouses', 'Auburn Hills (MI1)']);
     expect(html).not.toContain('Wauconda IL1');
     expect(html).not.toContain('Ridgeland MS1');
+  });
+
+  it('does not add a fake selected option when the value is absent from the current org registry', () => {
+    useAuthMock.mockReturnValue({ isOwner: false });
+
+    const html = renderWarehouseField({
+      value: 'MI1',
+      allowAll: true
+    });
+
+    expect(optionLabels(html)).toEqual([
+      'All Warehouses',
+      'Wauconda IL1 (IL1)',
+      'Ridgeland MS1 (MS1)'
+    ]);
+    expect(html).not.toContain('MI1');
   });
 
   it('allows owners to add a first warehouse without showing internal defaults', () => {

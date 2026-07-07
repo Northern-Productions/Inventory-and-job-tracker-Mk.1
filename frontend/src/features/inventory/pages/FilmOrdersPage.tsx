@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
@@ -27,6 +27,7 @@ import { FilmOrderStatusLink } from '../components/FilmOrderStatusLink';
 import { FilmOrderLinkedBoxes } from '../components/FilmOrderLinkedBoxes';
 import { WarehouseSelectField } from '../components/WarehouseSelectField';
 import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import {
   useCreateFilmOrder,
   useDeleteFilmOrder,
@@ -40,6 +41,7 @@ import {
   isFilmOrderNeedingAttention,
   isUnresolvedFilmOrder
 } from '../utils/filmOrders';
+import { getSafeWarehouseFilterValue } from '../utils/warehouseOptions';
 
 function getFilmOrderJobId(order: Pick<FilmOrderEntry, 'jobId'>) {
   return String(order.jobId || '').trim();
@@ -187,11 +189,16 @@ export default function FilmOrdersPage() {
   const toast = useToast();
   const auth = useAuth();
   const defaultWarehouse = useDefaultWarehouse();
+  const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
   const [statusFilter, setStatusFilter] = useState<FilmOrderStatusFilter>(() =>
     parseFilmOrderStatusFilter(searchParams.get('status'))
   );
-  const filmOrdersQuery = useFilmOrders({ warehouse: warehouseFilter });
+  const safeWarehouseFilter = warehouseScopeReady
+    ? getSafeWarehouseFilterValue(warehouseRegistry.entries, warehouseFilter)
+    : '';
+  const filmOrdersQuery = useFilmOrders({ warehouse: safeWarehouseFilter });
   const filmCatalogQuery = useFilmCatalog();
   const createFilmOrderMutation = useCreateFilmOrder();
   const deleteFilmOrderMutation = useDeleteFilmOrder();
@@ -211,6 +218,13 @@ export default function FilmOrdersPage() {
     [filteredEntries]
   );
   const showFilmOrdersLoading = filmOrdersQuery.isLoading && !orderedEntries.length;
+
+  useEffect(() => {
+    if (!warehouseScopeReady || !warehouseFilter || warehouseFilter === safeWarehouseFilter) {
+      return;
+    }
+    setWarehouseFilter(safeWarehouseFilter);
+  }, [safeWarehouseFilter, warehouseFilter, warehouseScopeReady]);
 
   async function handleDeleteFilmOrder(order: FilmOrderEntry, reason: string) {
     if (!auth.clientIdConfigured) {
@@ -304,7 +318,7 @@ export default function FilmOrdersPage() {
         </p>
         <div className="toolbar-grid reports-filters film-orders-filters">
           <WarehouseSelectField
-            value={warehouseFilter}
+            value={safeWarehouseFilter}
             onChange={setWarehouseFilter}
             allowAll
           />

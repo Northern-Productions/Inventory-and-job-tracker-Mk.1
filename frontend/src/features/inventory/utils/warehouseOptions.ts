@@ -26,9 +26,57 @@ export function toWarehouseFilterOptionValue(
   return value || ALL_WAREHOUSES_OPTION_VALUE;
 }
 
+export function getWarehouseEntry(
+  entries: WarehouseEntry[],
+  value: string | null | undefined
+): WarehouseEntry | null {
+  const normalized = normalizeWarehouseCode(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return entries.find((entry) => normalizeWarehouseCode(entry.code) === normalized) || null;
+}
+
+export function isWarehouseInRegistry(
+  entries: WarehouseEntry[],
+  value: string | null | undefined
+): value is Warehouse {
+  return Boolean(getWarehouseEntry(entries, value));
+}
+
+export function getSafeWarehouseFilterValue(
+  entries: WarehouseEntry[],
+  value: string | null | undefined
+): WarehouseFilterValue {
+  const normalized = normalizeWarehouseCode(value);
+  return normalized && isWarehouseInRegistry(entries, normalized) ? normalized : '';
+}
+
+export function getSafeSpecificWarehouseValue(
+  entries: WarehouseEntry[],
+  value: string | null | undefined
+): WarehouseFilterValue {
+  const normalized = normalizeWarehouseCode(value);
+  return normalized && isWarehouseInRegistry(entries, normalized) ? normalized : '';
+}
+
+export function formatWarehouseDisplayLabel(entry: WarehouseEntry): string {
+  const code = normalizeWarehouseCode(entry.code);
+  const name = String(entry.name || '').trim();
+  if (!code) {
+    return name;
+  }
+  if (!name || name.toUpperCase() === code) {
+    return code;
+  }
+
+  return `${name} (${code})`;
+}
+
 export function toWarehouseSelectOptions(entries: WarehouseEntry[]) {
   return entries.map((entry) => ({
-    label: entry.name || entry.code,
+    label: formatWarehouseDisplayLabel(entry),
     value: entry.code
   }));
 }
@@ -47,7 +95,7 @@ export function getWarehouseDisplayLabel(entries: WarehouseEntry[], code: Wareho
   }
 
   const match = entries.find((entry) => entry.code === normalized);
-  return match?.name || normalized;
+  return match ? formatWarehouseDisplayLabel(match) : ALL_WAREHOUSES_LABEL;
 }
 
 export function normalizeWarehouseCode(value: string | null | undefined): Warehouse | '' {

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../../components/Button';
@@ -16,8 +16,9 @@ import { useAuth } from '../../auth/AuthContext';
 import { useWarehouseRegistry } from '../../inventory/hooks/useWarehouseRegistry';
 import { useOwnerCompanies } from '../../inventory/hooks/useInventoryQueries';
 import {
-  ALL_WAREHOUSES_LABEL,
   ALL_WAREHOUSES_OPTION_VALUE,
+  getSafeWarehouseFilterValue,
+  toWarehouseFilterSelectOptions,
   toWarehouseFilterOptionValue
 } from '../../inventory/utils/warehouseOptions';
 import { toFullCasesFromTubes } from '../utils/stockMath';
@@ -35,6 +36,7 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
   const queryClient = useQueryClient();
   const warehouseRegistry = useWarehouseRegistry();
   const warehouseEntries = warehouseRegistry.entries;
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const ownerCompaniesQuery = useOwnerCompanies({ enabled: auth.isAuthenticated });
 
@@ -45,6 +47,13 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
   const [searchQuery, setSearchQuery] = useState('');
   const [isNewProductDialogOpen, setIsNewProductDialogOpen] = useState(false);
   const [newProductError, setNewProductError] = useState('');
+  const safeWarehouse = warehouseScopeReady
+    ? getSafeWarehouseFilterValue(
+        warehouseEntries,
+        warehouseFilter === ALL_WAREHOUSES_OPTION_VALUE ? '' : warehouseFilter
+      )
+    : '';
+  const safeWarehouseFilter = toWarehouseFilterOptionValue(safeWarehouse);
 
   const manufacturersQuery = useQuery({
     queryKey: ['caulk', 'manufacturers'],
@@ -52,19 +61,27 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
   });
 
   const stockQuery = useQuery({
-    queryKey: ['caulk', 'stock', warehouseFilter, manufacturerFilter, searchQuery],
+    queryKey: ['caulk', 'stock', safeWarehouseFilter, manufacturerFilter, searchQuery],
     queryFn: () =>
       listCaulkStock({
-        warehouse: warehouseFilter,
+        warehouse: safeWarehouseFilter,
         manufacturer: manufacturerFilter,
         q: searchQuery
-      })
+      }),
+    enabled: warehouseScopeReady
   });
 
   const manufacturers = manufacturersQuery.data || [];
   const stockRows = stockQuery.data || [];
   const selectedWarehouseForNewProduct =
-    warehouseFilter && warehouseFilter !== ALL_WAREHOUSES_OPTION_VALUE ? (warehouseFilter as Warehouse) : '';
+    safeWarehouseFilter && safeWarehouseFilter !== ALL_WAREHOUSES_OPTION_VALUE ? (safeWarehouseFilter as Warehouse) : '';
+
+  useEffect(() => {
+    if (!warehouseScopeReady || warehouseFilter === safeWarehouseFilter) {
+      return;
+    }
+    setWarehouseFilter(safeWarehouseFilter);
+  }, [safeWarehouseFilter, warehouseFilter, warehouseScopeReady]);
 
   const manufacturerOptions = useMemo(() => {
     return manufacturers
@@ -144,15 +161,9 @@ export function CaulkInventoryContent({ headerActions, initialWarehouse = '' }: 
         <div className="filters-grid">
           <Select
             label="Warehouse"
-            value={warehouseFilter}
+            value={safeWarehouseFilter}
             onChange={(event) => setWarehouseFilter(event.target.value)}
-            options={[
-              { value: ALL_WAREHOUSES_OPTION_VALUE, label: ALL_WAREHOUSES_LABEL },
-              ...warehouseEntries.map((entry) => ({
-                value: entry.code,
-                label: entry.name || entry.code
-              }))
-            ]}
+            options={toWarehouseFilterSelectOptions(warehouseEntries)}
           />
           <Select
             label="Manufacturer"

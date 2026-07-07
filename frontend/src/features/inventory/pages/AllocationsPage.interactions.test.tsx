@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { forwardRef, type PropsWithChildren } from 'react';
 import AllocationsPage from './AllocationsPage';
+import { warehouseRegistryScopedQueryKey } from '../hooks/useWarehouseRegistry';
 
 const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
@@ -134,10 +135,13 @@ function renderPage(props: {
       }
     }
   });
-  queryClient.setQueryData(['warehouses'], [
-    { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
-    { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
-  ]);
+  queryClient.setQueryData(
+    warehouseRegistryScopedQueryKey({ userId: 'test-user', orgId: 'test-org' }),
+    [
+      { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+      { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+    ]
+  );
 
   const rendered = render(
     <QueryClientProvider client={queryClient}>
@@ -238,7 +242,15 @@ describe('AllocationsPage interactions', () => {
 
     useAuthMock.mockReturnValue({
       clientIdConfigured: true,
-      isAuthenticated: true
+      isAuthenticated: true,
+      isAccessReady: true,
+      isApproved: true,
+      session: { user: { sub: 'test-user' } },
+      accessContext: {
+        orgId: 'test-org',
+        defaultWarehouse: ''
+      },
+      hasFeatureAccess: () => true
     });
     useJobsListMock.mockImplementation((_limit?: unknown, options?: { lifecycleStatus?: string; enabled?: boolean }) => ({
       data: options?.lifecycleStatus === 'COMPLETED' ? completedListEntries : activeListEntries,

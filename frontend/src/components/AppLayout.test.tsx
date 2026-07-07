@@ -209,7 +209,7 @@ describe('AppLayout', () => {
       throw new Error('Expected app header corner to render.');
     }
 
-    expect(within(headerCorner).getByText('Warehouse: Ridgeland MS1')).toBeTruthy();
+    expect(within(headerCorner).getByText('Warehouse: Ridgeland MS1 (MS1)')).toBeTruthy();
   });
 
   it('keeps the default warehouse picker scoped to the current org warehouse registry', () => {
@@ -232,7 +232,7 @@ describe('AppLayout', () => {
       throw new Error('Expected app header corner to render.');
     }
 
-    expect(within(headerCorner).getByText('Warehouse: Auburn Hills')).toBeTruthy();
+    expect(within(headerCorner).getByText('Warehouse: Auburn Hills (MI1)')).toBeTruthy();
 
     fireEvent.click(within(headerCorner).getByRole('button', { name: 'Account actions' }));
     const menu = screen.getByRole('menu', { name: 'Account actions' });
@@ -243,7 +243,7 @@ describe('AppLayout', () => {
       'option'
     );
 
-    expect(options.map((option) => option.textContent)).toEqual(['All Warehouses', 'Auburn Hills']);
+    expect(options.map((option) => option.textContent)).toEqual(['All Warehouses', 'Auburn Hills (MI1)']);
     expect(within(dialog).queryByText('Wauconda IL1')).toBeNull();
     expect(within(dialog).queryByText('Ridgeland MS1')).toBeNull();
   });

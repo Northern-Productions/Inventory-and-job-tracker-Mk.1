@@ -5,6 +5,7 @@ import type { PropsWithChildren } from 'react';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import AllocationsPage from './AllocationsPage';
 import type { JobSortOption } from '../utils/jobSorts';
+import { warehouseRegistryScopedQueryKey } from '../hooks/useWarehouseRegistry';
 
 const navigateMock = vi.fn();
 const toastPushMock = vi.fn();
@@ -113,6 +114,13 @@ function renderPage(props: {
       }
     }
   });
+  queryClient.setQueryData(
+    warehouseRegistryScopedQueryKey({ userId: 'test-user', orgId: 'test-org' }),
+    [
+      { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+      { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+    ]
+  );
 
   const html = renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
@@ -142,10 +150,14 @@ describe('AllocationsPage', () => {
     toastPushMock.mockReset();
     useAuthMock.mockReturnValue({
       accessContext: {
+        orgId: 'test-org',
         defaultWarehouse: ''
       },
       clientIdConfigured: true,
-      isAuthenticated: true
+      isAuthenticated: true,
+      isAccessReady: true,
+      isApproved: true,
+      session: { user: { sub: 'test-user' } }
     });
     useJobsListMock.mockImplementation((_limit?: unknown, options?: { lifecycleStatus?: string }) => ({
       data: [
@@ -285,10 +297,14 @@ describe('AllocationsPage', () => {
   it('initializes job list and calendar filters from the saved default warehouse', () => {
     useAuthMock.mockReturnValue({
       accessContext: {
+        orgId: 'test-org',
         defaultWarehouse: 'MS1'
       },
       clientIdConfigured: true,
-      isAuthenticated: true
+      isAuthenticated: true,
+      isAccessReady: true,
+      isApproved: true,
+      session: { user: { sub: 'test-user' } }
     });
 
     const html = renderPage({ initialJobsViewMode: 'list' });

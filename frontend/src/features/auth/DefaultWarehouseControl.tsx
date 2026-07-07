@@ -5,6 +5,8 @@ import type { Warehouse } from '../../domain';
 import { reloadPage } from '../../lib/pageReload';
 import { WarehouseSelectField } from '../inventory/components/WarehouseSelectField';
 import { useDefaultWarehouse } from '../inventory/hooks/useDefaultWarehouse';
+import { useWarehouseRegistry } from '../inventory/hooks/useWarehouseRegistry';
+import { getSafeWarehouseFilterValue } from '../inventory/utils/warehouseOptions';
 import { useAuth } from './AuthContext';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -25,8 +27,13 @@ export function DefaultWarehouseControl({
   const auth = useAuth();
   const toast = useToast();
   const defaultWarehouse = useDefaultWarehouse();
+  const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Warehouse | ''>(defaultWarehouse);
+  const safeDraft = warehouseScopeReady
+    ? getSafeWarehouseFilterValue(warehouseRegistry.entries, draft)
+    : '';
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -59,7 +66,7 @@ export function DefaultWarehouseControl({
     setError('');
 
     try {
-      await auth.updateDefaultWarehouse(draft);
+      await auth.updateDefaultWarehouse(safeDraft);
       reloadPage();
     } catch (submitError) {
       const message =
@@ -108,18 +115,18 @@ export function DefaultWarehouseControl({
               Select the warehouse you usually work from. This will be used as your default filter across the app.
             </p>
             <WarehouseSelectField
-              value={draft}
+              value={safeDraft}
               onChange={setDraft}
               allowAll
               includeAddOption={false}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !warehouseScopeReady}
             />
             {error ? <p className="error-text">{error}</p> : null}
             <div className="dialog-actions">
               <Button type="button" variant="ghost" onClick={closeDialog} disabled={isSubmitting}>
                 Cancel
               </Button>
-              <Button type="button" onClick={() => void handleSubmit()} disabled={isSubmitting}>
+              <Button type="button" onClick={() => void handleSubmit()} disabled={isSubmitting || !warehouseScopeReady}>
                 {isSubmitting ? 'Saving...' : 'Save'}
               </Button>
             </div>

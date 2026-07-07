@@ -3,14 +3,19 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WarehouseEntry } from '../../../domain';
-import { useWarehouseRegistry } from './useWarehouseRegistry';
+import { useWarehouseRegistry, warehouseRegistryScopedQueryKey } from './useWarehouseRegistry';
 
 const listWarehousesMock = vi.fn<() => Promise<WarehouseEntry[]>>();
+const useAuthMock = vi.fn();
 
 vi.mock('../../../api/features/warehouseClient', () => ({
   listWarehouses: () => listWarehousesMock()
+}));
+
+vi.mock('../../auth/AuthContext', () => ({
+  useAuth: () => useAuthMock()
 }));
 
 function createWrapper() {
@@ -35,6 +40,49 @@ function createWrapper() {
 describe('useWarehouseRegistry', () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  beforeEach(() => {
+    useAuthMock.mockReturnValue({
+      isAccessReady: true,
+      isApproved: true,
+      session: { user: { sub: 'user-a' } },
+      accessContext: { orgId: 'org-a' }
+    });
+  });
+
+  it('uses a query key scoped to the active user and org', async () => {
+    listWarehousesMock.mockResolvedValue([
+      { code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }
+    ]);
+    const { Wrapper, queryClient } = createWrapper();
+
+    renderHook(() => useWarehouseRegistry(), { wrapper: Wrapper });
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData(
+          warehouseRegistryScopedQueryKey({ userId: 'user-a', orgId: 'org-a' })
+        )
+      ).toEqual([{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }]);
+    });
+    queryClient.clear();
+  });
+
+  it('does not load or reuse warehouse rows while auth scope is unresolved', async () => {
+    useAuthMock.mockReturnValue({
+      isAccessReady: false,
+      isApproved: false,
+      session: null,
+      accessContext: null
+    });
+    const { Wrapper, queryClient } = createWrapper();
+
+    const { result } = renderHook(() => useWarehouseRegistry(), { wrapper: Wrapper });
+
+    expect(result.current.entries).toEqual([]);
+    expect(listWarehousesMock).not.toHaveBeenCalled();
+    queryClient.clear();
   });
 
   it('uses current-org warehouse rows without injecting internal IL1/MS1 defaults', async () => {

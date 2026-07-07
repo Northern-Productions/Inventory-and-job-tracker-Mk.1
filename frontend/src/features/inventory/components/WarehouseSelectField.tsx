@@ -10,6 +10,8 @@ import { useWarehouseRegistry, warehouseRegistryQueryKey } from '../hooks/useWar
 import {
   ADD_WAREHOUSE_OPTION_VALUE,
   ALL_WAREHOUSES_OPTION_VALUE,
+  getSafeSpecificWarehouseValue,
+  isWarehouseInRegistry,
   normalizeWarehouseCode,
   toWarehouseFilterOptionValue,
   toWarehouseFilterSelectOptions,
@@ -44,7 +46,8 @@ export function WarehouseSelectField({
   const [nameDraft, setNameDraft] = useState('');
   const [prefixDraft, setPrefixDraft] = useState('');
   const [formError, setFormError] = useState('');
-  const selectValue = allowAll ? toWarehouseFilterOptionValue(value) : value;
+  const safeSpecificValue = getSafeSpecificWarehouseValue(warehouseRegistry.entries, value);
+  const selectValue = allowAll ? toWarehouseFilterOptionValue(safeSpecificValue) : safeSpecificValue;
   const hasConfiguredWarehouses = warehouseRegistry.entries.length > 0;
   const emptyWarehouseHint = hasConfiguredWarehouses
     ? undefined
@@ -62,24 +65,13 @@ export function WarehouseSelectField({
     if (!allowAll && base.length === 0) {
       base.push({ label: 'No warehouses configured', value: '' });
     }
-    const hasSelectedValue =
-      !selectValue ||
-      selectValue === ALL_WAREHOUSES_OPTION_VALUE ||
-      base.some((option) => option.value === selectValue);
-
-    if (!hasSelectedValue) {
-      const fallback = normalizeWarehouseCode(selectValue);
-      if (fallback) {
-        base.push({ label: fallback, value: fallback });
-      }
-    }
 
     if (canAddWarehouse) {
       base.push({ label: 'Add New Warehouse...', value: ADD_WAREHOUSE_OPTION_VALUE });
     }
 
     return base;
-  }, [allowAll, canAddWarehouse, selectValue, warehouseRegistry.entries]);
+  }, [allowAll, canAddWarehouse, warehouseRegistry.entries]);
 
   const suggestedName = useMemo(() => {
     const normalized = normalizeWarehouseCode(codeDraft);
@@ -155,7 +147,7 @@ export function WarehouseSelectField({
           }
 
           const normalized = normalizeWarehouseCode(nextValue);
-          if (!normalized) {
+          if (!normalized || !isWarehouseInRegistry(warehouseRegistry.entries, normalized)) {
             return;
           }
 

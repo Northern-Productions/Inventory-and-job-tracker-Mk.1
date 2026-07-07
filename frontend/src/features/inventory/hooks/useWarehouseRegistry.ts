@@ -2,8 +2,23 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listWarehouses } from '../../../api/features/warehouseClient';
 import type { WarehouseEntry } from '../../../domain';
+import { useAuth } from '../../auth/AuthContext';
 
 export const warehouseRegistryQueryKey = ['warehouses'] as const;
+
+interface WarehouseRegistryScope {
+  userId: string;
+  orgId: string;
+}
+
+export function warehouseRegistryScopedQueryKey(scope: WarehouseRegistryScope | null) {
+  return [
+    ...warehouseRegistryQueryKey,
+    'scope',
+    scope?.userId || 'NO_USER',
+    scope?.orgId || 'NO_ORG'
+  ] as const;
+}
 
 function normalizeEntry(entry: WarehouseEntry): WarehouseEntry {
   return {
@@ -58,16 +73,23 @@ function mergeEntries(remote: WarehouseEntry[] | undefined): WarehouseEntry[] {
 }
 
 export function useWarehouseRegistry() {
+  const auth = useAuth();
+  const userId = String(auth.session?.user?.sub || '').trim();
+  const orgId = String(auth.accessContext?.orgId || '').trim();
+  const scopeReady = auth.isAccessReady && auth.isApproved && Boolean(userId && orgId);
+  const scope = scopeReady ? { userId, orgId } : null;
   const query = useQuery({
-    queryKey: warehouseRegistryQueryKey,
-    queryFn: () => listWarehouses()
+    queryKey: warehouseRegistryScopedQueryKey(scope),
+    queryFn: () => listWarehouses(),
+    enabled: scopeReady
   });
 
-  const entries = useMemo(() => mergeEntries(query.data), [query.data]);
+  const entries = useMemo(() => (scopeReady ? mergeEntries(query.data) : []), [query.data, scopeReady]);
 
   return {
     ...query,
-    entries
+    entries,
+    scopeReady
   };
 }
 

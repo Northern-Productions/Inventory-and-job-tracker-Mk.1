@@ -30,7 +30,7 @@ import {
   getNextBoxIdForWarehouse,
   type BoxDraft
 } from '../utils/boxHelpers';
-import { getWarehousePrefix } from '../utils/warehouseOptions';
+import { getSafeSpecificWarehouseValue, getWarehousePrefix } from '../utils/warehouseOptions';
 
 interface FilmOrderPrefill {
   filmOrderId: string;
@@ -77,6 +77,7 @@ export default function AddBoxPage() {
   });
   const upsertBoxDealerMutation = useUpsertBoxDealer();
   const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const defaultSpecificWarehouse = useDefaultSpecificWarehouse();
   const prefillToken = searchParams.toString();
   const retryState = useMemo(() => readRetryState(location.state), [location.state]);
@@ -88,11 +89,12 @@ export default function AddBoxPage() {
   const [warehouse, setWarehouse] = useState<Warehouse>(
     retryState?.retryWarehouse ?? filmOrderPrefill.warehouse ?? defaultWarehouse
   );
+  const safeWarehouse = getSafeSpecificWarehouseValue(warehouseRegistry.entries, warehouse);
   const warehouseBoxesQuery = useSearchBoxesWithOptions(
-    { warehouse, showRetired: true },
-    { enabled: Boolean(warehouse) }
+    { warehouse: safeWarehouse, showRetired: true },
+    { enabled: Boolean(safeWarehouse) }
   );
-  const suggestedBoxIdQuery = useSuggestedNextBoxId(warehouse, { enabled: Boolean(warehouse) });
+  const suggestedBoxIdQuery = useSuggestedNextBoxId(safeWarehouse, { enabled: Boolean(safeWarehouse) });
   const canWriteInventory = auth.hasFeatureAccess('inventory', 'write');
   const [filmOrderDraftSeed, setFilmOrderDraftSeed] = useState<BoxDraft | null>(null);
   const [filmOrderRemainingFeet, setFilmOrderRemainingFeet] = useState<number | null>(null);
@@ -131,28 +133,44 @@ export default function AddBoxPage() {
   ]);
 
   useEffect(() => {
+    if (!warehouseScopeReady) {
+      return;
+    }
+
+    const nextWarehouse =
+      getSafeSpecificWarehouseValue(
+        warehouseRegistry.entries,
+        retryState?.retryWarehouse ?? filmOrderPrefill.warehouse ?? defaultWarehouse
+      ) || defaultWarehouse;
+
     if (retryState?.retryWarehouse) {
-      setWarehouse(retryState.retryWarehouse);
+      setWarehouse(nextWarehouse);
       return;
     }
 
     if (filmOrderPrefill.warehouse) {
-      setWarehouse(filmOrderPrefill.warehouse);
+      setWarehouse(nextWarehouse);
       return;
     }
 
     if (defaultWarehouse) {
       setWarehouse(defaultWarehouse);
     }
-  }, [defaultWarehouse, filmOrderPrefill.warehouse, retryState?.retryWarehouse]);
+  }, [
+    defaultWarehouse,
+    filmOrderPrefill.warehouse,
+    retryState?.retryWarehouse,
+    warehouseRegistry.entries,
+    warehouseScopeReady
+  ]);
 
   const warehousePrefix = useMemo(
-    () => getWarehousePrefix(warehouseRegistry.entries, warehouse),
-    [warehouse, warehouseRegistry.entries]
+    () => getWarehousePrefix(warehouseRegistry.entries, safeWarehouse),
+    [safeWarehouse, warehouseRegistry.entries]
   );
   const fallbackNextBoxIdForCreateWarehouse = useMemo(
-    () => getNextBoxIdForWarehouse(warehouseBoxesQuery.data ?? [], warehouse, warehousePrefix),
-    [warehouse, warehouseBoxesQuery.data, warehousePrefix]
+    () => getNextBoxIdForWarehouse(warehouseBoxesQuery.data ?? [], safeWarehouse, warehousePrefix),
+    [safeWarehouse, warehouseBoxesQuery.data, warehousePrefix]
   );
   const suggestedBoxId = suggestedBoxIdQuery.data?.boxId?.trim() || '';
   const suggestedBoxIdIsAlreadyKnown = useMemo(() => {
@@ -227,7 +245,7 @@ export default function AddBoxPage() {
     () =>
       formatJobDisplayLabel({
         jobNumber: filmOrderPrefill.jobNumber,
-        warehouse: filmOrderPrefill.warehouse,
+        warehouse: safeWarehouse,
         workScope:
           String(linkedFilmOrder?.workScope || linkedFilmOrder?.sections || '').trim() ||
           filmOrderPrefill.workScope,
@@ -238,7 +256,7 @@ export default function AddBoxPage() {
     [
       filmOrderPrefill.jobNumber,
       filmOrderPrefill.sections,
-      filmOrderPrefill.warehouse,
+      safeWarehouse,
       filmOrderPrefill.workScope,
       linkedFilmOrder?.sections,
       linkedFilmOrder?.workScope
@@ -295,10 +313,19 @@ export default function AddBoxPage() {
 
     try {
       const normalizedBoxId = draft.boxId.trim().toUpperCase();
+      if (!safeWarehouse) {
+        toast.push({
+          title: 'Warehouse is required',
+          description: 'Add or select a configured warehouse before creating this box.',
+          variant: 'error'
+        });
+        return;
+      }
+
       const prefixToken = warehousePrefix ? `${warehousePrefix}-` : '';
       if (prefixToken && (normalizedBoxId === warehousePrefix || normalizedBoxId === prefixToken)) {
         toast.push({
-          title: `${warehouse} box ID is incomplete`,
+          title: `${safeWarehouse} box ID is incomplete`,
           description: `Enter the number or suffix after the ${prefixToken} prefix.`,
           variant: 'error'
         });
@@ -307,8 +334,8 @@ export default function AddBoxPage() {
 
       if (prefixToken && !normalizedBoxId.startsWith(prefixToken)) {
         toast.push({
-          title: `${warehouse} box IDs must start with ${prefixToken}`,
-          description: `Use a ${prefixToken}-prefixed BoxID for the ${warehouse} warehouse.`,
+          title: `${safeWarehouse} box IDs must start with ${prefixToken}`,
+          description: `Use a ${prefixToken}-prefixed BoxID for the ${safeWarehouse} warehouse.`,
           variant: 'error'
         });
         return;
@@ -318,7 +345,7 @@ export default function AddBoxPage() {
         (entry) => {
           const candidatePrefix = entry.boxIdPrefix ? `${entry.boxIdPrefix}-` : '';
           return (
-            entry.code !== warehouse &&
+            entry.code !== safeWarehouse &&
             candidatePrefix !== '' &&
             normalizedBoxId.startsWith(candidatePrefix)
           );
@@ -326,7 +353,7 @@ export default function AddBoxPage() {
       );
       if (!prefixToken && conflictingWarehouse) {
         toast.push({
-          title: `${warehouse} box IDs cannot use ${conflictingWarehouse.boxIdPrefix}-`,
+          title: `${safeWarehouse} box IDs cannot use ${conflictingWarehouse.boxIdPrefix}-`,
           description: `Switch the warehouse dropdown to ${conflictingWarehouse.name} or use a different BoxID format.`,
           variant: 'error'
         });
@@ -343,7 +370,7 @@ export default function AddBoxPage() {
       }
 
       const payload = parseAddBoxDraft(draft);
-      payload.warehouse = warehouse;
+      payload.warehouse = safeWarehouse;
       const auditNote = submitContext?.auditNote?.trim();
       if (auditNote) {
         payload.auditNote = auditNote;
@@ -487,7 +514,7 @@ export default function AddBoxPage() {
             <div className="add-box-warehouse-control">
               <WarehouseSelectField
                 label="Warehouse"
-                value={warehouse}
+                value={safeWarehouse}
                 onChange={(nextWarehouse) => setWarehouse(nextWarehouse as Warehouse)}
               />
             </div>
@@ -508,7 +535,7 @@ export default function AddBoxPage() {
           <div className="detail-grid">
             <div className="key-value">
               <dt>Warehouse</dt>
-              <dd>{filmOrderPrefill.warehouse}</dd>
+              <dd>{safeWarehouse || '--'}</dd>
             </div>
             <div className="key-value">
               <dt>Film</dt>
@@ -628,7 +655,7 @@ export default function AddBoxPage() {
         submitLabel="Create Box"
         submitting={isCreatingBox}
         disabled={!canWriteInventory}
-        createWarehouse={warehouse}
+        createWarehouse={safeWarehouse}
         nextBoxIdForCreateWarehouse={nextBoxIdForCreateWarehouse}
         dealerEntries={boxDealersQuery.data}
         dealerLoading={boxDealersQuery.isLoading}

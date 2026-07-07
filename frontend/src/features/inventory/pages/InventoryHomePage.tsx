@@ -8,6 +8,7 @@ import { CaulkInventoryContent } from '../../caulk/components/CaulkInventoryCont
 import { InventoryFilters } from '../components/InventoryFilters';
 import { useOfflineInventorySearch } from '../hooks/useOfflineInventorySearch';
 import { useDefaultWarehouse } from '../hooks/useDefaultWarehouse';
+import { useWarehouseRegistry } from '../hooks/useWarehouseRegistry';
 import { useFilmCatalog } from '../hooks/useInventoryQueries';
 import { InventoryTable } from '../components/InventoryTable';
 import type { InventoryFilterValues } from '../schemas/boxSchemas';
@@ -23,6 +24,7 @@ import {
   writeSelectedWidths
 } from '../utils/widthFilters';
 import {
+  getSafeWarehouseFilterValue,
   parseWarehouseFilterValue,
   toWarehouseFilterOptionValue
 } from '../utils/warehouseOptions';
@@ -49,7 +51,18 @@ export default function InventoryHomePage() {
   const navigate = useNavigate();
   const hasMountedRef = useRef(false);
   const defaultWarehouse = useDefaultWarehouse();
-  const filters = readFilters(searchParams, defaultWarehouse);
+  const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
+  const rawFilters = readFilters(searchParams, defaultWarehouse);
+  const filters = useMemo(
+    () => ({
+      ...rawFilters,
+      warehouse: warehouseScopeReady
+        ? getSafeWarehouseFilterValue(warehouseRegistry.entries, rawFilters.warehouse)
+        : ''
+    }),
+    [rawFilters, warehouseRegistry.entries, warehouseScopeReady]
+  );
   const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
     getActiveCustomWidth(filters.widths)
   );
@@ -98,14 +111,30 @@ export default function InventoryHomePage() {
   );
 
   useEffect(() => {
-    if (searchParams.get('warehouse')) {
+    if (!warehouseScopeReady) {
       return;
     }
 
     const nextParams = new URLSearchParams(searchParams);
-    nextParams.set('warehouse', toWarehouseFilterOptionValue(defaultWarehouse));
+    const rawWarehouse = searchParams.has('warehouse')
+      ? parseWarehouseFilterValue(searchParams.get('warehouse'))
+      : parseWarehouseFilterValue(defaultWarehouse);
+    const safeWarehouse = getSafeWarehouseFilterValue(warehouseRegistry.entries, rawWarehouse);
+    const nextWarehouseValue = toWarehouseFilterOptionValue(safeWarehouse);
+
+    if (searchParams.get('warehouse') === nextWarehouseValue) {
+      return;
+    }
+
+    nextParams.set('warehouse', nextWarehouseValue);
     setSearchParams(nextParams, { replace: true });
-  }, [defaultWarehouse, searchParams, setSearchParams]);
+  }, [
+    defaultWarehouse,
+    searchParams,
+    setSearchParams,
+    warehouseRegistry.entries,
+    warehouseScopeReady
+  ]);
 
   useEffect(() => {
     const rawInventoryView = searchParams.get('inventoryView');

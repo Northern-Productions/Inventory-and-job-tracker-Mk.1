@@ -4,11 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ComponentProps, ReactElement } from 'react';
 import { JobEditorDialog } from './JobEditorDialog';
+import { warehouseRegistryScopedQueryKey } from '../hooks/useWarehouseRegistry';
 
 vi.mock('../../auth/AuthContext', () => ({
   useAuth: () => ({
     isOwner: true,
     isAdmin: true,
+    isAccessReady: true,
+    isApproved: true,
+    session: { user: { sub: 'test-user' } },
+    accessContext: { orgId: 'test-org' },
     hasFeatureAccess: () => true
   })
 }));
@@ -36,7 +41,10 @@ function createQueryClient(
     }
   });
 
-  queryClient.setQueryData(['warehouses'], warehouses);
+  queryClient.setQueryData(
+    warehouseRegistryScopedQueryKey({ userId: 'test-user', orgId: 'test-org' }),
+    warehouses
+  );
 
   return queryClient;
 }
@@ -118,7 +126,7 @@ describe('JobEditorDialog', () => {
     const options = within(warehouseSelect).getAllByRole('option');
 
     expect(options.map((option) => option.textContent)).toEqual([
-      'Auburn Hills',
+      'Auburn Hills (MI1)',
       'Add New Warehouse...'
     ]);
     expect(screen.queryByText('Wauconda IL1')).toBeNull();

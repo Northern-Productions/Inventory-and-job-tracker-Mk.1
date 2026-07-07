@@ -13,6 +13,7 @@ import { buildCaulkProductLabel } from '../../utils/caulkProductLabels';
 import { getPreferredCaulkProductId } from '../../utils/caulkProductPreferences';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import { useDefaultSpecificWarehouse } from '../../hooks/useDefaultWarehouse';
+import { getSafeSpecificWarehouseValue } from '../../utils/warehouseOptions';
 import {
   buildRequirementLineKey,
   createCaulkDraftLine,
@@ -67,6 +68,7 @@ export function useJobEditorForm({
   onSubmit
 }: UseJobEditorFormOptions) {
   const warehouseRegistry = useWarehouseRegistry();
+  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const defaultSpecificWarehouse = useDefaultSpecificWarehouse();
   const defaultWarehouse = defaultSpecificWarehouse || warehouseRegistry.entries[0]?.code || '';
   const resetTargetKey = mode === 'edit' ? `edit:${initialJobNumber}` : 'create';
@@ -317,6 +319,16 @@ export function useJobEditorForm({
   }, [defaultWarehouse, open, warehouse]);
 
   useEffect(() => {
+    if (!open || !warehouseScopeReady || !warehouse) {
+      return;
+    }
+    const currentSafeWarehouse = getSafeSpecificWarehouseValue(warehouseRegistry.entries, warehouse);
+    if (!currentSafeWarehouse) {
+      setWarehouse(defaultWarehouse);
+    }
+  }, [defaultWarehouse, open, warehouse, warehouseRegistry.entries, warehouseScopeReady]);
+
+  useEffect(() => {
     const hadManufacturerOptions = previousManufacturerOptionsLengthRef.current > 0;
     if (open && !manufacturer && manufacturerOptions.length > 0 && !hadManufacturerOptions) {
       setManufacturer(manufacturerOptions[0]);
@@ -544,7 +556,7 @@ export function useJobEditorForm({
       mode,
       initialJobNumber,
       jobNumber,
-      warehouse,
+      warehouse: getSafeSpecificWarehouseValue(warehouseRegistry.entries, warehouse),
       sections,
       installDate,
       crewLeader,
@@ -614,7 +626,7 @@ export function useJobEditorForm({
     updateCaulkRequirementLine,
     updatePhaseLine,
     updateRequirementLine,
-    warehouse,
+    warehouse: getSafeSpecificWarehouseValue(warehouseRegistry.entries, warehouse),
     widthIn
   };
 }

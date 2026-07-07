@@ -11,6 +11,7 @@ import {
 } from './useReportsPageModel';
 
 const useReportsSummaryMock = vi.fn();
+const useWarehouseRegistryMock = vi.fn();
 
 vi.mock('../../../../hooks/useIsPhoneLayout', () => ({
   useIsPhoneLayout: () => false
@@ -18,6 +19,10 @@ vi.mock('../../../../hooks/useIsPhoneLayout', () => ({
 
 vi.mock('../../hooks/useDefaultWarehouse', () => ({
   useDefaultWarehouse: () => 'IL1'
+}));
+
+vi.mock('../../hooks/useWarehouseRegistry', () => ({
+  useWarehouseRegistry: () => useWarehouseRegistryMock()
 }));
 
 vi.mock('../../hooks/useInventoryQueries', () => ({
@@ -57,6 +62,14 @@ function mockReportsSummary(data = {}) {
 describe('useReportsPageModel', () => {
   beforeEach(() => {
     useReportsSummaryMock.mockReset();
+    useWarehouseRegistryMock.mockReset();
+    useWarehouseRegistryMock.mockReturnValue({
+      scopeReady: true,
+      entries: [
+        { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
+        { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
+      ]
+    });
     mockReportsSummary();
   });
 
@@ -105,6 +118,23 @@ describe('useReportsPageModel', () => {
         film: 'Prestige 70',
         width: '60',
         rankBy: 'jobs_using_it'
+      })
+    );
+  });
+
+  it('drops a warehouse filter that is absent from the active org registry', () => {
+    const { result } = renderHook(() => useReportsPageModel(), {
+      wrapper: createWrapper()
+    });
+
+    act(() => {
+      result.current.patchMostUsedFilmFilters({ warehouse: 'MI1' });
+    });
+
+    expect(result.current.filters.warehouse).toBe('');
+    expect(useReportsSummaryMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        warehouse: ''
       })
     );
   });
