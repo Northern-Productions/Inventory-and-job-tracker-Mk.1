@@ -9,6 +9,7 @@ import {
   loadCaulkPlanningByJobContexts,
   maybeLogCaulkFallbackCoverageDecision,
   shouldUseCache,
+  statusFromRpcError,
 } from "./api-handler.ts";
 import { createInventoryRepositories } from "./repositories/inventoryRepositories.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
@@ -83,6 +84,38 @@ Deno.test("Edge response cache remains allowlisted for stable reference reads on
 
   assertEquals(shouldUseCache("POST", "/allocations/caulk/add"), false, "Expected mutations to bypass cache.");
   assertEquals(shouldUseCache("GET", "/boxes/transfer/plan"), false, "Expected dynamic planning reads to bypass cache.");
+});
+
+Deno.test("Edge RPC status parser preserves app_api.raise_http business denial statuses", () => {
+  assertEquals(
+    statusFromRpcError({
+      message: "This email is already attached to another active or invited organization.",
+      details: "status=409",
+    }),
+    409,
+    "Expected Supabase-style details to preserve other-org invite denial status.",
+  );
+  assertEquals(
+    statusFromRpcError({
+      message: "Target user is not a member of this organization.",
+      detail: "status=404",
+    }),
+    404,
+    "Expected Postgres-style detail to preserve wrong-org target denial status.",
+  );
+  assertEquals(
+    statusFromRpcError({
+      message: "At least one active owner must remain in this organization.",
+      details: "status=400",
+    }),
+    400,
+    "Expected last-owner denial status to remain a business 4xx.",
+  );
+  assertEquals(
+    statusFromRpcError({ message: "Unexpected low-level failure." }),
+    500,
+    "Expected unclassified RPC errors to remain 500.",
+  );
 });
 
 Deno.test("Edge film weight chart read routes delegate to read-model dependencies", async () => {

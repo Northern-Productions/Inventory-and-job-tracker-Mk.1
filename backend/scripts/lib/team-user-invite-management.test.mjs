@@ -9,7 +9,10 @@ import {
   READ_PATHS,
   ROUTE_FEATURE_MAP,
 } from '../../../shared/domain/runtimeContract.mjs';
+import { queryRow } from '../../src/db/client.mjs';
+import { HttpError } from '../../src/lib/http.mjs';
 import { shouldUseLocalFallbackRoute } from '../../src/routes/localFallbackRoutes.mjs';
+import { changeTeamUserRole } from '../../src/app/services/teamUsers.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const backendMigrationPath = path.join(
@@ -224,4 +227,77 @@ test('local team invite service uses server-side Supabase admin invite and repor
   assert.match(source, /api_record_team_invite/);
   assert.match(source, /Supabase invite may have been sent, but app membership was not recorded/);
   assert.doesNotMatch(source, /password/i);
+});
+
+test('local backend preserves team business denial statuses from app_api.raise_http', async () => {
+  const cases = [
+    {
+      detail: 'status=409',
+      message: 'This email is already attached to another active or invited organization.',
+      statusCode: 409,
+    },
+    {
+      detail: 'status=404',
+      message: 'Target user is not a member of this organization.',
+      statusCode: 404,
+    },
+    {
+      detail: 'status=400',
+      message: 'At least one active owner must remain in this organization.',
+      statusCode: 400,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const client = {
+      query: async () => {
+        const error = new Error(testCase.message);
+        error.detail = testCase.detail;
+        throw error;
+      },
+    };
+
+    await assert.rejects(
+      () => queryRow(client, 'select public.some_team_rpc()'),
+      (error) => {
+        assert.equal(error instanceof HttpError, true);
+        assert.equal(error.statusCode, testCase.statusCode);
+        assert.equal(error.message, testCase.message);
+        return true;
+      }
+    );
+  }
+});
+
+test('local team validation remains 400 and unexpected database errors stay unclassified', async () => {
+  let queryCount = 0;
+  const client = {
+    query: async () => {
+      queryCount += 1;
+      throw new Error('Unexpected low-level failure.');
+    },
+  };
+
+  await assert.rejects(
+    () => changeTeamUserRole(client, '11111111-1111-4111-8111-111111111111', 'owner', {
+      userId: '22222222-2222-4222-8222-222222222222',
+      role: 'root',
+    }),
+    (error) => {
+      assert.equal(error instanceof HttpError, true);
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.message, 'A valid role is required.');
+      return true;
+    }
+  );
+  assert.equal(queryCount, 0, 'Invalid payload should be rejected before any database mutation RPC.');
+
+  await assert.rejects(
+    () => queryRow(client, 'select public.some_team_rpc()'),
+    (error) => {
+      assert.equal(error instanceof HttpError, false);
+      assert.equal(error.message, 'Unexpected low-level failure.');
+      return true;
+    }
+  );
 });

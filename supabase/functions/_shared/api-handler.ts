@@ -1335,8 +1335,8 @@ async function sendNewAccessRequestNotification(params: {
   });
 }
 
-function statusFromRpcError(error: any, fallback = 500) {
-  const detail = asTrimmedString(error?.details);
+export function statusFromRpcError(error: any, fallback = 500) {
+  const detail = asTrimmedString(error?.details || error?.detail);
   const match = detail.match(/status=(\d+)/i);
   return match ? Number(match[1]) : fallback;
 }

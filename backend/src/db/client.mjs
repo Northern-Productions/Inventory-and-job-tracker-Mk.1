@@ -3,6 +3,7 @@ import { HttpError } from '../lib/http.mjs';
 import { pool, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/runtime.mjs';
 
 const CONCURRENCY_CONFLICT_SQLSTATE = new Set(['40001', '40P01', '55P03']);
+const RPC_HTTP_STATUS_PATTERN = /status=(\d+)/i;
 
 export function ensureConfigured() {
   if (!pool) {
@@ -27,6 +28,33 @@ function assertCallback(callback, caller) {
 function isConcurrencyConflictError(error) {
   const sqlState = error && typeof error === 'object' ? error.code : '';
   return typeof sqlState === 'string' && CONCURRENCY_CONFLICT_SQLSTATE.has(sqlState);
+}
+
+function rpcHttpStatusFromError(error) {
+  if (!error || typeof error !== 'object') {
+    return null;
+  }
+
+  const detail = String(error.detail || error.details || '').trim();
+  const match = detail.match(RPC_HTTP_STATUS_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const statusCode = Number(match[1]);
+  return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : null;
+}
+
+function httpErrorFromRpcError(error) {
+  const statusCode = rpcHttpStatusFromError(error);
+  if (!statusCode) {
+    return null;
+  }
+
+  const message =
+    String(error?.message || '').trim() ||
+    'Unexpected database error.';
+  return new HttpError(statusCode, message);
 }
 
 export async function withReadClient(callback) {
@@ -163,8 +191,16 @@ export async function withMutation(callback) {
 }
 
 export async function queryRows(client, text, params = []) {
-  const result = await client.query(text, params);
-  return result.rows;
+  try {
+    const result = await client.query(text, params);
+    return result.rows;
+  } catch (error) {
+    const rpcHttpError = httpErrorFromRpcError(error);
+    if (rpcHttpError) {
+      throw rpcHttpError;
+    }
+    throw error;
+  }
 }
 
 export async function queryRow(client, text, params = []) {
