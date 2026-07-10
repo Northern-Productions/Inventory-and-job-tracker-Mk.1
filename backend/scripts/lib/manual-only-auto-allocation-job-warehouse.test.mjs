@@ -117,7 +117,7 @@ test('schema latest guard tracks manual-only planner semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0186_team_user_rpc_execute_grants\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0187_caulk_owner_transfer_id_uppercase\.sql';/);
 
   assert.match(schemaLatest, /'manualOnly', true/);
   assert.match(schemaLatest, /insert into app\.allocations/);

@@ -124,7 +124,7 @@ test('allocation apply jobId scope migration does not alter deferred workflows o
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0186_team_user_rpc_execute_grants\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0187_caulk_owner_transfer_id_uppercase\.sql';/);
 
   assert.match(schemaCheck, /'jobIds',/);
   assert.match(schemaCheck, /jsonb_build_array\(v_job\.id\)/);

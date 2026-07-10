@@ -67,7 +67,7 @@ test('latest schema check guards the access-management RPC permission surface', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0186_team_user_rpc_execute_grants\.sql/);
+  assert.match(schemaCheck, /0187_caulk_owner_transfer_id_uppercase\.sql/);
 
   assert.match(schemaCheck, /REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES/);
   assert.match(schemaCheck, /service_role_executable_required_public_api/);

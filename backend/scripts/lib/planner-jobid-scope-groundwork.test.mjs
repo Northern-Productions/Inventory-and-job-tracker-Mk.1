@@ -65,7 +65,7 @@ test('planner jobId scope groundwork preserves legacy jobNumber planner behavior
   assert.doesNotMatch(migration, /drop function/i);
   assert.doesNotMatch(migration, /create or replace function app_api\.auto_planner_scope_job_numbers/);
 
-  assert.match(schemaCheck, /0186_team_user_rpc_execute_grants\.sql/);
+  assert.match(schemaCheck, /0187_caulk_owner_transfer_id_uppercase\.sql/);
 
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_ids\(uuid, jsonb\)/);

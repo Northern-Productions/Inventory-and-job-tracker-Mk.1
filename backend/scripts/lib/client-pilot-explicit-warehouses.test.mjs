@@ -49,5 +49,5 @@ test('client pilot migration removes only the automatic org warehouse seed trigg
 test('schema latest guard expects client pilot explicit warehouses migration', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0186_team_user_rpc_execute_grants\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0187_caulk_owner_transfer_id_uppercase\.sql';/);
 });

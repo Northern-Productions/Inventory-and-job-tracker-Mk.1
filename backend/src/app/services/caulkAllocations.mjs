@@ -218,7 +218,7 @@ async function createCaulkTransactionId(client) {
   if (!transferId) {
     throw new HttpError(500, 'Caulk transfer ID generation failed.');
   }
-  return transferId;
+  return transferId.toUpperCase();
 }
 
 async function applyCaulkDelta(

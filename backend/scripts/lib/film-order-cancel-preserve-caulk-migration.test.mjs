@@ -48,7 +48,7 @@ test('latest schema check tracks film-order cancel caulk preservation semantics'
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0186_team_user_rpc_execute_grants\.sql/);
+  assert.match(schemaCheck, /0187_caulk_owner_transfer_id_uppercase\.sql/);
 
   assert.match(schemaCheck, /public\.api_film_orders_cancel\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /app_api\.cancel_active_caulk_allocations_for_job\(/);

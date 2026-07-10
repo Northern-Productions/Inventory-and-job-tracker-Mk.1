@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0186_team_user_rpc_execute_grants.sql';
+const LATEST_MIGRATION = '0187_caulk_owner_transfer_id_uppercase.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -299,6 +299,15 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app_api.caulk_apply_stock_delta_for_owner'
     ],
     excludes: []
+  },
+  {
+    signature: 'app_api.caulk_start_pending_transfer_for_owner(uuid, text, uuid, text, uuid, text, uuid, uuid, text, text, integer, text)',
+    includes: [
+      'v_transfer_id := upper(app_api.caulk_create_transaction_id());',
+      'app_api.caulk_apply_stock_delta_for_owner',
+      'insert into app.caulk_transfers'
+    ],
+    excludes: ['v_transfer_id := app_api.caulk_create_transaction_id();']
   },
   {
     signature: 'app_api.resolve_box_id_alias(uuid, text, timestamp with time zone)',

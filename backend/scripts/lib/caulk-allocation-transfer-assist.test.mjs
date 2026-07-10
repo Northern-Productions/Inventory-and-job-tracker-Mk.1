@@ -143,7 +143,7 @@ class FakeCaulkClient {
 
     if (sql.includes('select app_api.caulk_create_transaction_id() as transfer_id')) {
       this.transferIdCounter += 1;
-      return { rows: [{ transfer_id: `TX-${this.transferIdCounter}` }] };
+      return { rows: [{ transfer_id: `20260710150000-a00${this.transferIdCounter}` }] };
     }
 
     if (sql.includes('select app_api.caulk_apply_stock_delta_for_owner(')) {
@@ -341,9 +341,14 @@ test('addCaulkAllocation starts a pending transfer for the shortage and leaves d
   assert.equal(client.transfers[0].destination_warehouse, 'MS1');
   assert.equal(client.transfers[0].pending_tubes, 3);
   assert.equal(client.transfers[0].status, 'PENDING');
+  assert.equal(client.transfers[0].transfer_id, '20260710150000-A001');
   assert.deepEqual(
     client.deltaLog.map((entry) => entry.action),
     ['TRANSFER_OUT']
+  );
+  assert.deepEqual(
+    client.deltaLog.map((entry) => entry.transferId),
+    ['20260710150000-A001']
   );
 });
 
