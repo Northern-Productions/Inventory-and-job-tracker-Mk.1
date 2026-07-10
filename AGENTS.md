@@ -2,7 +2,7 @@
 
 ## Start Every Task
 
-1. Read this file and `docs/automation/codex-operating-manual.md`.
+1. Read this file, `docs/automation/codex-operating-manual.md`, `docs/automation/task-tiers.md`, `docs/automation/release-doctor.md`, and `docs/automation/sage-codex-workflow.md`.
 2. Run `npm --prefix backend run codex:refresh`.
 3. Classify the task tier before choosing checks.
 4. Read `docs/material-flow-rules.md` before touching inventory, material flow, allocations, film orders, boxes, check-in, check-out, caulk, ownership, or reconciliation.
@@ -11,6 +11,7 @@
 ## Default Workflow
 
 - Work DEV-first on a feature branch.
+- Rob is the client/product owner, Sage is the technical lead and safety gate, and Codex is the implementation worker. See `docs/automation/sage-codex-workflow.md`.
 - Inspect existing patterns before editing.
 - Keep changes small, targeted, and maintainable.
 - Commit finished feature-branch work after verification.

@@ -107,9 +107,14 @@ function main() {
   console.log('taskStartReminders:');
   console.log('  - read AGENTS.md');
   console.log('  - read docs/automation/codex-operating-manual.md');
+  console.log('  - read docs/automation/task-tiers.md');
+  console.log('  - read docs/automation/release-doctor.md for release work');
+  console.log('  - read docs/automation/sage-codex-workflow.md');
   console.log('  - classify the task tier before choosing checks');
+  console.log('  - Rob is product owner, Sage is technical lead/safety gate, Codex is implementation worker');
   console.log('  - read docs/material-flow-rules.md before inventory/material/caulk/film-order/check-in/check-out changes');
   console.log('  - use DEV fixture/browser verification for protected workflow mutations');
+  console.log('  - DEV proves changes; PROD requires explicit release approval');
   console.log('  - no PROD mutation, migration, Edge deploy, Vercel deploy, main push, branch cleanup, env changes, raw SQL writes, or npm audit fix without explicit approval');
   console.log('  - never print secrets, tokens, auth headers, DB URLs, or full env files');
 }

@@ -1,6 +1,6 @@
 # Codex Automation Operating Manual
 
-This manual is the shared operating contract for Rob, Sage, and Codex. It keeps routine work fast while protecting secrets, DEV/PROD targets, schema state, and business data.
+This manual is the shared operating contract for Rob, Sage, and Codex. It keeps routine work fast while protecting secrets, DEV/PROD targets, schema state, and business data. Pair it with `docs/automation/sage-codex-workflow.md` for the collaboration model and report expectations.
 
 ## Project Targets
 
@@ -14,21 +14,22 @@ This manual is the shared operating contract for Rob, Sage, and Codex. It keeps 
 
 1. Read `AGENTS.md`.
 2. Read this manual.
-3. Run:
+3. Read `docs/automation/task-tiers.md`, `docs/automation/release-doctor.md`, and `docs/automation/sage-codex-workflow.md`.
+4. Run:
 
 ```powershell
 npm --prefix backend run codex:refresh
 ```
 
-4. Classify the changed files or requested work:
+5. Classify the changed files or requested work:
 
 ```powershell
 npm --prefix backend run codex:classify -- --base origin/main --head HEAD
 ```
 
-5. Use `docs/automation/task-tiers.md` to pick checks and verification.
-6. Read `docs/material-flow-rules.md` before touching inventory, boxes, allocations, material flow, caulk, film orders, check-in, check-out, ownership, or reconciliation.
-7. Confirm the prompt has explicit release approval before merge, main push, PROD migration, Edge deploy, Vercel deploy, or PROD mutation.
+6. Use `docs/automation/task-tiers.md` to pick checks and verification.
+7. Read `docs/material-flow-rules.md` before touching inventory, boxes, allocations, material flow, caulk, film orders, check-in, check-out, ownership, or reconciliation.
+8. Confirm the prompt has explicit release approval before merge, main push, PROD migration, Edge deploy, Vercel deploy, or PROD mutation.
 
 ## Secret Handling
 
@@ -192,6 +193,7 @@ The release doctor is read-only. It standardizes the checklist but does not repl
 - Commit verified feature-branch work.
 - Do not open PRs by default.
 - Do not merge into `main`, push `main`, or clean up branches unless explicitly approved.
+- Keep migration, security, release, verification, and feature branches until Rob/Sage approve cleanup.
 - If the worktree is dirty, preserve user changes and avoid reverting unrelated work.
 
 ## Sage Alignment Report
@@ -219,5 +221,5 @@ Every final report should include:
 Sage can shorten future prompts by starting with:
 
 ```text
-Before starting, read AGENTS.md and run the Codex refresh checklist. Classify the task tier and report required checks. Follow docs/automation/codex-operating-manual.md. Do not perform forbidden actions without explicit approval.
+Before starting, read AGENTS.md and run `npm --prefix backend run codex:refresh`; classify the task tier and required checks; follow docs/automation/codex-operating-manual.md.
 ```
