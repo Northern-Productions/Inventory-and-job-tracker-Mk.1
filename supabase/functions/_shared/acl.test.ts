@@ -99,6 +99,17 @@ Deno.test("Edge ACL denies disabled feature read routes", () => {
   );
 });
 
+Deno.test("Edge ACL denies safe next BoxID suggestion without inventory read access", () => {
+  assertDenied(
+    "GET",
+    "/boxes/suggest-next-id",
+    identity({ permissions: permissions({ inventory: { read: false, write: true } }) }),
+    403,
+    "Feature access denied.",
+    "Safe next BoxID suggestion must require inventory read permission.",
+  );
+});
+
 Deno.test("Edge ACL denies disabled feature write routes", () => {
   assertDenied(
     "POST",
