@@ -93,7 +93,6 @@ export const LOCAL_FALLBACK_READ_PATHS = new Set([
   "/roll-history/by-box",
   "/auth/context",
   "/admin/access/requests",
-  "/admin/feature-permissions",
   "/admin/username-requests",
   "/owner/team/users",
 ]);

@@ -1,7 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { shouldUseLocalFallbackRoute } from '../../src/routes/localFallbackRoutes.mjs';
+import {
+  LOCAL_FALLBACK_MUTATION_PATHS,
+  LOCAL_FALLBACK_READ_PATHS,
+  shouldUseLocalFallbackRoute,
+} from '../../src/routes/localFallbackRoutes.mjs';
+import { extractRoutesFromHandlerSource } from './runtime-contract-parity.mjs';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const backendRoot = path.resolve(scriptDir, '..', '..');
+
+function readHandlerRoutes(relativePath) {
+  return extractRoutesFromHandlerSource(
+    fs.readFileSync(path.join(backendRoot, relativePath), 'utf8')
+  );
+}
+
+function missingRoutes(selectedRoutes, implementedRoutes, exceptions = new Set()) {
+  return [...selectedRoutes]
+    .filter((route) => !implementedRoutes.has(route) && !exceptions.has(route))
+    .sort();
+}
 
 test('uses local fallback for localhost inventory, job, film-order, and caulk write paths used by the safe test environment', () => {
   assert.equal(shouldUseLocalFallbackRoute('POST', '/profile/default-warehouse'), true);
@@ -51,4 +74,23 @@ test('uses local fallback for localhost film, allocation, audit, and caulk reads
 test('keeps unrelated auth and profile routes on their previous execution path', () => {
   assert.equal(shouldUseLocalFallbackRoute('GET', '/auth/context'), true);
   assert.equal(shouldUseLocalFallbackRoute('POST', '/profile/username'), false);
+});
+
+test('does not select the stale admin feature permissions route for local fallback', () => {
+  assert.equal(shouldUseLocalFallbackRoute('GET', '/admin/feature-permissions'), false);
+  assert.equal(shouldUseLocalFallbackRoute('POST', '/admin/feature-permissions'), false);
+});
+
+test('keeps local fallback selectors backed by method-matching local handlers', () => {
+  const readHandlers = readHandlerRoutes('src/app/handlers/readHandlers.mjs');
+  const mutationHandlers = readHandlerRoutes('src/app/handlers/mutationHandlers.mjs');
+
+  // Auth context is handled directly before the read-handler dispatcher.
+  const readRouteExceptions = new Set(['/auth/context']);
+
+  assert.deepEqual(
+    missingRoutes(LOCAL_FALLBACK_READ_PATHS, readHandlers, readRouteExceptions),
+    []
+  );
+  assert.deepEqual(missingRoutes(LOCAL_FALLBACK_MUTATION_PATHS, mutationHandlers), []);
 });
