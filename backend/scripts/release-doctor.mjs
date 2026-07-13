@@ -119,6 +119,7 @@ function printPreflight({ base, head, expectedProdRef }) {
   console.log('  - confirm release approval is explicit');
   console.log('  - confirm release branch and commit match the approved prompt');
   console.log('  - run all required checks listed above before merge/push/deploy');
+  console.log('  - create a read-only release:integrity pre snapshot before the first approved release action');
   console.log('  - verify DEV/local fixture workflow before releasing mutation behavior');
   console.log('  - verify migrations are mirrored and applied only after target guard and approval');
   console.log('  - verify Edge/API deploy is needed before deploying only intended functions');
@@ -153,6 +154,7 @@ function printPost({ expectedCommit, expectedProdRef }) {
   console.log('  - confirm migration history is aligned if migrations were approved');
   console.log('  - confirm Edge /health reports the released apiBuildSha when Edge deployed');
   console.log('  - confirm Vercel production deployment is READY at the released commit');
+  console.log('  - create and compare the release:integrity post snapshot before sign-off');
   console.log('  - confirm production app shell loads and bundle/config points to PROD, not DEV/local');
   console.log('  - run safe unauthenticated route smokes for touched routes');
   console.log('  - report authenticated PROD mutation checks as skipped unless approved fixture data exists');

@@ -65,6 +65,15 @@ test('target env guard extracts refs from Supabase URLs and DB URLs', () => {
   );
 });
 
+test('target env guard extracts refs from Supabase pooler usernames', () => {
+  assert.equal(
+    extractDbProjectRef(
+      `postgresql://postgres.${DEV_PROJECT_REF}:secret@aws-0-us-east-1.pooler.supabase.com:6543/postgres`
+    ),
+    DEV_PROJECT_REF
+  );
+});
+
 test('target env guard reports explicit ref variables', () => {
   const envValues = parseEnvContents(`
 DEV_PROJECT_REF=${DEV_PROJECT_REF}

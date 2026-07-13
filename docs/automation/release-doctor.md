@@ -1,6 +1,6 @@
 # Release Doctor
 
-`release:doctor` is a read-only checklist helper for release preflight and post-release verification. It does not merge, push, deploy, apply migrations, mutate data, read secret values, or replace Codex judgment.
+`release:doctor` is a read-only checklist helper for release preflight and post-release verification. Pair it with the read-only database gate in `docs/automation/release-integrity.md`. Neither command merges, pushes, deploys, applies migrations, mutates data, reads secret values, or replaces Codex judgment.
 
 ## Preflight
 
@@ -23,6 +23,8 @@ The preflight prints:
 
 Use the output to decide which checks must pass before release.
 
+Before the first approved release action, create the pre-release `release:integrity` snapshot. Prefer strict mode for high-risk migrations and a controlled activity window.
+
 ## Post-Release
 
 Run this after an approved release has been pushed/deployed:
@@ -40,6 +42,8 @@ The post mode prints:
 - post-release verification checklist
 - forbidden actions
 
+Create the post-release `release:integrity` snapshot and compare it before sign-off. Observe mode must return review-required when live activity changed protected data; it must not be treated as silent success.
+
 ## What It Does Not Do
 
 The script intentionally does not:
@@ -51,6 +55,8 @@ The script intentionally does not:
 - call authenticated mutation endpoints
 - query or print secret values
 - clean up branches
+
+The integrity companion also never writes to the database and stores no business row contents. Its limits and exact snapshot contents are documented in `docs/automation/release-integrity.md`.
 
 ## Pair With Repo Checks
 

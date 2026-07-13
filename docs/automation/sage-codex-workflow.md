@@ -39,6 +39,7 @@ Before starting, read AGENTS.md and run `npm --prefix backend run codex:refresh`
 - Use local feature, fix, security, or ops branches for implementation.
 - Sage reviews Codex reports before release.
 - Work DEV-first. Release is a separate approval mode.
+- Approved releases should use read-only `release:integrity` pre/post snapshots; strict mode is recommended for high-risk migrations, while observe mode always requires review when live activity changes protected data.
 - Branch cleanup is not automatic. Keep migration, security, release, verification, and feature branches until Rob/Sage approve cleanup.
 - Do not open a PR, merge `main`, push `main`, deploy, apply PROD migrations, mutate PROD data, repair PROD data, or delete branches unless the prompt explicitly approves that action.
 

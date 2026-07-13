@@ -152,9 +152,11 @@ Create and mutate only clearly tagged fixture records after DEV target verificat
 
 - Confirm approved migration files and mirrors.
 - Guard PROD target.
+- Create a pre-release integrity snapshot; use strict comparison for high-risk migrations.
 - Check migration status before apply.
 - Apply only approved migrations.
 - Re-check migration status and schema/latest.
+- Create the post-release integrity snapshot and compare it before sign-off.
 - No Edge/Vercel deploy unless code also changed.
 
 ### Edge/API Release
@@ -169,6 +171,7 @@ Create and mutate only clearly tagged fixture records after DEV target verificat
 
 - Use release order: migrations first, then Edge/API, then frontend.
 - Verify each surface before moving to the next.
+- Bracket the approved release window with `release:integrity` snapshots.
 - Perform read-only PROD smoke unless an approved fixture mutation exists.
 
 ## Release Doctor
@@ -186,6 +189,8 @@ npm --prefix backend run release:doctor -- --mode post --expected-commit <sha> -
 ```
 
 The release doctor is read-only. It standardizes the checklist but does not replace Codex judgment or Rob/Sage approval.
+
+Pair it with the read-only integrity gate documented in `docs/automation/release-integrity.md`. Strict comparison is recommended when a controlled release window is available, especially for high-risk migrations. Observe comparison reports changes as review-required when normal user activity cannot be paused.
 
 ## Git Workflow
 

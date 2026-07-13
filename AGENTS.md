@@ -40,7 +40,7 @@ Never print secrets, tokens, auth headers, DB URLs, service-role keys, anon keys
 
 ## Releases
 
-For any release prompt, run or follow `npm --prefix backend run release:doctor -- --mode preflight` before merge/push/deploy, then follow `docs/automation/release-doctor.md`. Production mutation verification is skipped unless a clearly approved safe PROD fixture path exists.
+For any release prompt, run or follow `npm --prefix backend run release:doctor -- --mode preflight` before merge/push/deploy, then follow `docs/automation/release-doctor.md`. Use the read-only `release:integrity` pre/post snapshots from `docs/automation/release-integrity.md`; strict mode is recommended for high-risk migrations. Production mutation verification is skipped unless a clearly approved safe PROD fixture path exists.
 
 ## Reports
 

@@ -139,6 +139,12 @@ function extractDbProjectRef(value) {
     if (match?.[1]) {
       return normalizeRef(match[1]);
     }
+
+    const username = decodeURIComponent(parsed.username || '');
+    const pooledMatch = username.match(/(?:^|\.)([a-z0-9]{10,40})$/i);
+    if (pooledMatch?.[1] && /\.pooler\.supabase\.com$/i.test(parsed.hostname)) {
+      return normalizeRef(pooledMatch[1]);
+    }
   } catch (_error) {
     // Fall through to regex extraction.
   }
@@ -146,6 +152,13 @@ function extractDbProjectRef(value) {
   const hostMatch = normalized.match(/\bdb\.([a-z0-9-]+)\.supabase\.co\b/i);
   if (hostMatch?.[1]) {
     return normalizeRef(hostMatch[1]);
+  }
+
+  const pooledMatch = normalized.match(
+    /postgres(?:ql)?:\/\/[^:@/]+\.([a-z0-9]{10,40})(?::[^@/]*)?@[^/]*\.pooler\.supabase\.com\b/i
+  );
+  if (pooledMatch?.[1]) {
+    return normalizeRef(pooledMatch[1]);
   }
 
   const queryMatch = normalized.match(/[?&](?:project|project_ref|ref)=([a-z0-9]{10,40})\b/i);
