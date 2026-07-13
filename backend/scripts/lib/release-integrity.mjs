@@ -3,13 +3,55 @@ import crypto from 'node:crypto';
 import { TARGET_REFS } from './target-env-guards.mjs';
 
 const SNAPSHOT_FORMAT = 'window-film-release-integrity';
-const SNAPSHOT_VERSION = 1;
-const ROW_FINGERPRINT_ALGORITHM = 'sha256-over-sorted-md5-jsonb-v1';
+const SNAPSHOT_VERSION = 2;
+const PROTECTED_PROFILE_VERSION = 2;
+const AUTH_FINGERPRINT_POLICY_VERSION = 1;
+const ROW_FINGERPRINT_ALGORITHM = 'sha256-over-sorted-sha256-jsonb-v2';
 const SCHEMA_FINGERPRINT_ALGORITHM = 'sha256-over-column-metadata-v1';
 const PROTECTED_SCOPE = Object.freeze({
   discoveredSchemas: Object.freeze(['app']),
   explicitTables: Object.freeze(['auth.users'])
 });
+const AUTH_USER_COLUMN_POLICY = Object.freeze({
+  instance_id: Object.freeze({ classification: 'included_structural', reason: 'stable Auth instance identity' }),
+  id: Object.freeze({ classification: 'included_structural', reason: 'immutable account identity inside the database aggregate' }),
+  aud: Object.freeze({ classification: 'included_structural', reason: 'stable account audience' }),
+  role: Object.freeze({ classification: 'included_structural', reason: 'stable account role' }),
+  email: Object.freeze({ classification: 'excluded_personal_data', reason: 'email address' }),
+  encrypted_password: Object.freeze({ classification: 'excluded_credential', reason: 'password verifier' }),
+  email_confirmed_at: Object.freeze({ classification: 'included_structural', reason: 'account confirmation lifecycle' }),
+  invited_at: Object.freeze({ classification: 'included_structural', reason: 'account invitation lifecycle' }),
+  confirmation_token: Object.freeze({ classification: 'excluded_token', reason: 'confirmation token material' }),
+  confirmation_sent_at: Object.freeze({ classification: 'excluded_volatile', reason: 'confirmation delivery activity' }),
+  recovery_token: Object.freeze({ classification: 'excluded_token', reason: 'recovery token material' }),
+  recovery_sent_at: Object.freeze({ classification: 'excluded_volatile', reason: 'recovery delivery activity' }),
+  email_change_token_new: Object.freeze({ classification: 'excluded_token', reason: 'email change token material' }),
+  email_change: Object.freeze({ classification: 'excluded_personal_data', reason: 'pending email address' }),
+  email_change_sent_at: Object.freeze({ classification: 'excluded_volatile', reason: 'email change delivery activity' }),
+  last_sign_in_at: Object.freeze({ classification: 'excluded_volatile', reason: 'ordinary sign-in activity' }),
+  raw_app_meta_data: Object.freeze({ classification: 'excluded_metadata', reason: 'unreviewed Auth application metadata' }),
+  raw_user_meta_data: Object.freeze({ classification: 'excluded_metadata', reason: 'unreviewed user metadata' }),
+  is_super_admin: Object.freeze({ classification: 'included_structural', reason: 'stable authorization flag' }),
+  created_at: Object.freeze({ classification: 'included_structural', reason: 'account creation lifecycle' }),
+  updated_at: Object.freeze({ classification: 'excluded_volatile', reason: 'may change during ordinary Auth activity' }),
+  phone: Object.freeze({ classification: 'excluded_personal_data', reason: 'phone number' }),
+  phone_confirmed_at: Object.freeze({ classification: 'included_structural', reason: 'account confirmation lifecycle' }),
+  phone_change: Object.freeze({ classification: 'excluded_personal_data', reason: 'pending phone number' }),
+  phone_change_token: Object.freeze({ classification: 'excluded_token', reason: 'phone change token material' }),
+  phone_change_sent_at: Object.freeze({ classification: 'excluded_volatile', reason: 'phone change delivery activity' }),
+  confirmed_at: Object.freeze({ classification: 'included_structural', reason: 'account confirmation lifecycle' }),
+  email_change_token_current: Object.freeze({ classification: 'excluded_token', reason: 'email change token material' }),
+  email_change_confirm_status: Object.freeze({ classification: 'included_structural', reason: 'email change lifecycle state' }),
+  banned_until: Object.freeze({ classification: 'included_structural', reason: 'account disabled lifecycle state' }),
+  reauthentication_token: Object.freeze({ classification: 'excluded_token', reason: 'reauthentication token material' }),
+  reauthentication_sent_at: Object.freeze({ classification: 'excluded_volatile', reason: 'reauthentication delivery activity' }),
+  is_sso_user: Object.freeze({ classification: 'included_structural', reason: 'stable account type flag' }),
+  deleted_at: Object.freeze({ classification: 'included_structural', reason: 'account deletion lifecycle state' }),
+  is_anonymous: Object.freeze({ classification: 'included_structural', reason: 'stable account type flag' })
+});
+const REQUIRED_AUTH_USER_COLUMNS = Object.freeze(['id', 'created_at']);
+const SENSITIVE_COLUMN_NAME_PATTERN =
+  /(?:^|_)(?:passwords?|secrets?|tokens?|credentials?|refresh|sessions?|recovery|confirmation|reauth(?:entication)?|otp|mfa|private_keys?|api_keys?)(?:_|$)/i;
 
 function asText(value) {
   return String(value ?? '').trim();
@@ -33,6 +75,63 @@ function qualifiedTableName(table) {
 
 function tableKey(table) {
   return `${table.schema}.${table.table}`;
+}
+
+function quoteLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function authUserColumnClassification(columnName) {
+  return AUTH_USER_COLUMN_POLICY[asText(columnName)] || null;
+}
+
+function includedAuthUserColumns(columnNames = []) {
+  return columnNames.filter(
+    (columnName) => authUserColumnClassification(columnName)?.classification === 'included_structural'
+  );
+}
+
+function assertAuthUserColumnPolicy(columnNames = []) {
+  const normalized = columnNames.map(asText).filter(Boolean);
+  const unknown = normalized.filter((columnName) => !authUserColumnClassification(columnName));
+  if (unknown.length > 0) {
+    throw new Error(`Unclassified auth.users columns: ${unknown.sort().join(', ')}.`);
+  }
+  const missingRequired = REQUIRED_AUTH_USER_COLUMNS.filter(
+    (columnName) => !normalized.includes(columnName)
+  );
+  if (missingRequired.length > 0) {
+    throw new Error(`Required auth.users columns are missing: ${missingRequired.join(', ')}.`);
+  }
+  return includedAuthUserColumns(normalized);
+}
+
+function findSensitiveColumns(columnNames = []) {
+  return columnNames.map(asText).filter((columnName) => SENSITIVE_COLUMN_NAME_PATTERN.test(columnName));
+}
+
+function assertProtectedColumnPolicy(table, columnNames = []) {
+  const name = tableKey(table);
+  if (name === 'auth.users') {
+    return assertAuthUserColumnPolicy(columnNames);
+  }
+  const sensitive = findSensitiveColumns(columnNames);
+  if (sensitive.length > 0) {
+    throw new Error(`Protected table ${name} has sensitive-looking columns: ${sensitive.sort().join(', ')}.`);
+  }
+  return columnNames;
+}
+
+function buildCanonicalRowExpression(table, columnNames = []) {
+  if (tableKey(table) !== 'auth.users') {
+    return 'pg_catalog.to_jsonb(source_row)';
+  }
+  const included = assertAuthUserColumnPolicy(columnNames);
+  const pairs = included.flatMap((columnName) => [
+    quoteLiteral(columnName),
+    `source_row.${quoteIdentifier(columnName)}`
+  ]);
+  return `pg_catalog.jsonb_build_object(${pairs.join(', ')})`;
 }
 
 function normalizeStringSet(values = []) {
@@ -72,6 +171,11 @@ function validateSnapshot(snapshot, label = 'snapshot') {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
     throw new Error(`${label} must be a JSON object.`);
   }
+  if (snapshot.format !== SNAPSHOT_FORMAT || snapshot.version !== SNAPSHOT_VERSION) {
+    throw new Error(
+      `${label} fingerprint profile is incompatible with this tool; regenerate both snapshots.`
+    );
+  }
   assertExactKeys(
     snapshot,
     [
@@ -99,6 +203,8 @@ function validateSnapshot(snapshot, label = 'snapshot') {
     [
       'discoveredSchemas',
       'explicitTables',
+      'protectedProfileVersion',
+      'authFingerprintPolicyVersion',
       'protectedTableCount',
       'rowFingerprintAlgorithm'
     ],
@@ -119,9 +225,6 @@ function validateSnapshot(snapshot, label = 'snapshot') {
     ['tableCount', 'tables'],
     `${label}.protectedData`
   );
-  if (snapshot.format !== SNAPSHOT_FORMAT || snapshot.version !== SNAPSHOT_VERSION) {
-    throw new Error(`${label} uses an unsupported release-integrity snapshot format.`);
-  }
   if (!['pre', 'post'].includes(snapshot.phase)) {
     throw new Error(`${label}.phase must be pre or post.`);
   }
@@ -147,6 +250,12 @@ function validateSnapshot(snapshot, label = 'snapshot') {
   }
   if (snapshot.coverage?.rowFingerprintAlgorithm !== ROW_FINGERPRINT_ALGORITHM) {
     throw new Error(`${label} uses an unsupported row fingerprint algorithm.`);
+  }
+  if (
+    snapshot.coverage?.protectedProfileVersion !== PROTECTED_PROFILE_VERSION ||
+    snapshot.coverage?.authFingerprintPolicyVersion !== AUTH_FINGERPRINT_POLICY_VERSION
+  ) {
+    throw new Error(`${label} uses an incompatible protected fingerprint profile.`);
   }
   if (snapshot.schemaState?.algorithm !== SCHEMA_FINGERPRINT_ALGORITHM) {
     throw new Error(`${label} uses an unsupported schema fingerprint algorithm.`);
@@ -280,6 +389,24 @@ async function assertTableReadable(client, table) {
   }
 }
 
+async function listTableColumns(client, table) {
+  const result = await client.query(
+    `
+      select column_name
+      from information_schema.columns
+      where table_schema = $1
+        and table_name = $2
+      order by ordinal_position
+    `,
+    [table.schema, table.table]
+  );
+  const columns = result.rows.map((row) => asText(row.column_name)).filter(Boolean);
+  if (columns.length === 0) {
+    throw new Error(`Protected table ${tableKey(table)} has no visible columns.`);
+  }
+  return columns;
+}
+
 async function captureTableSchema(client, table) {
   const name = tableKey(table);
   const result = await client.query(
@@ -315,43 +442,83 @@ async function captureTableSchema(client, table) {
   };
 }
 
-async function captureTableRows(client, table, cursorIndex, batchSize = 1000) {
-  const name = tableKey(table);
-  const cursorName = quoteIdentifier(`release_integrity_${cursorIndex}`);
-  const qualifiedName = qualifiedTableName(table);
-  await client.query(`
-    declare ${cursorName} no scroll cursor for
-    select pg_catalog.md5(pg_catalog.to_jsonb(source_row)::text) as row_hash
-    from ${qualifiedName} as source_row
-    order by 1
+async function resolveDigestFunction(client) {
+  const result = await client.query(`
+    select case
+      when pg_catalog.to_regprocedure('extensions.digest(bytea,text)') is not null
+        then 'extensions.digest'
+      else null
+    end as digest_function
   `);
-
-  const hash = crypto.createHash('sha256');
-  let rowCount = 0;
-  try {
-    while (true) {
-      const result = await client.query(`fetch forward ${batchSize} from ${cursorName}`);
-      if (result.rows.length === 0) {
-        break;
-      }
-      for (const row of result.rows) {
-        if (!/^[a-f0-9]{32}$/.test(asText(row.row_hash))) {
-          throw new Error(`Database returned an invalid row hash for ${name}.`);
-        }
-        hash.update(row.row_hash);
-        hash.update('\n');
-        rowCount += 1;
-      }
-    }
-  } finally {
-    await client.query(`close ${cursorName}`);
+  const digestFunction = asText(result.rows[0]?.digest_function);
+  if (digestFunction !== 'extensions.digest') {
+    throw new Error(
+      'SHA-256 digest support is unavailable; snapshot aborted without creating an extension.'
+    );
   }
+  return digestFunction;
+}
 
+function buildTableAggregateSql(table, columnNames, digestFunction) {
+  if (digestFunction !== 'extensions.digest') {
+    throw new Error('Unsupported database digest function.');
+  }
+  const canonicalExpression = buildCanonicalRowExpression(table, columnNames);
+  const qualifiedName = qualifiedTableName(table);
+  return `
+    with canonical_rows as (
+      select pg_catalog.encode(
+        ${digestFunction}(
+          pg_catalog.convert_to((${canonicalExpression})::text, 'UTF8'),
+          'sha256'
+        ),
+        'hex'
+      ) as row_digest
+      from ${qualifiedName} as source_row
+    ), aggregate_payload as (
+      select
+        pg_catalog.count(*)::text as row_count,
+        coalesce(pg_catalog.string_agg(row_digest, '' order by row_digest), '') as digest_payload
+      from canonical_rows
+    )
+    select
+      row_count,
+      pg_catalog.encode(
+        ${digestFunction}(pg_catalog.convert_to(digest_payload, 'UTF8'), 'sha256'),
+        'hex'
+      ) as fingerprint
+    from aggregate_payload
+  `;
+}
+
+function normalizeAggregateResult(result, table) {
+  const name = tableKey(table);
+  if (!result || !Array.isArray(result.rows) || result.rows.length !== 1) {
+    throw new Error(`Database must return exactly one aggregate row for ${name}.`);
+  }
+  const row = result.rows[0];
+  assertExactKeys(row, ['fingerprint', 'row_count'], `database aggregate for ${name}`);
+  if (!/^\d+$/.test(asText(row.row_count))) {
+    throw new Error(`Database returned an invalid aggregate row count for ${name}.`);
+  }
+  const rowCount = Number(row.row_count);
+  if (!Number.isSafeInteger(rowCount)) {
+    throw new Error(`Database aggregate row count for ${name} exceeds the safe integer range.`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(asText(row.fingerprint))) {
+    throw new Error(`Database returned an invalid SHA-256 aggregate for ${name}.`);
+  }
   return {
     name,
     rowCount,
-    fingerprint: `sha256:${hash.digest('hex')}`
+    fingerprint: `sha256:${row.fingerprint}`
   };
+}
+
+async function captureTableAggregate(client, table, columnNames, digestFunction) {
+  const sql = buildTableAggregateSql(table, columnNames, digestFunction);
+  const result = await client.query(sql);
+  return normalizeAggregateResult(result, table);
 }
 
 async function captureMigrationState(client) {
@@ -373,20 +540,24 @@ async function captureMigrationState(client) {
   };
 }
 
-async function captureDatabaseState(client, { batchSize = 1000 } = {}) {
+async function captureDatabaseState(client) {
   const readOnly = await client.query(`show transaction_read_only`);
   if (asText(readOnly.rows[0]?.transaction_read_only).toLowerCase() !== 'on') {
     throw new Error('Database transaction_read_only is not on; snapshot aborted.');
   }
 
   const tables = await discoverProtectedTables(client);
+  const digestFunction = await resolveDigestFunction(client);
   const schemaTables = [];
   const protectedTables = [];
-  for (let index = 0; index < tables.length; index += 1) {
-    const table = tables[index];
+  for (const table of tables) {
     await assertTableReadable(client, table);
+    const columnNames = await listTableColumns(client, table);
+    assertProtectedColumnPolicy(table, columnNames);
     schemaTables.push(await captureTableSchema(client, table));
-    protectedTables.push(await captureTableRows(client, table, index, batchSize));
+    protectedTables.push(
+      await captureTableAggregate(client, table, columnNames, digestFunction)
+    );
   }
   const migrationState = await captureMigrationState(client);
   return {
@@ -420,6 +591,8 @@ function buildSnapshot({ phase, target, source, databaseState, capturedAt = new 
     coverage: {
       discoveredSchemas: [...PROTECTED_SCOPE.discoveredSchemas],
       explicitTables: [...PROTECTED_SCOPE.explicitTables],
+      protectedProfileVersion: PROTECTED_PROFILE_VERSION,
+      authFingerprintPolicyVersion: AUTH_FINGERPRINT_POLICY_VERSION,
       rowFingerprintAlgorithm: ROW_FINGERPRINT_ALGORITHM,
       protectedTableCount: databaseState.protectedData.tables.length
     },
@@ -564,16 +737,29 @@ function compareSnapshots(beforeInput, afterInput, options = {}) {
 }
 
 export {
+  AUTH_FINGERPRINT_POLICY_VERSION,
+  AUTH_USER_COLUMN_POLICY,
   PROTECTED_SCOPE,
+  PROTECTED_PROFILE_VERSION,
   ROW_FINGERPRINT_ALGORITHM,
   SCHEMA_FINGERPRINT_ALGORITHM,
+  SENSITIVE_COLUMN_NAME_PATTERN,
   SNAPSHOT_FORMAT,
   SNAPSHOT_VERSION,
+  assertAuthUserColumnPolicy,
+  assertProtectedColumnPolicy,
+  authUserColumnClassification,
+  buildCanonicalRowExpression,
   buildSnapshot,
+  buildTableAggregateSql,
   captureDatabaseState,
   compareSnapshots,
+  findSensitiveColumns,
+  includedAuthUserColumns,
   normalizeStringSet,
+  normalizeAggregateResult,
   quoteIdentifier,
+  resolveDigestFunction,
   sha256,
   validateSnapshot
 };

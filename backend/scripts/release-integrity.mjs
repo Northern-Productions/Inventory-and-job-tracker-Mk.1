@@ -7,6 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { Client } from 'pg';
 
 import {
+  readCompatibleJson,
+  writeJsonAtomic
+} from './lib/release-integrity-artifacts.mjs';
+import {
+  SNAPSHOT_FORMAT,
+  SNAPSHOT_VERSION,
   buildSnapshot,
   captureDatabaseState,
   compareSnapshots,
@@ -107,6 +113,7 @@ Compare options:
 
 Strict fails on every unapproved protected-data, schema, or migration change.
 Observe exits 2 with REVIEW_REQUIRED when any change is found. Target mismatch always fails.
+Snapshot profile v2 requires existing database SHA-256 support and rejects v1 artifacts.
 The command is read-only and never prints env values, database URLs, row contents, or row hashes.`);
 }
 
@@ -247,21 +254,15 @@ function defaultSnapshotName(target, phase) {
   return path.join('.codex-runlogs', 'release-integrity', `${target}-${phase}-${timestamp}.json`);
 }
 
-function writeSnapshot(filePath, snapshot) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(snapshot, null, 2)}\n`, {
-    encoding: 'utf8',
-    flag: 'wx',
-    mode: 0o600
-  });
-}
-
 function readSnapshot(filePath, label) {
-  const stats = fs.statSync(filePath);
-  if (stats.size > 10 * 1024 * 1024) {
-    throw new Error(`${label} is too large to be a release-integrity snapshot.`);
-  }
-  return validateSnapshot(JSON.parse(fs.readFileSync(filePath, 'utf8')), label);
+  return validateSnapshot(
+    readCompatibleJson(filePath, {
+      format: SNAPSHOT_FORMAT,
+      version: SNAPSHOT_VERSION,
+      label
+    }),
+    label
+  );
 }
 
 function safeErrorMessage(error) {
@@ -325,8 +326,9 @@ async function runSnapshot(options) {
     source: gitSource(),
     databaseState
   });
-  writeSnapshot(outputPath, snapshot);
+  writeJsonAtomic(outputPath, snapshot, { allowedRoot: ARTIFACT_ROOT });
   console.log('transactionReadOnly: verified');
+  console.log('databaseAggregateRowsPerTable: 1');
   console.log(`protectedTables: ${snapshot.protectedData.tableCount}`);
   console.log(`migrationVersions: ${snapshot.migrationState.versions.length}`);
   console.log(`output: ${outputPath}`);

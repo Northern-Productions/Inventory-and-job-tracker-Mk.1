@@ -25,6 +25,8 @@ function databaseState({
   jobsRows = 3,
   jobsFingerprint = sha256('jobs-v1'),
   jobsSchemaFingerprint = sha256('jobs-schema-v1'),
+  authRows = 2,
+  authFingerprint = sha256('auth-users-v1'),
   migrationVersions = ['20260101000000']
 } = {}) {
   const jobsSchema = {
@@ -58,8 +60,8 @@ function databaseState({
         },
         {
           name: 'auth.users',
-          rowCount: 2,
-          fingerprint: sha256('auth-users-v1')
+          rowCount: authRows,
+          fingerprint: authFingerprint
         }
       ]
     }
@@ -141,6 +143,32 @@ test('strict comparison requires exact migration and schema approvals', () => {
   assert.equal(approved.status, 'pass');
 });
 
+test('Auth structural changes are detected even when account count is unchanged', () => {
+  const result = compareSnapshots(
+    snapshot('pre'),
+    snapshot('post', { authFingerprint: sha256('auth-role-or-disable-change') }),
+    { policy: 'strict' }
+  );
+
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.unapproved.data, ['auth.users']);
+  assert.equal(result.changes.data[0].beforeCount, 2);
+  assert.equal(result.changes.data[0].afterCount, 2);
+});
+
+test('Auth account insert or delete is detected through aggregate count and fingerprint', () => {
+  const result = compareSnapshots(
+    snapshot('pre'),
+    snapshot('post', { authRows: 3, authFingerprint: sha256('auth-account-added') }),
+    { policy: 'observe' }
+  );
+
+  assert.equal(result.status, 'review-required');
+  assert.equal(result.changes.data[0].name, 'auth.users');
+  assert.equal(result.changes.data[0].beforeCount, 2);
+  assert.equal(result.changes.data[0].afterCount, 3);
+});
+
 test('observe comparison returns review-required without claiming failure', () => {
   const result = compareSnapshots(
     snapshot('pre'),
@@ -200,15 +228,21 @@ test('compare CLI returns distinct strict-failure and observe-review exit codes'
   const runDir = fs.mkdtempSync(path.join(artifactRoot, 'cli-test-'));
   const beforePath = path.join(runDir, 'pre.json');
   const afterPath = path.join(runDir, 'post.json');
+  const oldPath = path.join(runDir, 'old.json');
   fs.writeFileSync(beforePath, `${JSON.stringify(snapshot('pre'))}\n`, 'utf8');
   fs.writeFileSync(
     afterPath,
     `${JSON.stringify(snapshot('post', { jobsFingerprint: sha256('changed') }))}\n`,
     'utf8'
   );
+  fs.writeFileSync(
+    oldPath,
+    `${JSON.stringify({ format: SNAPSHOT_FORMAT, version: 1, legacy_payload: 'must-not-display' })}\n`,
+    'utf8'
+  );
 
   try {
-    const runCompare = (policy) =>
+    const runCompare = (policy, selectedBeforePath = beforePath) =>
       spawnSync(
         process.execPath,
         [
@@ -216,7 +250,7 @@ test('compare CLI returns distinct strict-failure and observe-review exit codes'
           '--mode',
           'compare',
           '--before',
-          beforePath,
+          selectedBeforePath,
           '--after',
           afterPath,
           '--policy',
@@ -235,7 +269,15 @@ test('compare CLI returns distinct strict-failure and observe-review exit codes'
     assert.match(observe.stdout, /result: REVIEW_REQUIRED/);
     assert.match(observe.stdout, /does not claim corruption/);
     assert.equal(observe.stderr, '');
+
+    const incompatible = runCompare('strict', oldPath);
+    assert.equal(incompatible.status, 1);
+    assert.match(incompatible.stderr, /fingerprint profile is incompatible/);
+    assert.equal(incompatible.stderr.includes('must-not-display'), false);
+    assert.equal(incompatible.stdout.includes('must-not-display'), false);
   } finally {
+    const relative = path.relative(artifactRoot, runDir);
+    assert.equal(relative.startsWith('..') || path.isAbsolute(relative), false);
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 });
