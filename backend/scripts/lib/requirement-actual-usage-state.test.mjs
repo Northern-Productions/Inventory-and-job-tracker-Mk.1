@@ -55,7 +55,7 @@ test('requirement usage state migration is mirrored and guarded by schema latest
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0189_jobs_calendar_mirror_remediation\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
 
   assert.match(backendMigration, /actual_used_feet integer not null default 0/);
   assert.match(backendMigration, /status text not null default 'ACTIVE'/);

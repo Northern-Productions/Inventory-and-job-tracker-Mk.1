@@ -107,7 +107,7 @@ test('checkout-all jobId scope migration updates schema latest without changing 
   ]);
 
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0189_jobs_calendar_mirror_remediation\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
 
   assert.match(schemaCheck, /public\.api_acl_boxes_resolve_checkout_allocations\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /app_api\.resolve_allocations_for_checkout\(uuid, text, text, text, uuid\)/);

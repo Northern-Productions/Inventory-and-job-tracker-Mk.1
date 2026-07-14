@@ -28,7 +28,7 @@ test('caulk requirement actual usage migration is mirrored and schema-guarded', 
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0189_jobs_calendar_mirror_remediation\.sql/);
+  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
 
   assert.match(schemaCheck, /app\.job_caulk_requirements\.actual_used_tubes/);
   assert.match(schemaCheck, /app_api\.record_caulk_requirement_actual_usage_for_checkin/);

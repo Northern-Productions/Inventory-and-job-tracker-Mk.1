@@ -62,7 +62,10 @@ test('jobs calendar remediation is exactly mirrored and historical migrations re
   ]);
 
   assert.equal(normalizeSql(supabaseMigration), normalizeSql(backendMigration));
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0189_jobs_calendar_mirror_remediation\.sql';/);
+  assert.match(
+    schemaLatest,
+    /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/,
+  );
   historicalSql.forEach((migration, index) => {
     assert.equal(normalizedDigest(migration), historicalMigrations[index].sha256);
   });

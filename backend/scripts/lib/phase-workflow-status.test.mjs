@@ -59,7 +59,7 @@ test('schema latest guard tracks phase workflow status objects', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0189_jobs_calendar_mirror_remediation\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
 
   assert.match(schemaCheck, /app\.job_phases\.workflow_status/);
   assert.match(schemaCheck, /app_api\.normalize_job_phase_workflow_status\(text\)/);

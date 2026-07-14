@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0189_jobs_calendar_mirror_remediation.sql';
+const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -1769,6 +1769,68 @@ async function runSchemaCheck() {
         '[schema-check] Jobs calendar mirror remediation is out of date for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           jobsCalendarIssues.join('\n')
+      );
+    }
+
+    const calendarCancelGrantRows = await client.query(
+      `
+        select
+          format('%I.%I(%s)', n.nspname, p.proname, oidvectortypes(p.proargtypes)) as signature,
+          pg_get_userbyid(p.proowner) as owner_name,
+          p.prosecdef as security_definer,
+          has_function_privilege('public', p.oid, 'EXECUTE') as public_execute,
+          has_function_privilege('anon', p.oid, 'EXECUTE') as anon_execute,
+          has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_execute,
+          has_function_privilege('service_role', p.oid, 'EXECUTE') as service_role_execute,
+          count(*) over (partition by n.nspname, p.proname) as overload_count
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in (
+            'api_jobs_calendar',
+            'api_acl_list_jobs_calendar',
+            'api_film_orders_cancel',
+            'api_acl_film_orders_cancel'
+          )
+        order by signature;
+      `
+    );
+
+    const expectedCalendarCancelGrants = new Map([
+      ['public.api_jobs_calendar(uuid, text, text)', false],
+      ['public.api_acl_list_jobs_calendar(uuid, text, text)', true],
+      ['public.api_film_orders_cancel(uuid, text, jsonb)', false],
+      ['public.api_acl_film_orders_cancel(uuid, text, jsonb)', true]
+    ]);
+    const calendarCancelGrantIssues = [];
+    if (calendarCancelGrantRows.rows.length !== expectedCalendarCancelGrants.size) {
+      calendarCancelGrantIssues.push(
+        '- function mismatch: calendar and film-order-cancel RPC names must each have one canonical overload'
+      );
+    }
+    for (const row of calendarCancelGrantRows.rows) {
+      const expectedAuthenticatedExecute = expectedCalendarCancelGrants.get(row.signature);
+      if (
+        expectedAuthenticatedExecute === undefined ||
+        row.owner_name !== 'postgres' ||
+        row.security_definer !== true ||
+        row.public_execute === true ||
+        row.anon_execute === true ||
+        row.authenticated_execute !== expectedAuthenticatedExecute ||
+        row.service_role_execute === true ||
+        Number(row.overload_count) !== 1
+      ) {
+        calendarCancelGrantIssues.push(
+          `- function mismatch: ${row.signature || '<unknown>'} does not have canonical execute privileges`
+        );
+      }
+    }
+
+    if (calendarCancelGrantIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Calendar and film-order-cancel function grants are out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          calendarCancelGrantIssues.join('\n')
       );
     }
 

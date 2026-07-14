@@ -39,7 +39,7 @@ test('latest schema check forbids reservation-order planner internals after manu
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0189_jobs_calendar_mirror_remediation\.sql/);
+  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
 
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /perform app_api\.reconcile_auto_planned_allocations/);
