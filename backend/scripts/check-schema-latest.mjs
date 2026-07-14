@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0188_member_permission_mirror_remediation.sql';
+const LATEST_MIGRATION = '0189_jobs_calendar_mirror_remediation.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -42,6 +42,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.jobs.is_labor_only' },
   { kind: 'column', signature: 'app.jobs.is_staged_for_pickup' },
   { kind: 'column', signature: 'app.jobs.work_scope_key' },
+  { kind: 'index', signature: 'app.idx_jobs_org_due_date_lifecycle' },
   { kind: 'table', signature: 'app.caulk_transfers' },
   { kind: 'table', signature: 'app.box_dealers' },
   { kind: 'type', signature: 'app.allocation_source' },
@@ -187,6 +188,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_caulk_transactions(uuid, text, uuid, integer)' },
   { kind: 'function', signature: 'public.api_acl_list_film_orders(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_jobs(uuid, text)' },
+  { kind: 'function', signature: 'public.api_jobs_calendar(uuid, text, text)' },
+  { kind: 'function', signature: 'public.api_acl_list_jobs_calendar(uuid, text, text)' },
   { kind: 'function', signature: 'public.api_acl_caulk_upsert_product(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_add(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_caulk_update(uuid, text, jsonb)' },
@@ -1490,6 +1493,27 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
     ],
     excludes: []
+  },
+  {
+    signature: 'public.api_jobs_calendar(uuid, text, text)',
+    includes: [
+      'perform app_api.require_org_member(p_org_id);',
+      "v_month !~ '^\\d{4}-\\d{2}$'",
+      "v_lifecycle not in ('ACTIVE', 'COMPLETED')",
+      'where j.org_id = p_org_id',
+      'and j.due_date >= v_start',
+      'and j.due_date < v_end',
+      'and j.lifecycle_status::text = v_lifecycle'
+    ],
+    excludes: ['insert into app.jobs', 'update app.jobs', 'delete from app.jobs']
+  },
+  {
+    signature: 'public.api_acl_list_jobs_calendar(uuid, text, text)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      'return public.api_jobs_calendar(p_org_id, p_month, p_lifecycle_status);'
+    ],
+    excludes: ['api_jobs_set_staged_pickup', "'jobs', 'write'"]
   }
 ];
 
@@ -1616,6 +1640,135 @@ async function runSchemaCheck() {
         '[schema-check] Missing required schema objects for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           `${details}`
+      );
+    }
+
+    const jobsCalendarColumnRows = await client.query(
+      `
+        select
+          format_type(a.atttypid, a.atttypmod) as data_type,
+          a.attnotnull as not_null,
+          coalesce(pg_get_expr(d.adbin, d.adrelid), '') as column_default
+        from pg_attribute a
+        join pg_class c on c.oid = a.attrelid
+        join pg_namespace n on n.oid = c.relnamespace
+        left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+        where n.nspname = 'app'
+          and c.relname = 'jobs'
+          and a.attname = 'is_staged_for_pickup'
+          and not a.attisdropped;
+      `
+    );
+    const jobsCalendarIndexRows = await client.query(
+      `
+        select
+          pg_get_indexdef(i.indexrelid) as definition,
+          i.indisunique as is_unique,
+          i.indisvalid as is_valid,
+          i.indisready as is_ready,
+          i.indpred is not null as is_partial,
+          i.indexprs is not null as has_expressions
+        from pg_index i
+        join pg_class c on c.oid = i.indexrelid
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'app'
+          and c.relname = 'idx_jobs_org_due_date_lifecycle';
+      `
+    );
+    const jobsCalendarFunctionRows = await client.query(
+      `
+        select
+          p.proname,
+          pg_get_function_identity_arguments(p.oid) as identity_arguments,
+          pg_get_function_result(p.oid) as result_type,
+          l.lanname as language_name,
+          p.prosecdef as security_definer,
+          p.provolatile as volatility,
+          p.pronargdefaults as default_argument_count,
+          coalesce(p.proconfig, array[]::text[]) as function_config,
+          p.proowner = jobs.relowner as owner_matches_jobs,
+          has_function_privilege('public', p.oid, 'EXECUTE') as public_execute,
+          has_function_privilege('anon', p.oid, 'EXECUTE') as anon_execute,
+          has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_execute,
+          count(*) over (partition by p.proname) as overload_count
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        join pg_language l on l.oid = p.prolang
+        cross join lateral (
+          select c.relowner
+          from pg_class c
+          join pg_namespace table_namespace on table_namespace.oid = c.relnamespace
+          where table_namespace.nspname = 'app'
+            and c.relname = 'jobs'
+        ) jobs
+        where n.nspname = 'public'
+          and p.proname in ('api_jobs_calendar', 'api_acl_list_jobs_calendar')
+        order by p.proname, pg_get_function_identity_arguments(p.oid);
+      `
+    );
+
+    const jobsCalendarIssues = [];
+    const jobsCalendarColumn = jobsCalendarColumnRows.rows[0] || {};
+    if (
+      jobsCalendarColumn.data_type !== 'boolean' ||
+      jobsCalendarColumn.not_null !== true ||
+      !['false', 'false::boolean'].includes(String(jobsCalendarColumn.column_default || ''))
+    ) {
+      jobsCalendarIssues.push(
+        '- column mismatch: app.jobs.is_staged_for_pickup must be boolean not null default false'
+      );
+    }
+
+    const jobsCalendarIndex = jobsCalendarIndexRows.rows[0] || {};
+    const expectedJobsCalendarIndex =
+      'CREATE INDEX idx_jobs_org_due_date_lifecycle ON app.jobs USING btree (org_id, due_date DESC, lifecycle_status, job_number)';
+    if (
+      jobsCalendarIndex.definition !== expectedJobsCalendarIndex ||
+      jobsCalendarIndex.is_unique === true ||
+      jobsCalendarIndex.is_valid !== true ||
+      jobsCalendarIndex.is_ready !== true ||
+      jobsCalendarIndex.is_partial === true ||
+      jobsCalendarIndex.has_expressions === true
+    ) {
+      jobsCalendarIssues.push(
+        '- index mismatch: app.idx_jobs_org_due_date_lifecycle does not match the canonical calendar index'
+      );
+    }
+
+    const expectedCalendarFunctions = new Map([
+      ['api_jobs_calendar', false],
+      ['api_acl_list_jobs_calendar', true]
+    ]);
+    if (jobsCalendarFunctionRows.rows.length !== expectedCalendarFunctions.size) {
+      jobsCalendarIssues.push('- function mismatch: jobs calendar RPC names must each have one canonical overload');
+    }
+    for (const row of jobsCalendarFunctionRows.rows) {
+      const expectedAuthenticatedExecute = expectedCalendarFunctions.get(row.proname);
+      if (
+        expectedAuthenticatedExecute === undefined ||
+        row.identity_arguments !== 'p_org_id uuid, p_month text, p_lifecycle_status text' ||
+        row.result_type !== 'jsonb' ||
+        row.language_name !== 'plpgsql' ||
+        row.security_definer !== true ||
+        row.volatility !== 'v' ||
+        Number(row.default_argument_count) !== 1 ||
+        !Array.isArray(row.function_config) ||
+        !row.function_config.includes('search_path=public, app, app_api') ||
+        row.owner_matches_jobs !== true ||
+        row.public_execute === true ||
+        row.anon_execute === true ||
+        row.authenticated_execute !== expectedAuthenticatedExecute ||
+        Number(row.overload_count) !== 1
+      ) {
+        jobsCalendarIssues.push(`- function mismatch: public.${row.proname || '<unknown>'} is not canonical`);
+      }
+    }
+
+    if (jobsCalendarIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Jobs calendar mirror remediation is out of date for the current release.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          jobsCalendarIssues.join('\n')
       );
     }
 

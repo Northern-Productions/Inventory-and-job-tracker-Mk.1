@@ -64,7 +64,7 @@ test('latest schema check requires box check-in reconciliation objects', async (
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0188_member_permission_mirror_remediation\.sql/);
+  assert.match(schemaCheck, /0189_jobs_calendar_mirror_remediation\.sql/);
 
   assert.match(schemaCheck, /app\.film_orders\.requirement_id/);
   assert.match(schemaCheck, /app_api\.reconcile_box_checkin_allocations\(uuid, text, text, integer\)/);

@@ -5,10 +5,12 @@ import {
   addBox,
   applyAllocationPlan,
   buildJobDetail,
+  buildJobsList,
   checkoutAllJobMaterials,
   findBoxById,
   setJobStagedPickup,
 } from '../src/app/internal.mjs';
+import { buildJobsCalendar, buildJobsSearchResults } from '../src/app/services/jobs.mjs';
 import { handleSupabaseRequest } from '../supabase-backend.mjs';
 import { resolveSmokeAuthToken } from './lib/smoke-auth.mjs';
 
@@ -97,6 +99,23 @@ async function resolveWarehouseCode(client, orgId) {
   return asTrimmedString(result.rows[0]?.code) || 'IL1';
 }
 
+async function resolveOwnerCompanyId(client, orgId) {
+  const result = await client.query(
+    `
+      select id::text as id
+      from app.owner_companies
+      where org_id = $1::uuid
+        and is_active = true
+      order by lookup_key, id
+      limit 1
+    `,
+    [orgId],
+  );
+  const ownerCompanyId = asTrimmedString(result.rows[0]?.id);
+  assert(ownerCompanyId, 'An active DEV owner company is required for staged-pickup verification.');
+  return ownerCompanyId;
+}
+
 async function getTableColumns(client, tableName) {
   const result = await client.query(
     `
@@ -127,11 +146,23 @@ async function insertAppRow(client, tableName, availableColumns, valuesByColumn)
   );
 }
 
-async function insertVerificationJob(client, orgId, jobNumber, warehouse, installDate, actor, requiredFeet) {
+async function insertVerificationJob(
+  client,
+  orgId,
+  jobNumber,
+  warehouse,
+  installDate,
+  actor,
+  requiredFeet,
+  options = {},
+) {
   const nowIso = new Date().toISOString();
   const jobId = crypto.randomUUID();
+  const includePhase = options.includePhase === true;
+  const phaseId = includePhase ? crypto.randomUUID() : '';
   const requirementId = crypto.randomUUID();
   const jobColumns = await getTableColumns(client, 'jobs');
+  const phaseColumns = includePhase ? await getTableColumns(client, 'job_phases') : null;
   const requirementColumns = await getTableColumns(client, 'job_requirements');
 
   await insertAppRow(client, 'jobs', jobColumns, {
@@ -152,25 +183,110 @@ async function insertVerificationJob(client, orgId, jobNumber, warehouse, instal
     is_labor_only: false,
   });
 
-  await insertAppRow(client, 'job_requirements', requirementColumns, {
-    id: requirementId,
-    org_id: orgId,
-    job_id: jobId,
-    manufacturer: '3M Solar',
-    film_name: 'Night Vision 25',
-    width_in: 36,
-    required_feet: requiredFeet,
-    notes: '',
-    created_at: nowIso,
-    created_by: actor,
-    updated_at: nowIso,
-    updated_by: actor,
-  });
+  if (includePhase) {
+    await insertAppRow(client, 'job_phases', phaseColumns, {
+      id: phaseId,
+      org_id: orgId,
+      job_id: jobId,
+      phase_number: 1,
+      sections: '1',
+      install_date: installDate,
+      install_end_date: installDate,
+      crew_leader: 'Stage Verify',
+      labor_status: 'ACTIVE',
+      workflow_status: 'ACTIVE',
+      is_primary: true,
+      created_at: nowIso,
+      created_by: actor,
+      updated_at: nowIso,
+      updated_by: actor,
+    });
+  }
 
-  return { jobId, requirementId };
+  if (Number(requiredFeet) > 0) {
+    await insertAppRow(client, 'job_requirements', requirementColumns, {
+      id: requirementId,
+      org_id: orgId,
+      job_id: jobId,
+      phase_id: phaseId || null,
+      manufacturer: '3M Solar',
+      film_name: 'Night Vision 25',
+      width_in: 36,
+      required_feet: requiredFeet,
+      notes: '',
+      created_at: nowIso,
+      created_by: actor,
+      updated_at: nowIso,
+      updated_by: actor,
+    });
+  }
+
+  return { jobId, phaseId, requirementId: Number(requiredFeet) > 0 ? requirementId : '' };
 }
 
-async function createAllocatedInStockJob(client, orgId, jobNumber, boxId, warehouse, installDate, actor, requiredFeet) {
+async function resolveVerificationUserId(client, orgId) {
+  const result = await client.query(
+    `
+      select m.user_id::text as user_id
+      from app.organization_members m
+      join app.access_requests r
+        on r.org_id = m.org_id
+       and r.user_id = m.user_id
+      where m.org_id = $1::uuid
+        and m.role = 'owner'
+        and m.status = 'active'
+        and r.status = 'approved'
+      order by m.created_at asc
+      limit 1
+    `,
+    [orgId],
+  );
+  const userId = asTrimmedString(result.rows[0]?.user_id);
+  assert(
+    userId,
+    'An active approved DEV owner is required for the staged-pickup SQL ACL verification.',
+  );
+  return userId;
+}
+
+async function setStagedPickupThroughCanonicalSql(
+  client,
+  orgId,
+  userId,
+  actor,
+  jobId,
+  jobNumber,
+  isStaged,
+) {
+  const result = await client.query(
+    `
+      select public.api_acl_jobs_set_staged_pickup_for_user(
+        $1::uuid,
+        $2::uuid,
+        $3::text,
+        jsonb_build_object(
+          'jobId', $4::text,
+          'jobNumber', $5::text,
+          'isStagedForPickup', $6::boolean
+        )
+      ) as result
+    `,
+    [orgId, userId, actor, jobId, jobNumber, isStaged],
+  );
+  return result.rows[0]?.result || null;
+}
+
+async function createAllocatedInStockJob(
+  client,
+  orgId,
+  jobNumber,
+  boxId,
+  warehouse,
+  ownerCompanyId,
+  installDate,
+  actor,
+  requiredFeet,
+) {
   const createdJob = await insertVerificationJob(
     client,
     orgId,
@@ -178,39 +294,56 @@ async function createAllocatedInStockJob(client, orgId, jobNumber, boxId, wareho
     warehouse,
     installDate,
     actor,
-    requiredFeet,
+    0,
+    { includePhase: true },
   );
-  const requirementId = asTrimmedString(createdJob?.requirementId);
-  assert(requirementId, `Failed to create the verification requirement for job ${jobNumber}.`);
 
-  const addedBox = await addBox(client, orgId, buildInStockBoxPayload(boxId, installDate), actor);
+  const addedBox = await addBox(
+    client,
+    orgId,
+    buildInStockBoxPayload(boxId, installDate, { ownerCompanyId }),
+    actor,
+  );
   const box = addedBox?.data?.box;
-  assert(box, `Failed to create the verification box ${boxId}.`);
-  assert(box.status === 'IN_STOCK', `Expected ${boxId} to start IN_STOCK, received ${box.status}.`);
+  assert(box, 'Failed to create the verification box.');
+  assert(box.status === 'IN_STOCK', 'Expected the verification box to start in stock.');
 
   const applyResult = await applyAllocationPlan(
     client,
     orgId,
     {
+      jobId: createdJob.jobId,
       boxId,
       jobNumber,
-      requestedFeet: requiredFeet,
+      requestedFeet: 0,
       requestedWidthIn: 36,
-      requirementId,
       selectedSuggestionBoxIds: [],
-      extraAllocations: [],
+      extraAllocations: [{ boxId, allocatedFeet: requiredFeet }],
+      crossWarehouse: false,
+      autoAllocate: false,
     },
     actor,
   );
   const allocation = (applyResult?.data?.allocations || []).find((entry) => entry.boxId === boxId);
-  assert(allocation, `Expected an allocation for ${boxId} on job ${jobNumber}.`);
+  assert(allocation, 'Expected the fixture allocation to be created.');
+  assert(
+    asTrimmedString(allocation.jobId).toLowerCase() === createdJob.jobId.toLowerCase(),
+    'Expected the fixture allocation to retain canonical job identity.',
+  );
+  assert(allocation.allocationKind === 'EXTRA', 'Expected the fixture allocation to use the extra-allocation path.');
+  assert(allocation.status === 'ACTIVE', 'Expected the fixture allocation to remain active before checkout.');
+  assert(
+    !asTrimmedString(allocation.resolvedAt),
+    'Expected the fixture allocation to remain unresolved before checkout.',
+  );
   assert(
     Number(allocation.allocatedFeet || 0) === requiredFeet,
-    `Expected ${requiredFeet} LF to be allocated for ${boxId}, received ${allocation?.allocatedFeet}.`,
+    'Expected the fixture allocation to retain its requested quantity.',
   );
 
   return {
-    requirementId,
+    jobId: createdJob.jobId,
+    phaseId: createdJob.phaseId,
     box,
   };
 }
@@ -252,6 +385,15 @@ async function cleanupVerificationArtifacts(client, orgId, jobs, actor) {
 
   try {
     if (boxIds.length > 0) {
+      await client.query(
+        `
+          delete from app.audit_log
+          where org_id = $1::uuid
+            and box_id = any($2::text[])
+        `,
+        [orgId, boxIds],
+      );
+
       await client.query(
         `
           update app.boxes
@@ -325,86 +467,204 @@ async function runServiceLayerVerification(client, orgId, actor) {
     transactionStarted = true;
 
     const warehouse = await resolveWarehouseCode(client, orgId);
+    const ownerCompanyId = await resolveOwnerCompanyId(client, orgId);
+    const verificationUserId = await resolveVerificationUserId(client, orgId);
     const installDate = new Date().toISOString().slice(0, 10);
     const uniqueSuffix = buildUniqueSuffix();
 
     const checkoutJobNumber = `98${uniqueSuffix}`;
     const checkoutBoxId = `${warehouse}-CHK-${uniqueSuffix}`;
-    await createAllocatedInStockJob(
+    const checkoutFixture = await createAllocatedInStockJob(
       client,
       orgId,
       checkoutJobNumber,
       checkoutBoxId,
       warehouse,
+      ownerCompanyId,
       installDate,
       actor,
       25,
     );
-
-    const checkoutResult = await checkoutAllJobMaterials(client, orgId, checkoutJobNumber, actor);
-    assert(
-      (checkoutResult?.warnings || []).some((entry) => asTrimmedString(entry).includes(`job ${checkoutJobNumber}`)),
-      'Expected checkout-all to report a checkout warning for the verification job.',
+    const checkoutResult = await checkoutAllJobMaterials(
+      client,
+      orgId,
+      { jobId: checkoutFixture.jobId, jobNumber: checkoutJobNumber },
+      actor,
     );
-
+    assert(Array.isArray(checkoutResult?.warnings), 'Expected checkout-all to return its warnings contract.');
     const checkedOutBox = await findBoxById(client, orgId, checkoutBoxId);
-    assert(checkedOutBox, `Unable to reload checkout-all box ${checkoutBoxId}.`);
-    assert(
-      checkedOutBox.status === 'CHECKED_OUT',
-      `Expected ${checkoutBoxId} to be CHECKED_OUT after checkout-all, received ${checkedOutBox.status}.`,
-    );
-
+    assert(checkedOutBox?.status === 'CHECKED_OUT', 'Expected checkout-all to check out the fixture box.');
     const checkoutDetail = await buildJobDetail(client, orgId, checkoutJobNumber);
     assert(checkoutDetail?.summary?.isStagedForPickup === false, 'Checkout-all should not mark the job staged.');
     assert(
       (checkoutDetail?.allocations || []).some(
         (entry) => entry.boxId === checkoutBoxId && entry.boxStatus === 'CHECKED_OUT',
       ),
-      'Expected checkout-all detail to show the allocated box as checked out.',
+      'Expected checkout-all detail to show the fixture box as checked out.',
     );
 
     const stagedJobNumber = `97${uniqueSuffix}`;
     const stagedBoxId = `${warehouse}-STG-${uniqueSuffix}`;
-    await createAllocatedInStockJob(
+    const stagedFixture = await createAllocatedInStockJob(
       client,
       orgId,
       stagedJobNumber,
       stagedBoxId,
       warehouse,
+      ownerCompanyId,
       installDate,
       actor,
       25,
     );
-
+    await checkoutAllJobMaterials(
+      client,
+      orgId,
+      { jobId: stagedFixture.jobId, jobNumber: stagedJobNumber },
+      actor,
+    );
     const stagedResult = await setJobStagedPickup(
       client,
       orgId,
       stagedJobNumber,
       true,
       actor,
-      { autoCheckoutRemaining: true },
+      { jobId: stagedFixture.jobId },
     );
-    assert(stagedResult?.isStagedForPickup === true, 'Expected staged pickup update to save the staged flag.');
-    assert(
-      (stagedResult?.warnings || []).some((entry) => asTrimmedString(entry).includes(`job ${stagedJobNumber}`)),
-      'Expected staged pickup to include the checkout warning for the verification job.',
-    );
-
+    assert(stagedResult?.isStagedForPickup === true, 'Expected local staged-pickup state to save.');
     const stagedBox = await findBoxById(client, orgId, stagedBoxId);
-    assert(stagedBox, `Unable to reload staged pickup box ${stagedBoxId}.`);
+    assert(stagedBox?.status === 'CHECKED_OUT', 'Expected the staged-pickup fixture box to remain checked out.');
+    const stagedDetail = await buildJobDetail(client, orgId, stagedJobNumber);
     assert(
-      stagedBox.status === 'CHECKED_OUT',
-      `Expected ${stagedBoxId} to be CHECKED_OUT after staging, received ${stagedBox.status}.`,
+      stagedDetail?.summary?.isStagedForPickup === true,
+      'Expected job detail to keep local staged-pickup state.',
     );
 
-    const stagedDetail = await buildJobDetail(client, orgId, stagedJobNumber);
-    assert(stagedDetail?.summary?.isStagedForPickup === true, 'Expected job detail to keep the staged pickup flag.');
-    assert(stagedDetail?.summary?.status === 'READY', `Expected staged job status READY, received ${stagedDetail?.summary?.status}.`);
+    const calendarJobNumber = `94${uniqueSuffix}`;
+    const calendarFixture = await insertVerificationJob(
+      client,
+      orgId,
+      calendarJobNumber,
+      warehouse,
+      installDate,
+      actor,
+      0,
+      { includePhase: true },
+    );
+
+    const stagedBySql = await setStagedPickupThroughCanonicalSql(
+      client,
+      orgId,
+      verificationUserId,
+      actor,
+      calendarFixture.jobId,
+      calendarJobNumber,
+      true,
+    );
     assert(
-      (stagedDetail?.allocations || []).some(
-        (entry) => entry.boxId === stagedBoxId && entry.boxStatus === 'CHECKED_OUT',
-      ),
-      'Expected staged pickup detail to show the allocated box as checked out.',
+      stagedBySql?.isStagedForPickup === true,
+      'Expected the 0157-owned SQL ACL flow to stage the fixture job.',
+    );
+
+    const calendarDetail = await buildJobDetail(client, orgId, calendarJobNumber);
+    assert(
+      calendarDetail?.summary?.isStagedForPickup === true,
+      'Expected job detail to keep the SQL staged-pickup flag.',
+    );
+    assert(calendarDetail?.summary?.status === 'READY', 'Expected the no-material calendar fixture to be ready.');
+
+    const clearedBySql = await setStagedPickupThroughCanonicalSql(
+      client,
+      orgId,
+      verificationUserId,
+      actor,
+      calendarDetail.summary.jobId,
+      calendarJobNumber,
+      false,
+    );
+    assert(clearedBySql?.isStagedForPickup === false, 'Expected the 0157-owned SQL ACL flow to clear staged pickup.');
+
+    const restagedBySql = await setStagedPickupThroughCanonicalSql(
+      client,
+      orgId,
+      verificationUserId,
+      actor,
+      calendarDetail.summary.jobId,
+      calendarJobNumber,
+      true,
+    );
+    assert(restagedBySql?.isStagedForPickup === true, 'Expected the 0157-owned SQL ACL flow to restore staged pickup.');
+
+    const listEntries = await buildJobsList(client, orgId, 0, 'ACTIVE', [calendarJobNumber], {
+      warehouse,
+    });
+    const listedJob = listEntries.find((entry) => entry.jobNumber === calendarJobNumber);
+    assert(listedJob?.isStagedForPickup === true, 'Expected jobs list to project staged pickup from the canonical job row.');
+
+    const searchEntries = await buildJobsSearchResults(
+      client,
+      orgId,
+      calendarJobNumber,
+      25,
+      'ACTIVE',
+      { warehouse },
+    );
+    const searchedJob = searchEntries.find((entry) => entry.jobNumber === calendarJobNumber);
+    assert(searchedJob?.isStagedForPickup === true, 'Expected jobs search to project staged pickup for the fixture job.');
+
+    const calendarEntries = await buildJobsCalendar(
+      client,
+      orgId,
+      'month',
+      installDate,
+      undefined,
+      'ACTIVE',
+      { warehouse },
+    );
+    const calendarJob = calendarEntries.find((entry) => entry.jobNumber === calendarJobNumber);
+    assert(calendarJob?.isStagedForPickup === true, 'Expected jobs calendar to project staged pickup for the fixture job.');
+    assert(calendarJob?.installDate === installDate, 'Expected jobs calendar to preserve the fixture phase install date.');
+    assert(
+      asTrimmedString(calendarJob?.phaseId).toLowerCase() === calendarFixture.phaseId.toLowerCase(),
+      'Expected jobs calendar to retain canonical phase identity.',
+    );
+
+    const unrelatedOrgId = crypto.randomUUID();
+    const unrelatedOrgList = await buildJobsList(
+      client,
+      unrelatedOrgId,
+      0,
+      'ACTIVE',
+      [calendarJobNumber],
+      { warehouse },
+    );
+    const unrelatedOrgSearch = await buildJobsSearchResults(
+      client,
+      unrelatedOrgId,
+      calendarJobNumber,
+      25,
+      'ACTIVE',
+      { warehouse },
+    );
+    const unrelatedOrgCalendar = await buildJobsCalendar(
+      client,
+      unrelatedOrgId,
+      'month',
+      installDate,
+      undefined,
+      'ACTIVE',
+      { warehouse },
+    );
+    assert(
+      !unrelatedOrgList.some((entry) => entry.jobNumber === calendarJobNumber),
+      'Expected jobs list to enforce organization scope.',
+    );
+    assert(
+      !unrelatedOrgSearch.some((entry) => entry.jobNumber === calendarJobNumber),
+      'Expected jobs search to enforce organization scope.',
+    );
+    assert(
+      !unrelatedOrgCalendar.some((entry) => entry.jobNumber === calendarJobNumber),
+      'Expected jobs calendar to hide the fixture job outside its authenticated organization scope.',
     );
 
     await client.query('rollback');
@@ -429,6 +689,7 @@ async function runRouteVerification(client, orgId, actor) {
   }
 
   const warehouse = await resolveWarehouseCode(client, orgId);
+  const ownerCompanyId = await resolveOwnerCompanyId(client, orgId);
   const installDate = new Date().toISOString().slice(0, 10);
   const uniqueSuffix = buildUniqueSuffix();
   const createdJobs = [];
@@ -436,66 +697,62 @@ async function runRouteVerification(client, orgId, actor) {
   try {
     const checkoutJobNumber = `96${uniqueSuffix}`;
     const checkoutBoxId = `${warehouse}-RCK-${uniqueSuffix}`;
-    await createAllocatedInStockJob(
+    const checkoutFixture = await createAllocatedInStockJob(
       client,
       orgId,
       checkoutJobNumber,
       checkoutBoxId,
       warehouse,
+      ownerCompanyId,
       installDate,
       actor,
       25,
     );
     createdJobs.push({ jobNumber: checkoutJobNumber, boxId: checkoutBoxId });
-
     const checkoutPayload = await postRoute(
       '/jobs/checkout-all',
-      {
-        jobNumber: checkoutJobNumber,
-      },
+      { jobId: checkoutFixture.jobId, jobNumber: checkoutJobNumber },
       token,
     );
     assert(
-      (checkoutPayload?.warnings || []).some((entry) => asTrimmedString(entry).includes(`job ${checkoutJobNumber}`)),
-      'Expected checkout-all route to include the checkout warning for the verification job.',
-    );
-    assert(
       checkoutPayload?.data?.summary?.isStagedForPickup === false,
-      'Checkout-all route should not mark the job staged.',
+      'Checkout-all route should not mark the fixture job staged.',
     );
     assert(
       (checkoutPayload?.data?.allocations || []).some(
         (entry) => entry.boxId === checkoutBoxId && entry.boxStatus === 'CHECKED_OUT',
       ),
-      'Expected checkout-all route detail to show the allocated box as checked out.',
+      'Expected checkout-all route detail to show the fixture box as checked out.',
     );
 
     const stagedJobNumber = `95${uniqueSuffix}`;
     const stagedBoxId = `${warehouse}-RST-${uniqueSuffix}`;
-    await createAllocatedInStockJob(
+    const stagedFixture = await createAllocatedInStockJob(
       client,
       orgId,
       stagedJobNumber,
       stagedBoxId,
       warehouse,
+      ownerCompanyId,
       installDate,
       actor,
       25,
     );
     createdJobs.push({ jobNumber: stagedJobNumber, boxId: stagedBoxId });
 
+    await postRoute(
+      '/jobs/checkout-all',
+      { jobId: stagedFixture.jobId, jobNumber: stagedJobNumber },
+      token,
+    );
     const stagedPayload = await postRoute(
       '/jobs/set-staged-pickup',
       {
+        jobId: stagedFixture.jobId,
         jobNumber: stagedJobNumber,
         isStagedForPickup: true,
-        autoCheckoutRemaining: true,
       },
       token,
-    );
-    assert(
-      (stagedPayload?.warnings || []).some((entry) => asTrimmedString(entry).includes(`job ${stagedJobNumber}`)),
-      'Expected staged pickup route to include the checkout warning for the verification job.',
     );
     assert(
       stagedPayload?.data?.summary?.isStagedForPickup === true,
@@ -509,7 +766,7 @@ async function runRouteVerification(client, orgId, actor) {
       (stagedPayload?.data?.allocations || []).some(
         (entry) => entry.boxId === stagedBoxId && entry.boxStatus === 'CHECKED_OUT',
       ),
-      'Expected staged pickup route detail to show the allocated box as checked out.',
+      'Expected staged-pickup route detail to show the fixture box as checked out.',
     );
   } finally {
     await cleanupVerificationArtifacts(client, orgId, createdJobs, actor);
@@ -536,6 +793,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

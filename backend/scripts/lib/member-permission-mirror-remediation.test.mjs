@@ -57,7 +57,7 @@ test('member permission remediation is exactly mirrored and pins historical migr
   ]);
 
   assert.equal(normalizeSql(supabaseMigration), normalizeSql(backendMigration));
-  assert.match(schemaLatest, /0188_member_permission_mirror_remediation\.sql/);
+  assert.match(schemaLatest, /0189_jobs_calendar_mirror_remediation\.sql/);
   historicalMigrations.forEach((migration, index) => {
     assert.equal(normalizedDigest(migration), historicalMigrationPaths[index].sha256);
   });
