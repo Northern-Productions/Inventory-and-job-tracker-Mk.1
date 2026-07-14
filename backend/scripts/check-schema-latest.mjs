@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0187_caulk_owner_transfer_id_uppercase.sql';
+const LATEST_MIGRATION = '0188_member_permission_mirror_remediation.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -261,6 +261,48 @@ const REQUIRED_OBJECTS = [
 ];
 
 const REQUIRED_FUNCTION_SEMANTICS = [
+  {
+    signature: 'app_api.member_permissions_for_user_json(uuid, uuid)',
+    includes: [
+      "a.admin_user_id = p_user_id and a.feature_area = 'inventory'",
+      "a.admin_user_id = p_user_id and a.feature_area = 'reports'",
+      "'access_management', app_api.feature_access_json(false, false)"
+    ],
+    excludes: ['select a.write_enabled from app.admin_feature_permissions a']
+  },
+  {
+    signature: 'app_api.require_effective_feature_access(uuid, text, text)',
+    includes: [
+      'v_role := app_api.require_org_member_approved(p_org_id);',
+      'v_mode text := app_api.trim_text(p_access_mode);',
+      "if v_mode = 'write' then",
+      'select coalesce(a.read_enabled, g.read_enabled, false)',
+      'and a.admin_user_id = auth.uid()'
+    ],
+    excludes: [
+      "when p_access_mode = 'read' then coalesce(a.read_enabled, g.read_enabled, false)",
+      'else coalesce(a.write_enabled, g.write_enabled, false)'
+    ]
+  },
+  {
+    signature: 'public.api_update_user_feature_permissions(uuid, text, jsonb)',
+    includes: [
+      "jsonb_typeof(coalesce(v_permissions, 'null'::jsonb)) <> 'object'",
+      "v_read not in ('true', 'false')",
+      'write_enabled = false',
+      "perform app_api.raise_http(400, 'permissions must include at least one member feature entry.');"
+    ],
+    excludes: ['v_write text;']
+  },
+  {
+    signature: 'public.api_get_auth_context(uuid)',
+    includes: [
+      'perform app_api.activate_confirmed_invite_membership(p_org_id);',
+      "and m.status = 'active';",
+      'v_permissions := app_api.member_permissions_for_user_json(p_org_id, v_user_id);'
+    ],
+    excludes: ['v_permissions := app_api.member_permissions_json(p_org_id);']
+  },
   {
     signature: 'app_api.record_film_weight_sample_from_box(uuid, text, text)',
     includes: [

@@ -157,7 +157,7 @@ test('team user re-enable migration keeps unaccepted invites from gaining active
 test('schema latest guard includes team user management objects and RPC grants', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /0187_caulk_owner_transfer_id_uppercase\.sql/);
+  assert.match(schemaLatest, /0188_member_permission_mirror_remediation\.sql/);
   assert.match(schemaLatest, /app\.team_user_audit_log/);
   assert.match(schemaLatest, /app\.organization_members\.status/);
   for (const signature of [

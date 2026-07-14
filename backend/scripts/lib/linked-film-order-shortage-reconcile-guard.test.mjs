@@ -41,7 +41,7 @@ test('generic shortage reconciliation skips film orders that already have linked
 test('schema latest guards linked film-order shortage reconciliation semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0187_caulk_owner_transfer_id_uppercase\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0188_member_permission_mirror_remediation\.sql';/);
   assert.match(schemaLatest, /app_api\.reconcile_existing_film_order_need_for_requirement\(uuid, text, uuid\)/);
   assert.match(schemaLatest, /from app\.film_order_box_links l/);
   assert.match(schemaLatest, /l\.film_order_id = fo\.film_order_id/);

@@ -77,7 +77,7 @@ test('add box owner requirement migration restores owner before save path', asyn
 test('schema latest guard requires edit and add box owner semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0187_caulk_owner_transfer_id_uppercase\.sql/);
+  assert.match(schemaCheck, /0188_member_permission_mirror_remediation\.sql/);
   assert.match(schemaCheck, /public\.api_boxes_add\(uuid, text, jsonb\)/);
   assert.match(
     schemaCheck,

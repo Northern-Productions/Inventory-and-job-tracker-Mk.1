@@ -28,7 +28,7 @@ test('checked-in allocation close migration is mirrored and schema-guarded', asy
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0187_caulk_owner_transfer_id_uppercase\.sql/);
+  assert.match(schemaCheck, /0188_member_permission_mirror_remediation\.sql/);
 
   assert.match(schemaCheck, /a\.job_id is null/);
   assert.match(schemaCheck, /JOB_ALLOCATION_CANCEL_RETURN/);
