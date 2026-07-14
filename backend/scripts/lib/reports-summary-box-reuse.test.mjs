@@ -1418,7 +1418,7 @@ test('local and Edge jobs list builders avoid jobNumber-only row identity', () =
   ]) {
     assert.ok(source, `${label} buildJobsList source should be present`);
     assert.match(source, /const jobHeaders/);
-    assert.match(source, /const jobContexts/);
+    assert.match(source, /(?:const|let) jobContexts/);
     assert.match(source, /groupEntriesByCanonicalJobId\(allAllocations\)/);
     assert.doesNotMatch(source, /const byJobNumber/);
     assert.doesNotMatch(source, /byJobNumber\[[^\]]+\.jobNumber\]\s*=/);
@@ -1427,22 +1427,32 @@ test('local and Edge jobs list builders avoid jobNumber-only row identity', () =
 
   assert.match(edgeBuildJobsList, /requirementsByJobId\[contextJobId\]/);
   assert.match(edgeBuildJobsList, /allocationsByJobId\[contextJobId\]/);
-  assert.match(edgeBuildJobsList, /loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/);
+  assert.match(
+    edgeBuildJobsList,
+    /loadCaulkPlanningByJobContexts\(\s*client,\s*orgId,\s*jobContexts,\s*Array\.from\(jobNumberFilterSet\)/
+  );
   assert.doesNotMatch(edgeBuildJobsList, /loadCaulkPlanningByJobNumbers\(/);
 });
 
-test('Edge jobs list batches caulk summaries through canonical job ids', () => {
+test('Edge jobs list uses bounded org snapshots for canonical and legacy caulk summaries', () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   const edgeSource = fs.readFileSync(path.join(repoRoot, 'supabase/functions/_shared/api-handler.ts'), 'utf8');
+  const summarySource = fs.readFileSync(
+    path.join(repoRoot, 'supabase/functions/_shared/services/jobsCaulkSummary.ts'),
+    'utf8'
+  );
   const caulkPlanningSource = edgeSource.match(
     /(?:export\s+)?async function loadCaulkPlanningByJobContexts[\s\S]*?async function buildJobsList/
   )?.[0] || '';
   const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
 
-  assert.match(caulkPlanningSource, /listJobCaulkRequirementsByJobIdsDirect\(orgId, canonicalHeadersByJobId\)/);
-  assert.match(caulkPlanningSource, /listCaulkJobAllocationsByJobIdsDirect\(orgId, canonicalJobIds\)/);
-  assert.doesNotMatch(caulkPlanningSource, /canonicalContexts\.map\(async/);
-  assert.match(caulkPlanningSource, /listJobCaulkRequirementsByJob\(client, orgId, jobNumber\)/);
-  assert.match(caulkPlanningSource, /listCaulkJobAllocationsByJob\(client, orgId, jobNumber\)/);
-  assert.match(edgeBuildJobsList, /loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/);
+  assert.match(caulkPlanningSource, /loadJobsCaulkSummary\(orgId, jobContexts, jobNumberFilters/);
+  assert.match(caulkPlanningSource, /listJobCaulkRequirementsSnapshot\(/);
+  assert.match(caulkPlanningSource, /listCaulkJobAllocationsSnapshot\(/);
+  assert.doesNotMatch(caulkPlanningSource, /listJobCaulkRequirementsByJob\(/);
+  assert.doesNotMatch(caulkPlanningSource, /listCaulkJobAllocationsByJob\(/);
+  assert.match(summarySource, /Promise\.all\(\[\s*deps\.loadRequirements\(orgId\),\s*deps\.loadAllocations\(orgId\)/s);
+  assert.match(summarySource, /\.eq\("org_id", options\.orgId\)/);
+  assert.doesNotMatch(summarySource, /\.insert\(|\.update\(|\.delete\(|\.upsert\(|\.rpc\(/);
+  assert.match(edgeBuildJobsList, /jobContexts\s*=\s*caulkPlanning\.jobContexts/);
 });

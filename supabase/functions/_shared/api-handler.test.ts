@@ -1958,24 +1958,30 @@ Deno.test("/jobs/list preserves same-number rows returned by the list builder", 
   );
 });
 
-Deno.test("Edge job summaries load caulk counts by canonical job id when a header exists", async () => {
+Deno.test("Edge job summaries use the bounded org snapshot caulk loader", () => {
   const buildJobsListSource = buildJobsList.toString();
   const caulkPlanningSource = loadCaulkPlanningByJobContexts.toString();
 
   if (!caulkPlanningSource) {
     throw new Error("Expected Edge caulk planning helper for canonical job contexts to be present.");
   }
-  if (!/listJobCaulkRequirementsByJobIdsDirect\(orgId, canonicalHeadersByJobId\)/.test(caulkPlanningSource)) {
-    throw new Error("Expected Edge /jobs/list caulk requirements to load through the batched jobId direct path.");
+  if (!/loadJobsCaulkSummary\(orgId, jobContexts, jobNumberFilters/.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk summaries to use the focused snapshot projector.");
   }
-  if (!/listCaulkJobAllocationsByJobIdsDirect\(orgId, canonicalJobIds\)/.test(caulkPlanningSource)) {
-    throw new Error("Expected Edge /jobs/list caulk allocations to load through the batched jobId direct path.");
+  if (!/loadRequirements:.*listJobCaulkRequirementsSnapshot\(/s.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk requirements to use the org snapshot loader.");
   }
-  if (/canonicalContexts\.map\(async/.test(caulkPlanningSource)) {
+  if (!/loadAllocations:.*listCaulkJobAllocationsSnapshot\(/s.test(caulkPlanningSource)) {
+    throw new Error("Expected Edge /jobs/list caulk allocations to use the org snapshot loader.");
+  }
+  if (/listJobCaulkRequirementsByJob\(|listCaulkJobAllocationsByJob\(|\.map\(async/.test(caulkPlanningSource)) {
     throw new Error("Expected Edge /jobs/list caulk planning not to issue per-job caulk queries.");
   }
-  if (!/loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/.test(buildJobsListSource)) {
-    throw new Error("Expected Edge /jobs/list to build caulk summaries from canonical job contexts.");
+  if (!/loadCaulkPlanningByJobContexts\(\s*client,\s*orgId,\s*jobContexts,\s*Array\.from\(jobNumberFilterSet\)/.test(buildJobsListSource)) {
+    throw new Error("Expected Edge /jobs/list to pass canonical contexts and filters to caulk summary planning.");
+  }
+  if (!/jobContexts\s*=\s*caulkPlanning\.jobContexts/.test(buildJobsListSource)) {
+    throw new Error("Expected Edge /jobs/list to preserve caulk-only legacy contexts from the bulk snapshot.");
   }
   if (!/contextJobId\s*\?\s*caulkPlanning\.requirementsByJobId\[contextJobId\]/.test(buildJobsListSource)) {
     throw new Error("Expected Edge /jobs/list to project caulk requirements by context jobId.");
@@ -1985,7 +1991,7 @@ Deno.test("Edge job summaries load caulk counts by canonical job id when a heade
 Deno.test("Edge allocation job summaries preserve duplicate job-number rows by canonical job id", () => {
   const buildAllocationJobListSource = buildAllocationJobList.toString();
 
-  if (!/const jobContexts = jobHeaders\.map/.test(buildAllocationJobListSource)) {
+  if (!/let jobContexts = jobHeaders\.map/.test(buildAllocationJobListSource)) {
     throw new Error("Expected Edge /allocations/jobs to build one canonical context per job header.");
   }
   if (!/loadCaulkPlanningByJobContexts\(client, orgId, jobContexts\)/.test(buildAllocationJobListSource)) {
