@@ -11,6 +11,7 @@ export {
 } from './services/allocations.mjs';
 export {
   buildJobDetail,
+  buildJobDetailById,
   buildJobsList,
   removeJobBoxAllocation,
   setJobStagedPickup,

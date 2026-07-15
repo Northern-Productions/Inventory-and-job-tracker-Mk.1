@@ -66,6 +66,22 @@ const allocationRows = [
     created_at: '2026-05-02T10:00:00Z',
     crew_leader: 'Crew B',
   },
+  {
+    id: 'alloc-row-unscoped-history',
+    org_id: 'org-1',
+    allocation_id: 'ALLOC-UNSCOPED-HISTORY',
+    box_id: 'IL1-100',
+    warehouse: 'IL1',
+    job_id: null,
+    job_number: '1234',
+    job_date: '2026-05-01',
+    allocated_feet: 9,
+    covered_feet: 9,
+    requirement_id: null,
+    status: 'CANCELLED',
+    created_at: '2026-04-01T10:00:00Z',
+    crew_leader: 'Historical Crew',
+  },
 ];
 
 const requirementRows = [
@@ -220,6 +236,7 @@ test('loadJobDetailContextById scopes same-number detail rows to the selected jo
 
   assert.equal(detail.header.id, JOB_A_ID);
   assert.deepEqual(detail.allocations.map((entry) => entry.allocationId), ['ALLOC-A']);
+  assert.equal(detail.allocations.some((entry) => entry.allocationId === 'ALLOC-UNSCOPED-HISTORY'), false);
   assert.deepEqual(detail.requirements.map((entry) => entry.id), ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']);
   assert.deepEqual(detail.rollHistory.map((entry) => entry.logId), ['ROLL-A']);
 });
@@ -227,7 +244,15 @@ test('loadJobDetailContextById scopes same-number detail rows to the selected jo
 test('legacy loadJobDetailContext remains job-number scoped', async () => {
   const detail = await loadJobDetailContext(createFakeClient(), 'org-1', '1234');
 
-  assert.deepEqual(detail.allocations.map((entry) => entry.allocationId), ['ALLOC-A', 'ALLOC-B']);
+  assert.deepEqual(detail.allocations.map((entry) => entry.allocationId), [
+    'ALLOC-A',
+    'ALLOC-B',
+    'ALLOC-UNSCOPED-HISTORY',
+  ]);
+  assert.equal(
+    detail.allocations.find((entry) => entry.allocationId === 'ALLOC-UNSCOPED-HISTORY')?.status,
+    'CANCELLED',
+  );
   assert.deepEqual(detail.requirements.map((entry) => entry.id), [
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',

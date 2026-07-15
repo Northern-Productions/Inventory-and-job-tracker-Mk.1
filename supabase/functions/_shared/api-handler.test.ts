@@ -1988,6 +1988,24 @@ Deno.test("Edge job summaries use the bounded org snapshot caulk loader", () => 
   }
 });
 
+Deno.test("Edge jobs list keeps canonical allocation ownership separate from legacy fallback", () => {
+  const buildJobsListSource = buildJobsList.toString();
+
+  for (const expectedCall of [
+    "groupEntriesByCanonicalJobId(allAllocations)",
+    "groupEntriesByJobNumberFallback(allAllocations)",
+    "getRowsForJobHeader(context.header, allocationsByJobId, legacyAllocationsByJobNumber",
+  ]) {
+    if (!buildJobsListSource.includes(expectedCall)) {
+      throw new Error(`Expected Edge jobs list canonical ownership call: ${expectedCall}.`);
+    }
+  }
+
+  if (/allAllocationsByJobNumber\[jobNumber\]/.test(buildJobsListSource)) {
+    throw new Error("Expected canonical Edge job summaries not to read all job-number allocations directly.");
+  }
+});
+
 Deno.test("Edge allocation job summaries preserve duplicate job-number rows by canonical job id", () => {
   const buildAllocationJobListSource = buildAllocationJobList.toString();
 

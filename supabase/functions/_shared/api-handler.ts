@@ -873,6 +873,8 @@ function normalizeJobNumberDigits(value: unknown): string {
 }
 
 function getEntryJobId(entry: any): string {
+  // Headers carry canonical identity in id; children carry it in jobId. A child
+  // with only its own id stays out of job-number fallback for canonical jobs.
   return asTrimmedString(entry?.jobId || entry?.id);
 }
 

@@ -237,6 +237,8 @@ function normalizeSummarySnapshotConcurrency(value) {
 }
 
 function getEntryJobId(entry) {
+  // Headers carry canonical identity in id; children carry it in jobId. A child
+  // with only its own id stays out of job-number fallback for canonical jobs.
   return asTrimmedString(entry?.jobId || entry?.id);
 }
 

@@ -276,6 +276,100 @@ test('buildJobsList only loads referenced allocation boxes when no preloaded box
   assert.equal(entries.find((entry) => entry.jobNumber === '30003').status, 'READY');
 });
 
+test('canonical jobs list excludes an unscoped own-id allocation while retaining all scoped film rows', async () => {
+  const activeAllocation = buildAllocationRows()[0];
+  const allocations = [
+    activeAllocation,
+    {
+      ...activeAllocation,
+      id: 'allocation-cancelled-retained',
+      allocation_id: 'ALLOC-CANCELLED-RETAINED',
+      status: 'CANCELLED',
+    },
+    {
+      ...activeAllocation,
+      id: 'allocation-fulfilled-retained',
+      allocation_id: 'ALLOC-FULFILLED-RETAINED',
+      status: 'FULFILLED',
+    },
+    {
+      ...activeAllocation,
+      id: 'allocation-unscoped-history',
+      allocation_id: 'ALLOC-UNSCOPED-HISTORY',
+      job_id: null,
+      requirement_id: null,
+      status: 'CANCELLED',
+    },
+  ];
+  const caulkAllocations = [
+    {
+      id: 'caulk-allocation-row',
+      caulk_allocation_id: 'CAULK-ALLOC-ROW',
+      org_id: ORG_ID,
+      job_id: 'job-active',
+      job_number: '30003',
+      product_id: 'caulk-product',
+      manufacturer: 'Fixture',
+      product_name: 'Fixture Caulk',
+      product_code: 'FIXTURE',
+      warehouse: 'IL1',
+      allocated_tubes: 4,
+      reserved_tubes_remaining: 4,
+      checked_out_tubes_total: 0,
+      returned_unused_tubes_total: 0,
+      used_tubes_total: 0,
+      overage_tubes_total: 0,
+      status: 'ACTIVE',
+      created_at: NOW,
+      created_by: 'test',
+      updated_at: NOW,
+    },
+  ];
+  const client = createFakeClient({
+    jobs: buildJobRows().filter((row) => row.id === 'job-active'),
+    allocations,
+    requirements: buildRequirementRows(),
+    caulkAllocations,
+  });
+
+  const entries = await buildJobsList(client, ORG_ID, 0, 'ACTIVE');
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].jobId, 'job-active');
+  assert.equal(entries[0].allocationCount, 3);
+  assert.equal(entries[0].requiredFeet, 40);
+  assert.equal(entries[0].allocatedFeet, 40);
+  assert.equal(entries[0].remainingFeet, 0);
+  assert.equal(entries[0].requiredTubes, 0);
+  assert.equal(entries[0].allocatedTubes, 0);
+  assert.equal(entries[0].status, 'READY');
+});
+
+test('cancelled legacy-only allocation remains historical without active coverage', async () => {
+  const unscopedAllocation = {
+    ...buildAllocationRows()[0],
+    id: 'allocation-legacy-history',
+    allocation_id: 'ALLOC-LEGACY-HISTORY',
+    job_id: null,
+    requirement_id: null,
+    status: 'CANCELLED',
+  };
+  const client = createFakeClient({
+    jobs: [],
+    allocations: [unscopedAllocation],
+    requirements: [],
+  });
+
+  const entries = await buildJobsList(client, ORG_ID, 0);
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].jobId, '');
+  assert.equal(entries[0].allocationCount, 1);
+  assert.equal(entries[0].allocatedFeet, 0);
+  assert.equal(entries[0].remainingFeet, 0);
+  assert.equal(entries[0].lifecycleStatus, 'CANCELLED');
+});
+
 test('buildJobsList preserves duplicate job-number rows by canonical jobId', async () => {
   const duplicateJobs = [
     {
