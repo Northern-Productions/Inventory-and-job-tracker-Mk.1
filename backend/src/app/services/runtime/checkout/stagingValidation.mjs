@@ -1,4 +1,5 @@
 import {
+  HttpError,
   asTrimmedString,
   listBoxesByIds,
   listAllocationsByJob,
@@ -55,8 +56,41 @@ function getPhaseId(entry) {
   return asTrimmedString(entry?.phaseId || entry?.phase_id);
 }
 
-function getRequirementId(entry) {
-  return asTrimmedString(entry?.requirementId || entry?.requirement_id);
+function resolveRequirementIdentity(entry, fields) {
+  const values = fields
+    .map((field) => asTrimmedString(entry?.[field]))
+    .filter(Boolean);
+  const distinctValues = new Set(values);
+  if (distinctValues.size > 1) {
+    throw new HttpError(500, 'Conflicting requirement identity aliases.');
+  }
+  return values[0] || '';
+}
+
+// Requirement rows use app.job_requirements.id; linked rows have their own unrelated id.
+function getCanonicalRequirementId(entry) {
+  return resolveRequirementIdentity(entry, ['requirementId', 'requirement_id', 'id']);
+}
+
+function getLinkedRequirementId(entry) {
+  return resolveRequirementIdentity(entry, ['requirementId', 'requirement_id']);
+}
+
+function normalizeActiveRequirementIdentities(entries) {
+  return (Array.isArray(entries) ? entries : []).map((entry) => {
+    const requirementId = getCanonicalRequirementId(entry);
+    if (!requirementId) {
+      throw new HttpError(500, 'Active requirement is missing its canonical identity.');
+    }
+    const normalizedId = asTrimmedString(entry?.id);
+    return entry?.requirementId === requirementId && entry?.id === normalizedId
+      ? entry
+      : {
+          ...entry,
+          id: normalizedId || undefined,
+          requirementId,
+        };
+  });
 }
 
 function filterForActivePhases(entries, phases, fallbackPhaseId = '') {
@@ -81,11 +115,14 @@ function filterForActivePhases(entries, phases, fallbackPhaseId = '') {
 }
 
 function filterLinkedForActiveRequirements(entries, activeRequirements, phases, fallbackPhaseId = '') {
-  const requirementIds = new Set((Array.isArray(activeRequirements) ? activeRequirements : []).map(getRequirementId).filter(Boolean));
   const phaseEntries = Array.isArray(phases) ? phases : [];
   if (!phaseEntries.length) {
     return Array.isArray(entries) ? entries : [];
   }
+  const requirementIds = new Set(
+    normalizeActiveRequirementIdentities(activeRequirements)
+      .map((entry) => entry.requirementId)
+  );
   const activePhaseIds = new Set(
     phaseEntries
       .filter(isPhaseWorkflowActive)
@@ -93,7 +130,7 @@ function filterLinkedForActiveRequirements(entries, activeRequirements, phases, 
       .filter(Boolean)
   );
   return (Array.isArray(entries) ? entries : []).filter((entry) => {
-    const requirementId = getRequirementId(entry);
+    const requirementId = getLinkedRequirementId(entry);
     if (requirementId) {
       return requirementIds.has(requirementId);
     }
@@ -121,18 +158,38 @@ function buildJobStagingValidationState({
   const fallbackPhaseId = getPhaseId(phaseEntries.find((entry) => entry?.isPrimary) || phaseEntries[0]);
   const activeRequirements = filterForActivePhases(requirements, phaseEntries, fallbackPhaseId);
   const activeCaulkRequirements = filterForActivePhases(caulkRequirements, phaseEntries, fallbackPhaseId);
-  const activeAllocations = filterLinkedForActiveRequirements(allocations, activeRequirements, phaseEntries, fallbackPhaseId);
-  const activeFilmOrders = filterLinkedForActiveRequirements(filmOrders, activeRequirements, phaseEntries, fallbackPhaseId);
+  const normalizedActiveRequirements = phaseEntries.length
+    ? normalizeActiveRequirementIdentities(activeRequirements)
+    : activeRequirements;
+  const normalizedActiveCaulkRequirements = phaseEntries.length
+    ? normalizeActiveRequirementIdentities(activeCaulkRequirements)
+    : activeCaulkRequirements;
+  const activeAllocations = filterLinkedForActiveRequirements(
+    allocations,
+    normalizedActiveRequirements,
+    phaseEntries,
+    fallbackPhaseId
+  );
+  const activeFilmOrders = filterLinkedForActiveRequirements(
+    filmOrders,
+    normalizedActiveRequirements,
+    phaseEntries,
+    fallbackPhaseId
+  );
   const activeCaulkAllocations = filterLinkedForActiveRequirements(
     caulkAllocations,
-    activeCaulkRequirements,
+    normalizedActiveCaulkRequirements,
     phaseEntries,
     fallbackPhaseId
   );
   const boxById = indexBoxesById(boxes);
-  const publicRequirements = buildPublicJobRequirementEntries(activeRequirements, activeAllocations, boxById);
+  const publicRequirements = buildPublicJobRequirementEntries(
+    normalizedActiveRequirements,
+    activeAllocations,
+    boxById
+  );
   const publicCaulkRequirements = buildPublicCaulkRequirementEntries(
-    activeCaulkRequirements,
+    normalizedActiveCaulkRequirements,
     activeCaulkAllocations,
     {
       jobNumber,
@@ -153,8 +210,8 @@ function buildJobStagingValidationState({
     phases: phaseEntries,
     allocations: activeAllocations,
     filmOrders: activeFilmOrders,
-    requirements: activeRequirements,
-    caulkRequirements: activeCaulkRequirements,
+    requirements: normalizedActiveRequirements,
+    caulkRequirements: normalizedActiveCaulkRequirements,
     caulkAllocations: activeCaulkAllocations,
     boxes,
     boxById,

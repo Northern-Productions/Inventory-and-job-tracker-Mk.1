@@ -1,9 +1,475 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
+import {
+  mapDbAllocationRow,
+  mapDbFilmOrderRow,
+  mapDbJobPhaseRow,
+  mapDbRequirementRow,
+} from '../../src/app/repositories/mappers.mjs';
 import { getJobStagingBlockingReason } from '../../src/app/services/runtime/runtimeJobSummaries.mjs';
-import { loadJobStagingValidationState } from '../../src/app/services/runtime/runtimeCheckoutOperations.mjs';
+import {
+  buildJobStagingValidationState,
+  loadJobStagingValidationState,
+} from '../../src/app/services/runtime/runtimeCheckoutOperations.mjs';
 import { executeSetJobStagedPickup } from '../../src/app/services/runtime/runtimeJobsRead.mjs';
+
+function buildPhasedValidationState(overrides = {}) {
+  const activeRequirement = {
+    id: 'req-active',
+    orgId: 'org-1',
+    jobId: 'job-1',
+    phaseId: 'phase-active',
+    jobNumber: 'job-1',
+    manufacturer: 'Test Film',
+    filmName: 'Clear',
+    widthIn: 60,
+    requiredFeet: 10,
+  };
+  const inactiveRequirement = {
+    id: 'req-inactive',
+    orgId: 'org-1',
+    jobId: 'job-1',
+    phaseId: 'phase-placeholder',
+    jobNumber: 'job-1',
+    manufacturer: 'Test Film',
+    filmName: 'Clear',
+    widthIn: 60,
+    requiredFeet: 10,
+  };
+  const activeAllocation = {
+    id: 'allocation-row-active',
+    allocationId: 'allocation-active',
+    orgId: 'org-1',
+    jobId: 'job-1',
+    jobNumber: 'job-1',
+    requirementId: 'req-active',
+    boxId: 'BOX-ACTIVE',
+    status: 'FULFILLED',
+    allocationKind: 'REQUIREMENT',
+    allocatedFeet: 10,
+    coveredFeet: 10,
+    resolvedAt: '2026-07-16T12:00:00Z',
+  };
+  const inactiveAllocation = {
+    id: 'allocation-row-inactive',
+    allocationId: 'allocation-inactive',
+    orgId: 'org-1',
+    jobId: 'job-1',
+    jobNumber: 'job-1',
+    requirementId: 'req-inactive',
+    boxId: 'BOX-INACTIVE',
+    status: 'ACTIVE',
+    allocationKind: 'REQUIREMENT',
+    allocatedFeet: 10,
+    coveredFeet: 10,
+  };
+  const activeFilmOrder = {
+    id: 'film-order-row-active',
+    filmOrderId: 'film-order-active',
+    orgId: 'org-1',
+    jobId: 'job-1',
+    jobNumber: 'job-1',
+    requirementId: 'req-active',
+    status: 'FILM_ORDER',
+  };
+  const inactiveFilmOrder = {
+    id: 'film-order-row-inactive',
+    filmOrderId: 'film-order-inactive',
+    orgId: 'org-1',
+    jobId: 'job-1',
+    jobNumber: 'job-1',
+    requirementId: 'req-inactive',
+    status: 'FILM_ORDER',
+  };
+
+  return buildJobStagingValidationState({
+    jobNumber: 'job-1',
+    warehouse: 'IL1',
+    phases: [
+      {
+        phaseId: 'phase-active',
+        phaseNumber: 1,
+        workflowStatus: 'ACTIVE',
+        isPrimary: true,
+      },
+      {
+        phaseId: 'phase-placeholder',
+        phaseNumber: 2,
+        workflowStatus: 'PLACEHOLDER',
+      },
+    ],
+    requirements: [activeRequirement, inactiveRequirement],
+    allocations: [activeAllocation, inactiveAllocation],
+    filmOrders: [activeFilmOrder, inactiveFilmOrder],
+    caulkRequirements: [],
+    caulkAllocations: [],
+    boxes: [
+      {
+        id: 'box-row-active',
+        boxId: 'BOX-ACTIVE',
+        manufacturer: 'Test Film',
+        filmName: 'Clear',
+        widthIn: 60,
+        status: 'CHECKED_OUT',
+      },
+      {
+        id: 'box-row-inactive',
+        boxId: 'BOX-INACTIVE',
+        manufacturer: 'Test Film',
+        filmName: 'Clear',
+        widthIn: 60,
+        status: 'IN_STOCK',
+      },
+    ],
+    pendingTransfersByBoxRecordId: {},
+    ...overrides,
+  });
+}
+
+test('phase-aware staging resolves reviewed requirement identity aliases canonically', () => {
+  const identityShapes = [
+    { id: 'req-active' },
+    { requirementId: 'req-active' },
+    { requirement_id: 'req-active' },
+    {
+      id: 'req-active',
+      requirementId: 'req-active',
+      requirement_id: 'req-active',
+    },
+    {
+      id: '  ',
+      requirementId: 'req-active',
+      requirement_id: '',
+    },
+  ];
+
+  for (const identityShape of identityShapes) {
+    const state = buildPhasedValidationState({
+      requirements: [
+        {
+          ...identityShape,
+          orgId: 'org-1',
+          jobId: 'job-1',
+          phaseId: 'phase-active',
+          jobNumber: 'job-1',
+          manufacturer: 'Test Film',
+          filmName: 'Clear',
+          widthIn: 60,
+          requiredFeet: 10,
+        },
+      ],
+      allocations: [
+        {
+          allocationId: 'allocation-active',
+          requirement_id: 'req-active',
+          boxId: 'BOX-ACTIVE',
+          jobNumber: 'job-1',
+          status: 'FULFILLED',
+          allocationKind: 'REQUIREMENT',
+          allocatedFeet: 10,
+          coveredFeet: 10,
+          resolvedAt: '2026-07-16T12:00:00Z',
+        },
+      ],
+      filmOrders: [
+        {
+          filmOrderId: 'film-order-active',
+          requirement_id: 'req-active',
+          jobNumber: 'job-1',
+          status: 'FILM_ORDER',
+        },
+      ],
+    });
+
+    assert.equal(state.requirements[0].requirementId, 'req-active');
+    assert.equal(state.publicRequirements[0].requirementId, 'req-active');
+    assert.deepEqual(state.allocations.map((entry) => entry.allocationId), ['allocation-active']);
+    assert.deepEqual(state.filmOrders.map((entry) => entry.filmOrderId), ['film-order-active']);
+    assert.equal(state.publicRequirements[0].remainingFeet, 0);
+  }
+});
+
+test('mapped phased requirement id retains its linked allocation and film order', () => {
+  const phase = mapDbJobPhaseRow({
+    id: 'phase-active',
+    org_id: 'org-1',
+    job_id: 'job-1',
+    phase_number: 1,
+    workflow_status: 'ACTIVE',
+    labor_status: 'ACTIVE',
+    is_primary: true,
+  });
+  const requirement = mapDbRequirementRow({
+    id: 'req-active',
+    org_id: 'org-1',
+    job_id: 'job-1',
+    phase_id: 'phase-active',
+    job_number: 'job-1',
+    manufacturer: 'Test Film',
+    film_name: 'Clear',
+    width_in: 60,
+    required_feet: 10,
+    status: 'ACTIVE',
+  });
+  const allocation = mapDbAllocationRow({
+    id: 'allocation-row-active',
+    allocation_id: 'allocation-active',
+    org_id: 'org-1',
+    job_id: 'job-1',
+    job_number: 'job-1',
+    requirement_id: 'req-active',
+    box_id: 'BOX-ACTIVE',
+    status: 'FULFILLED',
+    allocation_kind: 'REQUIREMENT',
+    allocated_feet: 10,
+    covered_feet: 10,
+    resolved_at: '2026-07-16T12:00:00Z',
+  });
+  const filmOrder = mapDbFilmOrderRow({
+    id: 'film-order-row-active',
+    film_order_id: 'film-order-active',
+    org_id: 'org-1',
+    job_id: 'job-1',
+    job_number: 'job-1',
+    requirement_id: 'req-active',
+    warehouse: 'IL1',
+    manufacturer: 'Test Film',
+    film_name: 'Clear',
+    width_in: 60,
+    requested_feet: 10,
+    status: 'FILM_ORDER',
+  });
+  const state = buildPhasedValidationState({
+    phases: [phase],
+    requirements: [requirement],
+    allocations: [allocation],
+    filmOrders: [filmOrder],
+  });
+
+  assert.equal(requirement.id, 'req-active');
+  assert.equal(requirement.requirementId, undefined);
+  assert.deepEqual(state.requirements.map((entry) => entry.requirementId), ['req-active']);
+  assert.deepEqual(state.allocations.map((entry) => entry.allocationId), ['allocation-active']);
+  assert.deepEqual(state.filmOrders.map((entry) => entry.filmOrderId), ['film-order-active']);
+  assert.equal(state.publicRequirements[0].remainingFeet, 0);
+});
+
+test('phase-aware staging fails closed on conflicting or missing requirement identity', () => {
+  assert.throws(
+    () =>
+      buildPhasedValidationState({
+        requirements: [
+          {
+            id: 'req-active',
+            requirementId: 'req-conflict',
+            phaseId: 'phase-active',
+            manufacturer: 'Test Film',
+            filmName: 'Clear',
+            widthIn: 60,
+            requiredFeet: 10,
+          },
+        ],
+      }),
+    /Conflicting requirement identity aliases/,
+  );
+
+  assert.throws(
+    () =>
+      buildPhasedValidationState({
+        requirements: [
+          {
+            phaseId: 'phase-active',
+            description: 'Not an identity',
+            manufacturer: 'Test Film',
+            filmName: 'Clear',
+            widthIn: 60,
+            requiredFeet: 10,
+          },
+        ],
+      }),
+    /Active requirement is missing its canonical identity/,
+  );
+
+  assert.throws(
+    () =>
+      buildPhasedValidationState({
+        allocations: [
+          {
+            allocationId: 'allocation-active',
+            requirementId: 'req-active',
+            requirement_id: 'req-conflict',
+            boxId: 'BOX-ACTIVE',
+            status: 'ACTIVE',
+            allocationKind: 'REQUIREMENT',
+            allocatedFeet: 10,
+          },
+        ],
+      }),
+    /Conflicting requirement identity aliases/,
+  );
+});
+
+test('phase-aware staging keeps only active-phase linked material', () => {
+  const state = buildPhasedValidationState();
+
+  assert.deepEqual(state.requirements.map((entry) => entry.requirementId), ['req-active']);
+  assert.deepEqual(state.allocations.map((entry) => entry.allocationId), ['allocation-active']);
+  assert.deepEqual(state.filmOrders.map((entry) => entry.filmOrderId), ['film-order-active']);
+  assert.equal(state.publicRequirements[0].remainingFeet, 0);
+  assert.equal(state.blockingReason, '');
+});
+
+test('phase-null legacy requirement remains assigned to the active primary phase', () => {
+  const state = buildPhasedValidationState({
+    requirements: [
+      {
+        id: 'req-active',
+        phaseId: '',
+        jobNumber: 'job-1',
+        manufacturer: 'Test Film',
+        filmName: 'Clear',
+        widthIn: 60,
+        requiredFeet: 10,
+      },
+    ],
+    allocations: [
+      {
+        allocationId: 'allocation-active',
+        requirementId: 'req-active',
+        boxId: 'BOX-ACTIVE',
+        jobNumber: 'job-1',
+        status: 'FULFILLED',
+        allocationKind: 'REQUIREMENT',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+        resolvedAt: '2026-07-16T12:00:00Z',
+      },
+    ],
+    filmOrders: [
+      {
+        filmOrderId: 'film-order-active',
+        requirementId: 'req-active',
+        jobNumber: 'job-1',
+        status: 'FILM_ORDER',
+      },
+    ],
+  });
+
+  assert.deepEqual(state.requirements.map((entry) => entry.requirementId), ['req-active']);
+  assert.deepEqual(state.allocations.map((entry) => entry.allocationId), ['allocation-active']);
+  assert.deepEqual(state.filmOrders.map((entry) => entry.filmOrderId), ['film-order-active']);
+});
+
+test('phase-aware staging does not attach foreign requirement identities or row ids', () => {
+  const state = buildPhasedValidationState({
+    allocations: [
+      {
+        id: 'req-active',
+        allocationId: 'allocation-own-row-id',
+        requirementId: 'req-other-job',
+        phaseId: 'phase-placeholder',
+        boxId: 'BOX-ACTIVE',
+        jobNumber: 'other-job',
+        orgId: 'other-org',
+        status: 'ACTIVE',
+        allocationKind: 'REQUIREMENT',
+        allocatedFeet: 10,
+      },
+    ],
+    filmOrders: [
+      {
+        id: 'req-active',
+        filmOrderId: 'film-order-own-row-id',
+        requirementId: 'req-other-job',
+        phaseId: 'phase-placeholder',
+        jobNumber: 'other-job',
+        orgId: 'other-org',
+        status: 'FILM_ORDER',
+      },
+    ],
+  });
+
+  assert.deepEqual(state.allocations, []);
+  assert.deepEqual(state.filmOrders, []);
+  assert.equal(state.publicRequirements[0].remainingFeet, 10);
+});
+
+test('cancelled active-phase allocations do not become active requirement coverage', () => {
+  const state = buildPhasedValidationState({
+    allocations: [
+      {
+        allocationId: 'allocation-cancelled',
+        requirementId: 'req-active',
+        boxId: 'BOX-ACTIVE',
+        jobNumber: 'job-1',
+        status: 'CANCELLED',
+        allocationKind: 'REQUIREMENT',
+        allocatedFeet: 10,
+        coveredFeet: 10,
+      },
+    ],
+  });
+
+  assert.deepEqual(state.allocations.map((entry) => entry.allocationId), ['allocation-cancelled']);
+  assert.equal(state.publicRequirements[0].allocatedFeet, 0);
+  assert.equal(state.publicRequirements[0].remainingFeet, 10);
+});
+
+test('legacy no-phase staging preserves identity shapes and linked rows unchanged', () => {
+  const requirement = {
+    requirement_id: '',
+    description: 'Legacy requirement',
+    requiredFeet: 0,
+  };
+  const allocation = {
+    id: 'allocation-row',
+    allocationId: 'allocation-legacy',
+    requirementId: '',
+    boxId: 'BOX-ACTIVE',
+    status: 'ACTIVE',
+    allocationKind: 'EXTRA',
+    allocatedFeet: 1,
+  };
+  const filmOrder = {
+    id: 'film-order-row',
+    filmOrderId: 'film-order-legacy',
+    requirementId: '',
+    status: 'CANCELLED',
+  };
+  const state = buildPhasedValidationState({
+    phases: [],
+    requirements: [requirement],
+    allocations: [allocation],
+    filmOrders: [filmOrder],
+  });
+
+  assert.equal(state.requirements[0], requirement);
+  assert.equal(state.allocations[0], allocation);
+  assert.equal(state.filmOrders[0], filmOrder);
+});
+
+test('checkout-all, staged invalidation, and Edge remain aligned on staging state', async () => {
+  const [checkoutSource, jobMutationSource, edgeSource] = await Promise.all([
+    readFile(new URL('../../src/app/services/runtime/checkout/checkoutFlow.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../src/app/services/runtime/runtimeJobsMutations.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../../supabase/functions/_shared/api-handler.ts', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(
+    checkoutSource,
+    /buildFilmCheckoutActionPlan\(\s*preCheckoutState\.allocations,\s*boxById,/,
+  );
+  assert.match(
+    jobMutationSource,
+    /const stagingState = await loadJobStagingValidationState\([\s\S]*if \(!stagingState\.blockingReason\) \{\s+return jobHeader;/,
+  );
+  assert.match(
+    edgeSource,
+    /function getRequirementId\(requirement: any\): string \{\s+return asTrimmedString\(requirement\?\.requirementId \|\| requirement\?\.id\);/,
+  );
+});
 
 test('loadJobStagingValidationState only loads boxes linked to the job allocations', async () => {
   const boxLoadCalls = [];
