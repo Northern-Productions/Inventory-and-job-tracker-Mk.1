@@ -529,7 +529,7 @@ function resolveSelectedRequirement(requirements, requirementId, sourceBox, jobN
   return selectedRequirement;
 }
 
-async function applyAllocationPlan(client, orgId, payload, actor) {
+async function applyAllocationPlanLegacy(client, orgId, payload, actor) {
   const warnings = [];
   const boxId = requireString(payload.boxId, 'BoxID');
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
@@ -831,6 +831,89 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
       remainingUncoveredFeet: selection.remainingFeet
     },
     warnings
+  );
+}
+
+async function applyAllocationPlan(client, orgId, payload, actor) {
+  const row = await queryRow(
+    client,
+    `select public.api_acl_allocations_apply($1::uuid, $2::text, $3::jsonb) as result`,
+    [orgId, actor, payload || {}]
+  );
+  const result = row?.result;
+  if (!result || typeof result !== 'object') {
+    throw new HttpError(500, 'Allocation apply did not return a result.');
+  }
+
+  const allocationIds = Array.isArray(result.allocationIds)
+    ? result.allocationIds.map((value) => asTrimmedString(value)).filter(Boolean)
+    : [];
+  const transferIds = Array.isArray(result.transferIds)
+    ? result.transferIds.map((value) => asTrimmedString(value)).filter(Boolean)
+    : [];
+  const rows = allocationIds.length
+    ? await queryRows(
+        client,
+        `
+          select *
+          from app.allocations
+          where org_id = $1
+            and allocation_id = any($2::text[])
+        `,
+        [orgId, allocationIds]
+      )
+    : [];
+  const allocationById = new Map(
+    rows.map((entry) => {
+      const allocation = mapDbAllocationRow(entry);
+      return [asTrimmedString(allocation?.allocationId), allocation];
+    })
+  );
+  const allocationRecords = allocationIds
+    .map((allocationId) => allocationById.get(allocationId) || null)
+    .filter(Boolean);
+  const boxIds = Array.from(
+    new Set(allocationRecords.map((entry) => asTrimmedString(entry?.boxId)).filter(Boolean))
+  );
+  const jobs = boxIds.length ? await listJobs(client, orgId) : [];
+  const reservationMetricsByBoxId = {};
+
+  for (let index = 0; index < boxIds.length; index += 1) {
+    const reservationBoxId = boxIds[index];
+    const reservationBox = await findBoxById(client, orgId, reservationBoxId);
+    if (!reservationBox) {
+      continue;
+    }
+    reservationMetricsByBoxId[reservationBoxId] = buildBoxReservationMetrics(
+      reservationBox,
+      await listAllocationsByBox(client, orgId, reservationBoxId),
+      { jobs }
+    );
+  }
+
+  const allocations = allocationRecords.map((allocation) => {
+    const snapshot = reservationMetricsByBoxId[allocation.boxId]?.allocationSnapshotsById?.[
+      allocation.allocationId
+    ];
+    return {
+      ...toPublicAllocation(allocation),
+      backedPhysicalFeet: snapshot
+        ? snapshot.backedPhysicalFeet
+        : integerOrZero(allocation.allocatedFeet),
+      reservationState: snapshot
+        ? snapshot.reservationState
+        : (asTrimmedString(allocation.installDate) ? 'WITH_INSTALL_DATE' : 'WITHOUT_INSTALL_DATE')
+    };
+  });
+
+  return ok(
+    {
+      allocations,
+      filmOrder: null,
+      remainingUncoveredFeet: integerOrZero(result.remainingUncoveredFeet),
+      transferIds
+    },
+    Array.isArray(result.warnings) ? result.warnings : []
   );
 }
 

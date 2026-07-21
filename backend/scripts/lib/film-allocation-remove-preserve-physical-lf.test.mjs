@@ -79,7 +79,7 @@ test('film allocation remove captures physical LF before cancelling allocation',
 test('schema latest guards allocation remove physical LF preservation semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0192_atomic_cross_warehouse_affected_box_scan\.sql';/);
   assert.match(schemaCheck, /public\.api_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /v_preserved_physical_feet integer := null;/);
   assert.match(schemaCheck, /v_preserved_physical_feet := app_api\.box_physical_feet_available\(v_box\);/);

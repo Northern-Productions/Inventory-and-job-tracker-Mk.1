@@ -56,7 +56,7 @@ test('latest schema check requires physical LF reconciliation priority semantics
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
+  assert.match(schemaCheck, /0192_atomic_cross_warehouse_affected_box_scan\.sql/);
 
   assert.match(schemaCheck, /v_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
   assert.match(schemaCheck, /case when a\.job_date is not null then 0 else 1 end/);

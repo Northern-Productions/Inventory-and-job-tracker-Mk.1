@@ -9,6 +9,7 @@ import {
 import { HttpError } from '../../lib/http.mjs';
 import { WAREHOUSE_CODE_PATTERN } from '../../../../shared/domain/runtimeContract.mjs';
 import { buildBoxReservationSnapshot } from '../../../../shared/domain/filmAllocationReservations.mjs';
+import { getFilmBoxAllocationEligibility } from '../../../../shared/domain/filmBoxAllocationEligibility.mjs';
 
 function getActiveAllocatedFeetForBox(boxId, activeAllocationsByBox = {}) {
   const entries = activeAllocationsByBox && activeAllocationsByBox[boxId] ? activeAllocationsByBox[boxId] : [];
@@ -150,7 +151,7 @@ function assertBoxStatus(value) {
 
 function isAllocatableBoxStatus(value) {
   const normalized = asTrimmedString(value).toUpperCase();
-  return normalized === 'IN_STOCK' || normalized === 'ORDERED' || normalized === 'TRANSFER' || normalized === 'CHECKED_OUT';
+  return normalized === 'IN_STOCK' || normalized === 'ORDERED' || normalized === 'CHECKED_OUT';
 }
 
 function findPendingTransferForBox(box, pendingTransfersByBoxRecordId = {}) {
@@ -163,15 +164,11 @@ function findPendingTransferForBox(box, pendingTransfersByBoxRecordId = {}) {
 }
 
 function getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) {
-  return '';
+  return getFilmBoxAllocationEligibility(box, pendingTransfer, jobWarehouse).reason;
 }
 
 function isJobAllocationEligibleBox(box, pendingTransfer, jobWarehouse) {
-  if (!isAllocatableBoxStatus(box?.status)) {
-    return false;
-  }
-
-  return getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) === '';
+  return getFilmBoxAllocationEligibility(box, pendingTransfer, jobWarehouse).eligible;
 }
 
 function computeAllocationPlanningFeet(status, initialFeet, feetAvailable, activeAllocatedFeet) {

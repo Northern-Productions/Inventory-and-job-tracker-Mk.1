@@ -1526,7 +1526,7 @@ describe('AllocationJobPage', () => {
     expect(closedHtml).not.toContain('Checkout All');
   });
 
-  it('renders film transfer alerts and replaces direct checkout with transfer guidance', () => {
+  it('renders historical cross-warehouse allocations as review-required and blocks checkout', () => {
     const detail = buildMaterialJobDetail({
       summary: buildSummary({
         warehouse: 'MS1',
@@ -1556,8 +1556,8 @@ describe('AllocationJobPage', () => {
 
     expect(html).toContain('Film Transfer Alerts');
     expect(html).toContain('Cross-warehouse film still needs movement');
-    expect(html).toContain('Needs Transfer');
-    expect(html).toContain('Send this box from IL1 to MS1.');
+    expect(html).toContain('Needs Review');
+    expect(html).toContain('This historical cross-warehouse allocation needs review');
     expect(html).not.toContain('>Check Out</button>');
   });
 

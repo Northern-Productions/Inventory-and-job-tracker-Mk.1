@@ -40,6 +40,7 @@ async function main() {
     tag: result.tag,
     manifestFound: Boolean(manifest),
     manifestPath: manifestPath.replace(/\\/g, '/'),
+    fixtureDealerTracked: Boolean(manifest?.fixtureDealer?.id),
     ids: result.ids,
     counts: result.counts,
     remainingCount,

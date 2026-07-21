@@ -632,14 +632,15 @@ async function saveBoxTransferRecord(client, orgId, transfer) {
         cancelled_at,
         cancelled_by,
         updated_at,
-        updated_by
+        updated_by,
+        transfer_created_allocation_id
       )
       values (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,
         $10::timestamptz,$11,
         nullif($12, '')::timestamptz,$13,
         nullif($14, '')::timestamptz,$15,
-        $16::timestamptz,$17
+        $16::timestamptz,$17,$18
       )
       on conflict (org_id, transfer_id) do update set
         destination_box_id = excluded.destination_box_id,
@@ -650,7 +651,8 @@ async function saveBoxTransferRecord(client, orgId, transfer) {
         cancelled_at = excluded.cancelled_at,
         cancelled_by = excluded.cancelled_by,
         updated_at = excluded.updated_at,
-        updated_by = excluded.updated_by
+        updated_by = excluded.updated_by,
+        transfer_created_allocation_id = excluded.transfer_created_allocation_id
       returning *
     `,
     [
@@ -671,6 +673,7 @@ async function saveBoxTransferRecord(client, orgId, transfer) {
       asTrimmedString(transfer.cancelledBy),
       transfer.updatedAt || new Date().toISOString(),
       asTrimmedString(transfer.updatedBy || transfer.createdBy),
+      asTrimmedString(transfer.transferCreatedAllocationId) || null,
     ]
   );
 

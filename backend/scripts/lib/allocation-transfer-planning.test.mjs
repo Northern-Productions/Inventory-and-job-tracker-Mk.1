@@ -32,34 +32,33 @@ function buildRequirement(overrides = {}) {
   };
 }
 
-test('accepts a transfer source box without requiring pending transfer metadata', () => {
+test('rejects a source box that is already in transfer', () => {
   const source = buildBox({
     id: 'box-transfer-source',
     boxId: 'IL1-6773',
     warehouse: 'IL1',
     status: 'TRANSFER',
   });
-  const plan = buildAllocationPreviewPlan(
-    source,
-    13,
-    { jobNumber: '4803', installDate: '', crewLeader: '' },
-    {
-      crossWarehouse: true,
-      minimumWidthIn: 72,
-      allBoxes: [source],
-      activeAllocationsByBox: {},
-      selectedRequirement: buildRequirement(),
-      jobWarehouse: 'MS1',
-      pendingTransfersByBoxRecordId: {},
-    },
+  assert.throws(
+    () => buildAllocationPreviewPlan(
+      source,
+      13,
+      { jobNumber: '4803', installDate: '', crewLeader: '' },
+      {
+        crossWarehouse: true,
+        minimumWidthIn: 72,
+        allBoxes: [source],
+        activeAllocationsByBox: {},
+        selectedRequirement: buildRequirement(),
+        jobWarehouse: 'MS1',
+        pendingTransfersByBoxRecordId: {},
+      },
+    ),
+    /pending transfer/i,
   );
-
-  assert.equal(plan.sourceBoxId, 'IL1-6773');
-  assert.equal(plan.sourceSuggestedFeet, 13);
-  assert.equal(plan.sourceSuggestedCoveredFeet, 13);
 });
 
-test('includes transfer candidates between in-stock and ordered suggestions without destination matching', () => {
+test('includes only unreserved cross-warehouse in-stock candidates for transfer assist', () => {
   const source = buildBox({
     id: 'box-source',
     boxId: 'MS1-IN-STOCK-SOURCE',
@@ -93,6 +92,22 @@ test('includes transfer candidates between in-stock and ordered suggestions with
     feetAvailable: 30,
     allocationPlanningFeet: 30,
   });
+  const crossWarehouseInStock = buildBox({
+    id: 'box-cross-in-stock',
+    boxId: 'IL1-IN-STOCK',
+    warehouse: 'IL1',
+    status: 'IN_STOCK',
+    feetAvailable: 40,
+    allocationPlanningFeet: 40,
+  });
+  const reservedCrossWarehouse = buildBox({
+    id: 'box-cross-reserved',
+    boxId: 'IL1-RESERVED',
+    warehouse: 'IL1',
+    status: 'IN_STOCK',
+    feetAvailable: 40,
+    allocationPlanningFeet: 20,
+  });
   const wrongTransfer = buildBox({
     id: 'box-transfer-wrong',
     boxId: 'IL1-TRANSFER-WRONG',
@@ -109,8 +124,27 @@ test('includes transfer candidates between in-stock and ordered suggestions with
     {
       crossWarehouse: true,
       minimumWidthIn: 72,
-      allBoxes: [source, ordered, inStock, matchingTransfer, wrongTransfer],
-      activeAllocationsByBox: {},
+      allBoxes: [
+        source,
+        ordered,
+        inStock,
+        crossWarehouseInStock,
+        reservedCrossWarehouse,
+        matchingTransfer,
+        wrongTransfer,
+      ],
+      activeAllocationsByBox: {
+        [reservedCrossWarehouse.boxId]: [
+          {
+            allocationId: 'ALLOC-RESERVED',
+            allocationKind: 'REQUIREMENT',
+            requirementId: 'req-reserved',
+            jobNumber: '4802',
+            status: 'ACTIVE',
+            allocatedFeet: 20,
+          },
+        ],
+      },
       selectedRequirement: buildRequirement({ requiredFeet: 70 }),
       jobWarehouse: 'MS1',
       pendingTransfersByBoxRecordId: {
@@ -126,7 +160,11 @@ test('includes transfer candidates between in-stock and ordered suggestions with
 
   assert.deepEqual(
     plan.suggestions.map((entry) => entry.boxId),
-    ['MS1-IN-STOCK', 'IL1-TRANSFER', 'IL1-TRANSFER-WRONG', 'MS1-ORDERED'],
+    ['MS1-IN-STOCK', 'IL1-IN-STOCK', 'MS1-ORDERED'],
+  );
+  assert.deepEqual(
+    plan.suggestions.map((entry) => entry.requiresTransfer),
+    [false, true, false],
   );
 });
 
@@ -156,7 +194,7 @@ test('rejects zeroed source boxes from allocation planning', () => {
           pendingTransfersByBoxRecordId: {},
         },
       ),
-    /no longer allocatable/i,
+    /must be in stock|no longer allocatable/i,
   );
 });
 

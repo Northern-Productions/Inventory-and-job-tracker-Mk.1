@@ -238,6 +238,71 @@ Deno.test("job mutation identity resolves jobId using auth-derived org and valid
   );
 });
 
+Deno.test("film box transfer mutations use the canonical atomic SQL RPCs", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  let legacyCallCount = 0;
+  const routes = [
+    { path: "/boxes/transfer/start", fn: "api_acl_box_transfer_start" },
+    { path: "/boxes/transfer/receive", fn: "api_acl_box_transfer_receive" },
+    { path: "/boxes/transfer/cancel", fn: "api_acl_box_transfer_cancel" },
+  ];
+
+  for (const route of routes) {
+    const response = await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      route.path,
+      { transferId: "TRF-1", boxId: "IL1-100", toWarehouse: "MS1" },
+      buildDeps({
+        callMutationRpc: async (
+          _client: unknown,
+          fn: string,
+          orgId: string,
+          actor: string,
+          payload: Record<string, unknown>,
+        ) => {
+          rpcCalls.push({ fn, orgId, actor, payload });
+          return {
+            box: { boxId: "IL1-100" },
+            transfer: { transferId: "TRF-1" },
+            logId: "LOG-1",
+            cancelledAllocationCount: 0,
+            releasedFeet: 0,
+            warnings: [],
+          };
+        },
+        startBoxTransfer: async () => {
+          legacyCallCount += 1;
+          return {};
+        },
+        receiveBoxTransfer: async () => {
+          legacyCallCount += 1;
+          return {};
+        },
+        cancelBoxTransfer: async () => {
+          legacyCallCount += 1;
+          return {};
+        },
+      }),
+    );
+
+    assertEquals(response.data, {
+      box: { boxId: "IL1-100" },
+      transfer: { transferId: "TRF-1" },
+      logId: "LOG-1",
+      cancelledAllocationCount: 0,
+      releasedFeet: 0,
+    }, `Expected ${route.path} to return the SQL RPC result.`);
+  }
+
+  assertEquals(
+    rpcCalls.map(({ fn, orgId, actor }) => ({ fn, orgId, actor })),
+    routes.map(({ fn }) => ({ fn, orgId: "org-from-auth", actor: "tester" })),
+    "Expected each transfer route to use its authenticated-org SQL RPC.",
+  );
+  assertEquals(legacyCallCount, 0, "Legacy multi-write transfer helpers must not run.");
+});
+
 Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
   const rpcPayloads: Array<Record<string, unknown>> = [];
   const findJobCalls: Array<Record<string, unknown>> = [];
@@ -273,6 +338,7 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
         rpcPayloads.push({ fn, orgId, actor, payload });
         return {
           allocationIds: [],
+          transferIds: ["TRF-TEST"],
           remainingUncoveredFeet: 0,
           warnings: [],
         };
@@ -309,8 +375,9 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
       allocations: [],
       filmOrder: null,
       remainingUncoveredFeet: 0,
+      transferIds: ["TRF-TEST"],
     },
-    "Expected allocation apply response shape to stay stable.",
+    "Expected allocation apply response to preserve atomic transfer IDs.",
   );
 });
 

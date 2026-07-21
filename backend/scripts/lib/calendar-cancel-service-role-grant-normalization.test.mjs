@@ -74,7 +74,7 @@ test('0190 is exactly mirrored while candidate migration 0189 remains immutable'
   assert.equal(normalizeSql(supabaseMigration), normalizeSql(backendMigration));
   assert.match(
     schemaLatest,
-    /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/,
+    /const LATEST_MIGRATION = '0192_atomic_cross_warehouse_affected_box_scan\.sql';/,
   );
   for (const candidateMigration of candidateMigrations) {
     assert.equal(normalizedDigest(candidateMigration), candidateMigrationDigest);

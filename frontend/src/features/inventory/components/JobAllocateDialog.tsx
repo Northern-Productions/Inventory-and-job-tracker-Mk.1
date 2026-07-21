@@ -125,8 +125,9 @@ export function JobAllocateDialog({
       return [];
     }
 
-    return findMatchingBoxesForRequirement(searchableBoxes, selectedRequirement, warehouse);
-  }, [searchableBoxes, selectedRequirement, warehouse]);
+    const matches = findMatchingBoxesForRequirement(searchableBoxes, selectedRequirement, warehouse);
+    return isExtraFilmMode ? matches.filter((box) => box.warehouse === warehouse) : matches;
+  }, [isExtraFilmMode, searchableBoxes, selectedRequirement, warehouse]);
   const preferredLinkedBoxIds = useMemo(
     () => collectPreferredLinkedBoxIds(selectedRequirement, filmOrders),
     [filmOrders, selectedRequirement]
@@ -564,7 +565,6 @@ export function JobAllocateDialog({
 
   const isSubmitting = submitAction !== null;
   const hasPreferredLinkedBoxes = preferredLinkedBoxIds.size > 0;
-  const hasTransferCandidates = prioritizedMatchingBoxes.some((box) => box.status === 'TRANSFER');
   const canSubmitAllocation = isExtraFilmMode
     ? selectedBoxIds.length > 0
     : selectedRequirement
@@ -610,7 +610,6 @@ export function JobAllocateDialog({
           prioritizedMatchingBoxesCount={prioritizedMatchingBoxes.length}
           selectedBoxCount={selectedBoxIds.length}
           hasPreferredLinkedBoxes={hasPreferredLinkedBoxes}
-          hasTransferCandidates={hasTransferCandidates}
           showsRemainingUncoveredNotice={showsRemainingUncoveredNotice}
           remainingUncoveredFeet={plannedSelection.remainingFeet}
           installDate={effectiveInstallDate}
@@ -624,6 +623,7 @@ export function JobAllocateDialog({
           <AllocationPlanTable
             isExtraFilmMode={isExtraFilmMode}
             boxes={prioritizedMatchingBoxes}
+            jobWarehouse={warehouse}
             requestedFeetValue={requestedFeetValue}
             coveredFeet={plannedSelection.coveredFeet}
             remainingFeet={plannedSelection.remainingFeet}

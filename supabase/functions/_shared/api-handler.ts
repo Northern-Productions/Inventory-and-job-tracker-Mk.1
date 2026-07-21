@@ -77,11 +77,13 @@ import {
 } from "../../../shared/domain/jobPlanningFilmMatcher.mjs";
 import { rankJobNumberSearchCandidates } from "../../../shared/domain/jobNumberSearchMatcher.mjs";
 import {
+  allocationReservesCapacity,
   buildBoxReservationSnapshot,
   getAllocationReservationState,
   isOrderedFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
 } from "../../../shared/domain/filmAllocationReservations.mjs";
+import { getFilmBoxAllocationEligibility } from "../../../shared/domain/filmBoxAllocationEligibility.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
 
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -2684,6 +2686,7 @@ function mapDbBoxTransferRow(row: any) {
     destinationBoxId: asTrimmedString(row.destination_box_id).toUpperCase(),
     sourceWarehouse: asTrimmedString(row.source_warehouse).toUpperCase(),
     destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
+    transferCreatedAllocationId: asTrimmedString(row.transfer_created_allocation_id),
     status: asTrimmedString(row.status).toUpperCase() || "PENDING",
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),
@@ -2710,6 +2713,7 @@ function toPublicBoxTransfer(transfer: any) {
     sourceWarehouse: transfer.sourceWarehouse,
     destinationWarehouse: transfer.destinationWarehouse,
     status: transfer.status,
+    workflowKind: transfer.transferCreatedAllocationId ? "ALLOCATION_ASSISTED" : "ORDINARY",
     createdAt: transfer.createdAt,
     createdBy: transfer.createdBy,
     receivedAt: transfer.receivedAt,
@@ -3025,6 +3029,7 @@ async function saveBoxTransferRecord(client: any, orgId: string, transfer: Recor
     cancelled_by: asTrimmedString(transfer.cancelledBy),
     updated_at: asTrimmedString(transfer.updatedAt) || new Date().toISOString(),
     updated_by: asTrimmedString(transfer.updatedBy || transfer.createdBy),
+    transfer_created_allocation_id: asTrimmedString(transfer.transferCreatedAllocationId) || null,
   };
 
   const { data, error } = await serviceClient
@@ -3084,42 +3089,16 @@ async function listActiveAllocationTransferTargetsForBox(client: any, orgId: str
 }
 
 function getTransferStartGuardForBox(box: any, activeTargets: any[]) {
-  const sourceWarehouse = asTrimmedString(box?.warehouse).toUpperCase();
-  const distinctDestinations = new Set<string>();
-  let hasSameWarehouseAllocation = false;
-
-  for (const target of Array.isArray(activeTargets) ? activeTargets : []) {
-    const destinationWarehouse = asTrimmedString(target?.jobWarehouse).toUpperCase();
-    if (!destinationWarehouse) {
-      continue;
-    }
-
-    if (destinationWarehouse === sourceWarehouse) {
-      hasSameWarehouseAllocation = true;
-      continue;
-    }
-
-    distinctDestinations.add(destinationWarehouse);
-  }
-
-  if (hasSameWarehouseAllocation) {
+  if ((Array.isArray(activeTargets) ? activeTargets : []).length > 0) {
     return {
       suggestedDestinationWarehouse: "",
       blockingMessage:
-        `Box ${box.boxId} still has active allocations for jobs in ${sourceWarehouse}. Remove those same-warehouse allocations before starting a transfer.`,
-    };
-  }
-
-  if (distinctDestinations.size > 1) {
-    return {
-      suggestedDestinationWarehouse: "",
-      blockingMessage:
-        `Box ${box.boxId} has active allocations for multiple destination warehouses. Clear the conflicting allocations before starting a transfer.`,
+        `Box ${box.boxId} has active allocations. Release them before starting an ordinary transfer.`,
     };
   }
 
   return {
-    suggestedDestinationWarehouse: Array.from(distinctDestinations)[0] || "",
+    suggestedDestinationWarehouse: "",
     blockingMessage: "",
   };
 }
@@ -3362,7 +3341,7 @@ function buildJobFilmTransferAlerts(
   const seen = new Set<string>();
 
   for (const allocation of Array.isArray(allocations) ? allocations : []) {
-    if (!allocation || allocation.status !== "ACTIVE" || !allocation.boxId) {
+    if (!allocation || !allocation.boxId) {
       continue;
     }
 
@@ -3377,10 +3356,22 @@ function buildJobFilmTransferAlerts(
     }
 
     const pendingTransfer = box.id ? pendingTransferByBoxRecordId[box.id] || null : null;
-    const state =
+    const allocationStatus = asTrimmedString(allocation.status).toUpperCase();
+    const isLinkedTransferAllocation = Boolean(
+      pendingTransfer?.transferCreatedAllocationId &&
+      pendingTransfer.transferCreatedAllocationId === asTrimmedString(allocation.allocationId)
+    );
+    if (allocationStatus !== "ACTIVE" && !isLinkedTransferAllocation) {
+      continue;
+    }
+    const hasMatchingPendingTransfer = Boolean(
       pendingTransfer && pendingTransfer.destinationWarehouse === normalizedJobWarehouse
+    );
+    const state = hasMatchingPendingTransfer
+      ? allocationStatus === "ACTIVE"
         ? "TRANSFER_PENDING"
-        : "NEEDS_TRANSFER";
+        : "TRANSFER_REVIEW_REQUIRED"
+      : "NEEDS_TRANSFER";
     const dedupeKey = `${box.boxId}:${normalizedJobWarehouse}:${state}`;
     if (seen.has(dedupeKey)) {
       continue;
@@ -3392,9 +3383,9 @@ function buildJobFilmTransferAlerts(
       sourceWarehouse,
       destinationWarehouse: normalizedJobWarehouse,
       state,
-      transferId: pendingTransfer ? pendingTransfer.transferId : "",
-      startedAt: pendingTransfer ? pendingTransfer.createdAt : "",
-      startedBy: pendingTransfer ? pendingTransfer.createdBy : "",
+      transferId: hasMatchingPendingTransfer ? pendingTransfer.transferId : "",
+      startedAt: hasMatchingPendingTransfer ? pendingTransfer.createdAt : "",
+      startedBy: hasMatchingPendingTransfer ? pendingTransfer.createdBy : "",
     });
   }
 
@@ -4185,33 +4176,11 @@ function findPendingTransferForBox(box: any, pendingTransfersByBoxRecordId: Reco
 }
 
 function getTransferAllocationBlockReason(box: any, pendingTransfer: any, jobWarehouse: unknown) {
-  if (asTrimmedString(box?.status).toUpperCase() !== "TRANSFER") {
-    return "";
-  }
-
-  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
-  if (!normalizedJobWarehouse) {
-    return `Box ${asTrimmedString(box?.boxId) || "this box"} is in transfer status and needs a job warehouse before it can be allocated.`;
-  }
-
-  if (!pendingTransfer || asTrimmedString(pendingTransfer.status).toUpperCase() !== "PENDING") {
-    return `Box ${asTrimmedString(box?.boxId) || "this box"} is in transfer status but no pending transfer was found.`;
-  }
-
-  const destinationWarehouse = asTrimmedString(pendingTransfer.destinationWarehouse).toUpperCase();
-  if (destinationWarehouse !== normalizedJobWarehouse) {
-    return `Box ${asTrimmedString(box?.boxId) || "this box"} is transferring to ${destinationWarehouse || "another warehouse"} and cannot be allocated to a job in ${normalizedJobWarehouse}.`;
-  }
-
-  return "";
+  return getFilmBoxAllocationEligibility(box, pendingTransfer, jobWarehouse).reason;
 }
 
 function isJobAllocationEligibleBox(box: any, pendingTransfer: any, jobWarehouse: unknown) {
-  if (isAllocatableBoxStatus(box?.status)) {
-    return true;
-  }
-
-  return getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) === "";
+  return getFilmBoxAllocationEligibility(box, pendingTransfer, jobWarehouse).eligible;
 }
 
 function getAllocationCandidateStatusRank(box: any) {
@@ -6252,6 +6221,7 @@ function buildAllocationPreviewPlan(
   type CandidatePreviewEntry = {
     candidate: any;
     filmMatch: ReturnType<typeof getPlanningFilmMatch>;
+    eligibility: ReturnType<typeof getFilmBoxAllocationEligibility>;
   };
 
   const requested = coerceFeetValue(requestedFeet, "RequestedFeet", [], true);
@@ -6279,15 +6249,21 @@ function buildAllocationPreviewPlan(
     throw new HttpError(400, "Source box width must meet or exceed the requested width.");
   }
   const sourcePendingTransfer = findPendingTransferForBox(sourceBox, pendingTransfersByBoxRecordId);
-  const sourceTransferBlockReason = getTransferAllocationBlockReason(
+  const sourceEligibility = getFilmBoxAllocationEligibility(
     sourceBox,
     sourcePendingTransfer,
     preferredWarehouse,
+    {
+      allowTransferAssist: options.crossWarehouse,
+      hasReservations: (options.activeAllocationsByBox[sourceBox.boxId] || []).some((allocation) =>
+        allocationReservesCapacity(allocation, sourceBox)
+      ),
+    },
   );
-  if (sourceTransferBlockReason) {
-    throw new HttpError(400, sourceTransferBlockReason);
+  if (sourceEligibility.reason) {
+    throw new HttpError(400, sourceEligibility.reason);
   }
-  if (!isJobAllocationEligibleBox(sourceBox, sourcePendingTransfer, preferredWarehouse)) {
+  if (!sourceEligibility.eligible) {
     throw new HttpError(400, `Box ${sourceBox.boxId} is no longer allocatable.`);
   }
   const sourcePlanningFeet = getBoxAllocationPlanningFeet(sourceBox, options.activeAllocationsByBox);
@@ -6305,9 +6281,20 @@ function buildAllocationPreviewPlan(
   for (const candidate of candidateBoxes) {
     const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, options.activeAllocationsByBox);
     const candidatePendingTransfer = findPendingTransferForBox(candidate, pendingTransfersByBoxRecordId);
+    const candidateEligibility = getFilmBoxAllocationEligibility(
+      candidate,
+      candidatePendingTransfer,
+      preferredWarehouse,
+      {
+        allowTransferAssist: options.crossWarehouse,
+        hasReservations: (options.activeAllocationsByBox[candidate.boxId] || []).some((allocation) =>
+          allocationReservesCapacity(allocation, candidate)
+        ),
+      },
+    );
     if (
       candidate.boxId === sourceBox.boxId ||
-      !isJobAllocationEligibleBox(candidate, candidatePendingTransfer, preferredWarehouse) ||
+      !candidateEligibility.eligible ||
       candidatePlanningFeet <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
@@ -6325,7 +6312,7 @@ function buildAllocationPreviewPlan(
       if (!filmMatch) {
         continue;
       }
-      filteredCandidates.push({ candidate, filmMatch });
+      filteredCandidates.push({ candidate, filmMatch, eligibility: candidateEligibility });
       continue;
     }
 
@@ -6333,7 +6320,7 @@ function buildAllocationPreviewPlan(
       normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) ===
       normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName)
     ) {
-      filteredCandidates.push({ candidate, filmMatch });
+      filteredCandidates.push({ candidate, filmMatch, eligibility: candidateEligibility });
     }
   }
   filteredCandidates.sort((leftEntry, rightEntry) => {
@@ -6404,6 +6391,7 @@ function buildAllocationPreviewPlan(
       availableFeet: candidate.feetAvailable,
       planningFeet: candidatePlanningFeet,
       boxStatus: candidate.status,
+      requiresTransfer: entry.eligibility.requiresTransfer,
       suggestedFeet: candidatePlan.allocatedFeet,
       suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
@@ -6426,6 +6414,7 @@ function buildAllocationPreviewPlan(
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
     sourceBoxPlanningFeet: sourcePlanningFeet,
     sourceBoxStatus: sourceBox.status,
+    sourceRequiresTransfer: sourceEligibility.requiresTransfer,
     sourceSuggestedFeet,
     sourceSuggestedCoveredFeet,
     sourceConflicts,
@@ -6757,7 +6746,7 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
       allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
     });
     const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
-    if (!pendingTransfer || !isJobAllocationEligibleBox(box, pendingTransfer, pendingTransfer.destinationWarehouse)) {
+    if (!pendingTransfer) {
       return publicBox;
     }
 

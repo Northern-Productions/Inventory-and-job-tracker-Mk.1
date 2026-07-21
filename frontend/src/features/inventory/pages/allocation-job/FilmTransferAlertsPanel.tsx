@@ -44,9 +44,7 @@ export function FilmTransferAlertsPanel({
       <div className="job-transfer-alert-list">
         {alerts.map((alert) => {
           const isRowPending = actionPending && actionBoxId === alert.boxId;
-          const canCancel = alert.state === 'TRANSFER_PENDING' && Boolean(alert.transferId);
-          const buttonLabel = canCancel ? 'Cancel Transfer' : 'Start Transfer';
-          const onAction = canCancel ? onCancelTransfer : onStartTransfer;
+          const canCancel = alert.state !== 'NEEDS_TRANSFER' && Boolean(alert.transferId);
 
           return (
             <div
@@ -62,7 +60,7 @@ export function FilmTransferAlertsPanel({
                   {alert.boxId}
                 </button>
                 <p className="muted-text">{describeFilmTransferAlert(alert)}</p>
-                {alert.state === 'TRANSFER_PENDING' && (alert.startedAt || alert.startedBy) ? (
+                {alert.state !== 'NEEDS_TRANSFER' && (alert.startedAt || alert.startedBy) ? (
                   <p className="job-transfer-alert-meta">
                     Started {renderDateTime(alert.startedAt || '')}
                     {alert.startedBy ? ` by ${alert.startedBy}` : ''}
@@ -71,17 +69,17 @@ export function FilmTransferAlertsPanel({
               </div>
               <div className="job-transfer-alert-actions">
                 <span className="badge badge-TRANSFER">{formatFilmTransferStateLabel(alert)}</span>
-                {onAction ? (
+                {canCancel ? (
                   <Button
                     type="button"
-                    variant={canCancel ? 'secondary' : 'primary'}
+                    variant="secondary"
                     size="sm"
-                    onClick={() => onAction(alert)}
+                    onClick={() => onCancelTransfer?.(alert)}
                     loading={isRowPending}
-                    loadingLabel={canCancel ? 'Cancelling...' : 'Starting...'}
+                    loadingLabel="Cancelling..."
                     disabled={actionPending && !isRowPending}
                   >
-                    {buttonLabel}
+                    Cancel Transfer
                   </Button>
                 ) : null}
               </div>
