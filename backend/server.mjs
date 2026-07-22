@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { handleSupabaseRequest } from './supabase-backend.mjs';
 import { shouldUseLocalFallbackRoute } from './src/routes/localFallbackRoutes.mjs';
+import { requiresNoStoreResponse } from '../shared/domain/runtimeContract.mjs';
 
 const BACKEND_MODE = String(process.env.BACKEND_MODE || 'supabase').trim().toLowerCase();
 const EDGE_API_BASE_URL = resolveEdgeApiBaseUrl_();
@@ -297,9 +298,15 @@ const server = http.createServer(async (req, res) => {
   const bodyJson = req.method === 'POST' ? parseBodyJson(requestBody) : null;
   const effectiveHeaders = buildEffectiveHeaders(req.headers, bodyJson);
   const logicalPath = resolveLogicalPath(requestUrl, bodyJson);
+  if (requiresNoStoreResponse(req.method, logicalPath)) {
+    res.setHeader('Cache-Control', 'no-store');
+  }
   const shouldUseLocalFallback = shouldUseLocalFallbackRoute(req.method, logicalPath);
   const authKey = hashBody(String(effectiveHeaders.authorization || effectiveHeaders.Authorization || ''));
-  const useCache = shouldUseCache(req.method, logicalPath) && !shouldUseLocalFallback;
+  const useCache =
+    shouldUseCache(req.method, logicalPath) &&
+    !requiresNoStoreResponse(req.method, logicalPath) &&
+    !shouldUseLocalFallback;
   const cacheRouteKey =
     req.method === 'POST' ? `${logicalPath}|${requestUrl.search}` : requestUrl.toString();
   const cacheKey = getCacheKey(req.method, cacheRouteKey, requestBody, authKey);

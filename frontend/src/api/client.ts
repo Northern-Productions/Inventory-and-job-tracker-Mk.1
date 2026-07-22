@@ -110,4 +110,8 @@ export {
   resolveFilmWeightPendingReview
 } from './features/filmWeightClient';
 export { getAuditByBox, getRollHistoryByBox, listAudit, undoAudit } from './features/auditClient';
-export { getOwnerAssetTotalCostReport, getReportsSummary } from './features/reportsClient';
+export {
+  getOwnerAssetTotalCostReport,
+  getReportsSummary,
+  getWarehouseAssetAuditReport
+} from './features/reportsClient';

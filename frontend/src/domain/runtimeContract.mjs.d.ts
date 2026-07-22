@@ -21,5 +21,6 @@ export const READ_PATHS: readonly string[];
 export const OWNER_ONLY_ROUTES: readonly string[];
 export function isReadRoute(logicalPath: string): boolean;
 export function isOwnerOnlyRoute(logicalPath: string): boolean;
+export function requiresNoStoreResponse(method: string, logicalPath: string): boolean;
 export function inferFeatureForRoute(logicalPath: string): FeatureArea | '';
 export function inferAccessModeForRoute(method: string, logicalPath: string): AccessMode;

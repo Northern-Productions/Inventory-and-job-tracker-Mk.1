@@ -21,6 +21,7 @@ import {
   __resetJobsApiAvailabilityForTests,
   getOwnerAssetTotalCostReport,
   getReportsSummary,
+  getWarehouseAssetAuditReport,
   setClientAccessContext
 } from './client';
 import { createDefaultFeatureAccessMap, type EffectiveAccessContext } from '../domain';
@@ -139,6 +140,80 @@ describe('reports API client', () => {
     expect(result.pricedFeet).toBe(1000);
     expect(requestMock).toHaveBeenCalledWith('GET', '/owner/reports/asset-total-cost', {
       query: { warehouse: 'IL1' }
+    });
+  });
+
+  it('loads warehouse asset audit through the reports permission with no-store freshness', async () => {
+    const accessContext = buildAccessContext('admin');
+    accessContext.permissions.reports.read = true;
+    setClientAccessContext(accessContext);
+    requestMock.mockResolvedValueOnce({
+      data: {
+        snapshotVersion: 1,
+        metadata: {
+          organizationName: 'Test Organization',
+          generatedAt: '2026-07-21T12:00:00.000Z',
+          generatedBy: 'Test User'
+        },
+        appliedFilters: {
+          warehouse: 'IL1',
+          ownerCompanyId: '',
+          manufacturer: '',
+          filmName: '',
+          width: null,
+          statuses: ['IN_STOCK'],
+          q: ''
+        },
+        appliedFilterLabels: {
+          warehouse: 'Wauconda IL1',
+          owner: 'All Owners',
+          manufacturer: 'All Manufacturers',
+          filmName: 'All Films',
+          width: 'All Widths',
+          statuses: ['In Stock'],
+          search: 'None'
+        },
+        filterOptions: {
+          warehouses: [],
+          owners: [],
+          manufacturers: [],
+          filmNames: [],
+          widths: [],
+          statuses: []
+        },
+        rows: [],
+        totals: {
+          matchingBoxes: 0,
+          totalOnHandLf: 0,
+          totalKnownOnHandAssetCostCents: '0',
+          boxesMissingCostBasis: 0
+        }
+      },
+      warnings: []
+    });
+
+    const result = await getWarehouseAssetAuditReport({
+      warehouse: 'IL1',
+      ownerCompanyId: '',
+      manufacturer: '',
+      filmName: '',
+      width: '',
+      statuses: ['IN_STOCK'],
+      q: ''
+    });
+
+    expect(result.totals.matchingBoxes).toBe(0);
+    expect(requestMock).toHaveBeenCalledWith('GET', '/reports/warehouse-asset-audit', {
+      query: {
+        warehouse: 'IL1',
+        ownerCompanyId: '',
+        manufacturer: '',
+        filmName: '',
+        width: '',
+        statuses: ['IN_STOCK'],
+        q: ''
+      },
+      cache: 'no-store'
     });
   });
 

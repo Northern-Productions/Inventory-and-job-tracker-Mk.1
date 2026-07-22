@@ -20,6 +20,7 @@ const ROUTE_TIMING_TARGETS = new Set([
   "POST /allocations/apply",
   "POST /allocations/remove-box",
   "GET /reports/summary",
+  "GET /reports/warehouse-asset-audit",
 ]);
 
 type CacheState = "hit" | "miss" | "none";

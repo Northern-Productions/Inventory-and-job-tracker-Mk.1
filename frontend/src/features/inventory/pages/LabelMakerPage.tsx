@@ -425,7 +425,12 @@ export default function LabelMakerPage() {
       return;
     }
 
-    window.print();
+    document.body.classList.add('label-printing');
+    try {
+      window.print();
+    } finally {
+      document.body.classList.remove('label-printing');
+    }
     setPendingPrintedBoxIds(getUniqueSelectedBoxIds(selectedBoxesBySlot));
   }
 

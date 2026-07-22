@@ -110,6 +110,7 @@ export const ROUTE_FEATURE_MAP = Object.freeze({
   '/roll-history/by-box': 'activity_history',
 
   '/reports/summary': 'reports',
+  '/reports/warehouse-asset-audit': 'reports',
   '/owner/reports/asset-total-cost': 'reports',
 
   '/admin/access/requests': 'access_management',
@@ -158,6 +159,7 @@ export const READ_PATHS = Object.freeze([
   '/owner-companies/list',
   '/roll-history/by-box',
   '/reports/summary',
+  '/reports/warehouse-asset-audit',
   '/owner/reports/asset-total-cost',
   '/warehouses/list',
   '/caulk/manufacturers/list',
@@ -197,6 +199,7 @@ export const OWNER_ONLY_ROUTES = Object.freeze([
 
 const READ_PATH_SET = new Set(READ_PATHS);
 const OWNER_ONLY_ROUTE_SET = new Set(OWNER_ONLY_ROUTES);
+const NO_STORE_READ_PATH_SET = new Set(['/reports/warehouse-asset-audit']);
 
 export function isReadRoute(logicalPath) {
   return READ_PATH_SET.has(String(logicalPath || ''));
@@ -204,6 +207,10 @@ export function isReadRoute(logicalPath) {
 
 export function isOwnerOnlyRoute(logicalPath) {
   return OWNER_ONLY_ROUTE_SET.has(String(logicalPath || ''));
+}
+
+export function requiresNoStoreResponse(method, logicalPath) {
+  return String(method || '').toUpperCase() === 'GET' && NO_STORE_READ_PATH_SET.has(String(logicalPath || ''));
 }
 
 export function inferFeatureForRoute(logicalPath) {

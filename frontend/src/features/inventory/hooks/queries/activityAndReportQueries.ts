@@ -1,9 +1,14 @@
 import { listAudit } from '../../../../api/features/auditClient';
 import {
   getOwnerAssetTotalCostReport,
-  getReportsSummary
+  getReportsSummary,
+  getWarehouseAssetAuditReport
 } from '../../../../api/features/reportsClient';
-import type { AuditListParams, ReportsSummaryFilters } from '../../../../domain';
+import type {
+  AuditListParams,
+  ReportsSummaryFilters,
+  WarehouseAssetAuditFilters
+} from '../../../../domain';
 import { inventoryKeys } from '../inventoryQueryKeys';
 import { useInventoryReadQuery } from './shared';
 
@@ -33,5 +38,17 @@ export function useOwnerAssetTotalCostReport(
     queryKey: inventoryKeys.ownerAssetTotalCost(filters),
     queryFn: () => getOwnerAssetTotalCostReport(filters),
     enabled: options.enabled ?? true
+  });
+}
+
+export function useWarehouseAssetAuditReport(
+  orgId: string,
+  filters: WarehouseAssetAuditFilters,
+  options: { enabled?: boolean } = {}
+) {
+  return useInventoryReadQuery({
+    queryKey: inventoryKeys.warehouseAssetAudit(orgId, filters),
+    queryFn: () => getWarehouseAssetAuditReport(filters),
+    enabled: Boolean(orgId) && (options.enabled ?? true)
   });
 }

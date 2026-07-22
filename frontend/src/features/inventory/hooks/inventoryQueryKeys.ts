@@ -3,7 +3,8 @@ import type {
   AuditListParams,
   BoxTransferPlanParams,
   ReportsSummaryFilters,
-  SearchBoxesParams
+  SearchBoxesParams,
+  WarehouseAssetAuditFilters
 } from '../../../domain';
 
 type JobLifecycleFilter = 'ACTIVE' | 'COMPLETED';
@@ -104,6 +105,8 @@ export const inventoryKeys = {
   rollHistory: (boxId: string) => ['inventory', 'roll-history', boxId] as const,
   reportsRoot: ['inventory', 'reports'] as const,
   reports: (filters: ReportsSummaryFilters) => ['inventory', 'reports', filters] as const,
+  warehouseAssetAudit: (orgId: string, filters: WarehouseAssetAuditFilters) =>
+    ['inventory', 'reports', 'warehouse-asset-audit', orgId, filters] as const,
   ownerReportsRoot: ['inventory', 'owner-reports'] as const,
   ownerAssetTotalCost: (filters: Pick<ReportsSummaryFilters, 'warehouse'>) =>
     ['inventory', 'owner-reports', 'asset-total-cost', filters] as const

@@ -20,7 +20,7 @@ import { useOfflineInventorySearch } from '../../hooks/useOfflineInventorySearch
 import { canonicalizeManufacturerLabel } from '../../utils/boxHelpers';
 import { getSafeWarehouseFilterValue, parseWarehouseFilterValue } from '../../utils/warehouseOptions';
 
-export type ReportType = 'most_used_film' | 'ownership';
+export type ReportType = 'most_used_film' | 'ownership' | 'warehouse_asset_audit';
 export type MostUsedFilmDateRange =
   | 'this_year'
   | 'last_30_days'
@@ -60,12 +60,14 @@ export const NO_OWNER_FILTER_VALUE = '__NO_OWNER__';
 
 export const REPORT_TYPE_OPTIONS: Array<{ label: string; value: ReportType }> = [
   { label: 'Most Used Film', value: 'most_used_film' },
-  { label: 'Ownership', value: 'ownership' }
+  { label: 'Ownership', value: 'ownership' },
+  { label: 'Warehouse Asset Audit', value: 'warehouse_asset_audit' }
 ];
 
 export const REPORT_TYPE_TITLES: Record<ReportType, string> = {
   most_used_film: 'Most Used Film',
-  ownership: 'Ownership'
+  ownership: 'Ownership',
+  warehouse_asset_audit: 'Warehouse Asset Audit'
 };
 
 export const RANK_BY_OPTIONS: Array<{ label: string; value: MostUsedFilmRankBy }> = [

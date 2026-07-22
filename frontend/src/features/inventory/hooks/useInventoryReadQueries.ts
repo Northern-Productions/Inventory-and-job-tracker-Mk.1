@@ -37,7 +37,8 @@ export { useOwnerCompanies } from './queries/ownershipQueries';
 export {
   useAuditList,
   useOwnerAssetTotalCostReport,
-  useReportsSummary
+  useReportsSummary,
+  useWarehouseAssetAuditReport
 } from './queries/activityAndReportQueries';
 export {
   usePendingAddCaulkAllocationJobNumbers,

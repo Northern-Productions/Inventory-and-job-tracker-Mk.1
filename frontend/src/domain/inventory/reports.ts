@@ -88,3 +88,79 @@ export interface AssetTotalCostReport {
   coveragePercentByFeet: number;
   totalAssetCost: number;
 }
+
+export type WarehouseAssetAuditStatus = 'IN_STOCK' | 'CHECKED_OUT' | 'TRANSFER';
+export type WarehouseAssetAuditCostBasis =
+  | 'DIRECT_PRICE_PER_LF'
+  | 'DERIVED_FROM_PURCHASE_COST'
+  | 'MISSING';
+
+export interface WarehouseAssetAuditFilters {
+  warehouse?: Warehouse | '';
+  ownerCompanyId?: string;
+  manufacturer?: string;
+  filmName?: string;
+  width?: string;
+  statuses?: WarehouseAssetAuditStatus[];
+  q?: string;
+}
+
+export interface WarehouseAssetAuditRow {
+  boxId: string;
+  ownerCompanyId: string | null;
+  ownerCompanyLabel: string;
+  ownerCategory: 'ASSIGNED' | 'UNASSIGNED';
+  warehouse: Warehouse;
+  custodyBasis: 'CURRENT_WAREHOUSE' | 'CHECKOUT_SOURCE' | 'PENDING_TRANSFER_SOURCE';
+  pendingTransferDestination: Warehouse | null;
+  status: WarehouseAssetAuditStatus;
+  statusLabel: string;
+  manufacturer: string;
+  filmName: string;
+  widthIn: number;
+  onHandLf: number;
+  costBasis: WarehouseAssetAuditCostBasis;
+  onHandAssetCostCents: string | null;
+}
+
+export interface WarehouseAssetAuditResponse {
+  snapshotVersion: 1;
+  metadata: {
+    organizationName: string;
+    generatedAt: string;
+    generatedBy: string;
+  };
+  appliedFilters: {
+    warehouse: Warehouse | '';
+    ownerCompanyId: string;
+    manufacturer: string;
+    filmName: string;
+    width: number | null;
+    statuses: WarehouseAssetAuditStatus[];
+    q: string;
+  };
+  appliedFilterLabels: {
+    warehouse: string;
+    owner: string;
+    manufacturer: string;
+    filmName: string;
+    width: string;
+    statuses: string[];
+    search: string;
+  };
+  filterOptions: {
+    warehouses: Array<{ value: Warehouse; label: string }>;
+    owners: Array<{ value: string; label: string }>;
+    manufacturers: string[];
+    filmNames: string[];
+    widths: number[];
+    statuses: Array<{ value: WarehouseAssetAuditStatus; label: string }>;
+  };
+  rows: WarehouseAssetAuditRow[];
+  totals: {
+    matchingBoxes: number;
+    totalOnHandLf: number;
+    totalKnownOnHandAssetCostCents: string;
+    boxesMissingCostBasis: number;
+  };
+}

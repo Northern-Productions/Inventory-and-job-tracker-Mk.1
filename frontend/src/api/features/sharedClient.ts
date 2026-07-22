@@ -506,11 +506,12 @@ export function assertFeatureAccess(feature: FeatureArea, mode: FeatureAccessMod
 export async function requestReadWithFallback<T>(
   path: string,
   _body: Record<string, unknown>,
-  query: Record<string, string | number | boolean | string[] | readonly string[] | undefined>
+  query: Record<string, string | number | boolean | string[] | readonly string[] | undefined>,
+  options: { cache?: RequestCache } = {}
 ): Promise<T> {
   if (!isReadRoute(path)) {
     throw new APIError(`Route is not configured as a read route: ${path}`);
   }
-  const { data } = await request<T>('GET', path, { query });
+  const { data } = await request<T>('GET', path, { query, cache: options.cache });
   return data;
 }

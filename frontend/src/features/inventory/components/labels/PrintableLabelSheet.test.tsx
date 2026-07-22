@@ -175,12 +175,13 @@ describe('PrintableLabelSheet', () => {
     const styles = readFileSync('src/styles.css', 'utf8');
 
     expect(styles).toContain('@media print');
-    expect(styles).toContain('body *');
+    expect(styles).toContain('body.label-printing *');
     expect(styles).toContain('visibility: hidden !important');
     expect(styles).toContain('.print-root');
-    expect(styles).toContain('body > .label-print-only-root');
+    expect(styles).toContain('body.label-printing > .label-print-only-root');
     expect(styles).toContain('visibility: visible !important');
     expect(styles).toContain('size: letter landscape');
+    expect(styles).toContain('@page label-page');
     expect(styles).toContain('margin: 0');
     expect(styles).toContain('position: fixed !important');
     expect(styles).toContain('top: 0 !important');

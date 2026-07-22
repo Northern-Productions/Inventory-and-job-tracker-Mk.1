@@ -48,6 +48,8 @@ import {
   loadJobsCaulkSummary,
 } from "./services/jobsCaulkSummary.ts";
 import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
+import { buildWarehouseAssetAuditFromEdge } from "./services/warehouseAssetAudit.ts";
+import { requiresNoStoreResponse } from "../../../shared/domain/runtimeContract.mjs";
 import {
   buildCurrentCheckedOutAllocationIdSet,
   buildFilmCheckoutActionPlan,
@@ -1047,9 +1049,12 @@ function buildCorsHeaders(request: Request): Headers {
   return headers;
 }
 
-function jsonResponse(request: Request, status: number, payload: unknown): Response {
+function jsonResponse(request: Request, status: number, payload: unknown, logicalPath = ""): Response {
   const headers = buildCorsHeaders(request);
   headers.set("Content-Type", "application/json; charset=utf-8");
+  if (requiresNoStoreResponse(request.method, logicalPath)) {
+    headers.set("Cache-Control", "no-store");
+  }
   return new Response(JSON.stringify(payload), { status, headers });
 }
 
@@ -9935,6 +9940,10 @@ async function dispatchRead(
     listOpenFilmWeightPendingReviews,
     listRollHistoryByBox,
     buildReportsSummary,
+    buildWarehouseAssetAudit: (_readClient, readOrgId, readParams, readIdentity) =>
+      buildWarehouseAssetAuditFromEdge(requireServiceRoleClient(), readOrgId, readParams, {
+        generatedBy: readIdentity.name,
+      }),
     buildOwnerAssetTotalCost,
   });
 }
@@ -10034,7 +10043,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       return jsonResponse(request, 500, {
         ok: false,
         error: "SUPABASE_URL and SUPABASE_ANON_KEY must be configured for the Edge API.",
-      });
+      }, logicalPath);
     }
 
     const useCache = shouldUseCache(request.method, logicalPath);
@@ -10052,6 +10061,9 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       if (cached && cached.expiresAt > Date.now()) {
         const headers = buildCorsHeaders(request);
         headers.set("Content-Type", cached.contentType);
+        if (requiresNoStoreResponse(request.method, logicalPath)) {
+          headers.set("Cache-Control", "no-store");
+        }
         timingStatusCode = cached.status;
         timingOk = cached.status >= 200 && cached.status < 400;
         timingCacheState = "hit";
@@ -10102,6 +10114,9 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
 
     const headers = buildCorsHeaders(request);
     headers.set("Content-Type", "application/json; charset=utf-8");
+    if (requiresNoStoreResponse(request.method, logicalPath)) {
+      headers.set("Cache-Control", "no-store");
+    }
     timingStatusCode = 200;
     timingOk = true;
     return new Response(responseBody, { status: 200, headers });
@@ -10115,7 +10130,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
         error: error.message,
         warnings: error.warnings || [],
         ...(error.details || {}),
-      });
+      }, logicalPath);
     }
     timingStatusCode = 500;
     timingOk = false;
@@ -10123,7 +10138,7 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       ok: false,
       error: error instanceof Error ? error.message : "Unexpected server error.",
       warnings: [],
-    });
+    }, logicalPath);
   } finally {
     maybeLogRouteTiming({
       runtime: "supabase-edge",

@@ -2,7 +2,9 @@
 import type {
   OwnerAssetTotalCostResponse,
   ReportsSummary,
-  ReportsSummaryFilters
+  ReportsSummaryFilters,
+  WarehouseAssetAuditFilters,
+  WarehouseAssetAuditResponse
 } from '../../domain';
 import { assertFeatureAccess, assertOwnerAccess, requestReadWithFallback } from './sharedClient';
 
@@ -59,4 +61,25 @@ export async function getOwnerAssetTotalCostReport(
     coveragePercentByFeet: Number(summary.coveragePercentByFeet || 0),
     totalAssetCost: Number(summary.totalAssetCost || 0)
   };
+}
+
+export async function getWarehouseAssetAuditReport(
+  filters: WarehouseAssetAuditFilters
+): Promise<WarehouseAssetAuditResponse> {
+  assertFeatureAccess('reports', 'read');
+  const params = {
+    warehouse: filters.warehouse,
+    ownerCompanyId: filters.ownerCompanyId,
+    manufacturer: filters.manufacturer,
+    filmName: filters.filmName,
+    width: filters.width,
+    statuses: filters.statuses,
+    q: filters.q
+  };
+  return requestReadWithFallback<WarehouseAssetAuditResponse>(
+    '/reports/warehouse-asset-audit',
+    params,
+    params,
+    { cache: 'no-store' }
+  );
 }

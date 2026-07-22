@@ -19,6 +19,7 @@ import {
   type ReportType,
   useReportsPageModel
 } from './reports/useReportsPageModel';
+import { WarehouseAssetAuditReport } from './reports/WarehouseAssetAuditReport';
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US', {
@@ -86,6 +87,7 @@ export default function ReportsPage() {
     patchOwnershipFilters
   } = useReportsPageModel();
   const isOwnershipReport = reportType === 'ownership';
+  const isWarehouseAssetAudit = reportType === 'warehouse_asset_audit';
 
   function openBox(box: Box) {
     const displayBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
@@ -99,7 +101,9 @@ export default function ReportsPage() {
           <div>
             <h2>Reports</h2>
             <p className="muted-text">
-              {isOwnershipReport
+              {isWarehouseAssetAudit
+                ? 'Review and print current warehouse custody, physical LF, and known on-hand asset cost.'
+                : isOwnershipReport
                 ? 'Search and filter boxes by owner company, warehouse, film, width, and status.'
                 : 'Most Used Film ranks job demand and actual consumed LF by manufacturer, film, and width.'}
             </p>
@@ -113,7 +117,7 @@ export default function ReportsPage() {
             onChange={(event) => setReportType(event.target.value as ReportType)}
             options={reportTypeOptions}
           />
-          {isOwnershipReport ? (
+          {isWarehouseAssetAudit ? null : isOwnershipReport ? (
             <>
               <WarehouseSelectField
                 value={ownershipFilters.warehouse || ''}
@@ -244,7 +248,7 @@ export default function ReportsPage() {
           )}
         </div>
 
-        {!isOwnershipReport && filters.dateRange === 'custom' ? (
+        {!isWarehouseAssetAudit && !isOwnershipReport && filters.dateRange === 'custom' ? (
           <div className="toolbar-grid reports-filters reports-custom-date-filters">
             <Input
               label="Custom Start"
@@ -264,7 +268,7 @@ export default function ReportsPage() {
         ) : null}
       </section>
 
-      <section className="panel">
+      {isWarehouseAssetAudit ? <WarehouseAssetAuditReport /> : <section className="panel">
         <div className="panel-title-row">
           <div>
             <h2>{REPORT_TYPE_TITLES[reportType]}</h2>
@@ -428,7 +432,7 @@ export default function ReportsPage() {
             </div>
           )
         ) : null}
-      </section>
+      </section>}
     </>
   );
 }

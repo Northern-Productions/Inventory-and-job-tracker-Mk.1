@@ -99,6 +99,23 @@ Deno.test("Edge ACL denies disabled feature read routes", () => {
   );
 });
 
+Deno.test("Warehouse asset audit costs require reports.read permission", () => {
+  assertDenied(
+    "GET",
+    "/reports/warehouse-asset-audit",
+    identity({ permissions: permissions({ inventory: { read: true }, reports: { read: false } }) }),
+    403,
+    "Feature access denied.",
+    "Box-level financial data must not be exposed through inventory read permission.",
+  );
+  assertAllows(
+    "GET",
+    "/reports/warehouse-asset-audit",
+    identity({ permissions: permissions({ reports: { read: true } }) }),
+    "reports.read should authorize the warehouse asset audit.",
+  );
+});
+
 Deno.test("Edge ACL denies safe next BoxID suggestion without inventory read access", () => {
   assertDenied(
     "GET",

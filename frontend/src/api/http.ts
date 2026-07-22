@@ -85,6 +85,7 @@ interface RequestOptions {
   query?: Record<string, string | number | boolean | readonly string[] | string[] | undefined>;
   body?: unknown;
   timeoutMs?: number;
+  cache?: RequestCache;
 }
 
 function buildRequestHeaders(method: 'GET' | 'POST', authToken: string): Record<string, string> | undefined {
@@ -223,6 +224,7 @@ export async function request<T>(
       {
         method,
         headers: buildRequestHeaders(method, authContext.token),
+        cache: options.cache,
         body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined
       },
       timeoutMs

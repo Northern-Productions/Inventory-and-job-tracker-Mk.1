@@ -166,7 +166,8 @@ describe('useReportsPageModel', () => {
 
     expect(result.current.reportTypeOptions).toEqual([
       { label: 'Most Used Film', value: 'most_used_film' },
-      { label: 'Ownership', value: 'ownership' }
+      { label: 'Ownership', value: 'ownership' },
+      { label: 'Warehouse Asset Audit', value: 'warehouse_asset_audit' }
     ]);
     expect(result.current.filters.warehouse).toBe('IL1');
     expect(result.current.filters.dateRange).toBe('all_time');

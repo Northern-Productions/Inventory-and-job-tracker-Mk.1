@@ -40,6 +40,7 @@ export {
   usePendingUpdateCaulkAllocationIds,
   usePendingUpdateJobNumbers,
   useReportsSummary,
+  useWarehouseAssetAuditReport,
   useRollHistory,
   useSearchBoxes,
   useSearchBoxesWithOptions,

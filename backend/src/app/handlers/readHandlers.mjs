@@ -63,6 +63,7 @@ import {
   listUsernameChangeRequests,
 } from '../services/access.mjs';
 import { listTeamUsers } from '../services/teamUsers.mjs';
+import { buildWarehouseAssetAuditFromDatabase } from '../services/runtime/runtimeWarehouseAssetAudit.mjs';
 import { withReadClient } from '../../db/client.mjs';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -367,6 +368,12 @@ const readHandlers = {
     });
   },
   '/reports/summary': async ({ client, orgId, params }) => ok(await buildReportsSummary(client, orgId, params)),
+  '/reports/warehouse-asset-audit': async ({ client, orgId, params, authContext }) =>
+    ok(
+      await buildWarehouseAssetAuditFromDatabase(client, orgId, params, {
+        generatedBy: authContext?.name,
+      })
+    ),
   '/owner/reports/asset-total-cost': async ({ client, orgId, params }) =>
     ok(await buildOwnerAssetTotalCost(client, orgId, params)),
   '/caulk/manufacturers/list': async ({ client, orgId }) =>
