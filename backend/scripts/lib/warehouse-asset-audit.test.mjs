@@ -49,8 +49,8 @@ function baseInput(overrides = {}) {
       {
         id: '20000000-0000-4000-8000-000000000001',
         org_id: ORG_ID,
-        code: 'MGT',
-        display_name: 'Midwest Glass Tinters',
+        code: 'ALP',
+        display_name: 'Alpha Holdings',
         is_active: true,
       },
     ],
@@ -91,6 +91,50 @@ test('warehouse asset audit always offers the Unassigned owner filter', () => {
     filters: { ownerCompanyId: UNASSIGNED_OWNER_FILTER },
   }));
   assert.equal(unassigned.rows.length, 0);
+});
+
+test('warehouse asset audit owner labels cannot change valuation, LF, status, or custody', () => {
+  const ownerCompanyId = '20000000-0000-4000-8000-000000000001';
+  const assignedBox = box({
+    owner_company_id: ownerCompanyId,
+    price_per_lf: '1.25',
+    feet_available: 80,
+  });
+  const original = buildWarehouseAssetAuditReport(baseInput({
+    boxes: [assignedBox],
+    filters: { ownerCompanyId },
+  }));
+  const renamed = buildWarehouseAssetAuditReport(baseInput({
+    owners: [{
+      id: ownerCompanyId,
+      org_id: ORG_ID,
+      code: 'BET',
+      display_name: 'Beta Holdings',
+      is_active: true,
+    }],
+    boxes: [assignedBox],
+    filters: { ownerCompanyId },
+  }));
+
+  assert.equal(original.rows[0].ownerCompanyLabel, 'ALP - Alpha Holdings');
+  assert.equal(renamed.rows[0].ownerCompanyLabel, 'BET - Beta Holdings');
+  assert.deepEqual(original.totals, renamed.totals);
+  assert.deepEqual(
+    {
+      onHandLf: original.rows[0].onHandLf,
+      status: original.rows[0].status,
+      custodyBasis: original.rows[0].custodyBasis,
+      costBasis: original.rows[0].costBasis,
+      onHandAssetCostCents: original.rows[0].onHandAssetCostCents,
+    },
+    {
+      onHandLf: renamed.rows[0].onHandLf,
+      status: renamed.rows[0].status,
+      custodyBasis: renamed.rows[0].custodyBasis,
+      costBasis: renamed.rows[0].costBasis,
+      onHandAssetCostCents: renamed.rows[0].onHandAssetCostCents,
+    },
+  );
 });
 
 test('warehouse asset audit sums full-precision derived costs before rounding the total', () => {

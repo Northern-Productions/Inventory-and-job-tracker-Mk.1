@@ -12,7 +12,7 @@ function buildSnapshot(rowCount = 1): WarehouseAssetAuditResponse {
   const rows = Array.from({ length: rowCount }, (_, index) => ({
     boxId: `IL1-${String(index + 1).padStart(4, '0')}`,
     ownerCompanyId: index % 2 ? 'owner-1' : null,
-    ownerCompanyLabel: index % 2 ? 'MGT - Midwest Glass Tinters' : 'Unassigned',
+    ownerCompanyLabel: index % 2 ? 'ALP - Alpha Holdings' : 'Unassigned',
     ownerCategory: index % 2 ? 'ASSIGNED' as const : 'UNASSIGNED' as const,
     warehouse: 'IL1',
     custodyBasis: 'CURRENT_WAREHOUSE' as const,
@@ -91,6 +91,25 @@ describe('WarehouseAssetAuditWorksheet', () => {
     expect(screen.getByText('Test Organization')).toBeTruthy();
     expect(screen.getByText('Test User')).toBeTruthy();
     expect(screen.getByText('Total Known On-Hand Asset Cost')).toBeTruthy();
+    expect(screen.getAllByText('$125.00')).toHaveLength(2);
+  });
+
+  it('prints only a safe owner label and selected-owner header when given a diagnostic label', () => {
+    const unresolvedIdentity = '99999999-9999-4999-8999-999999999999';
+    const snapshot = buildSnapshot(1);
+    snapshot.rows[0] = {
+      ...snapshot.rows[0],
+      ownerCompanyId: unresolvedIdentity,
+      ownerCompanyLabel: 'Unknown owner',
+      ownerCategory: 'ASSIGNED'
+    };
+    snapshot.appliedFilters.ownerCompanyId = unresolvedIdentity;
+    snapshot.appliedFilterLabels.owner = 'Unknown owner';
+    const { container } = render(<WarehouseAssetAuditWorksheet snapshot={snapshot} />);
+
+    expect(screen.getAllByText('Unknown owner').length).toBeGreaterThanOrEqual(2);
+    expect(container.innerHTML).not.toContain(unresolvedIdentity);
+    expect(screen.getByText('Total On-Hand LF')).toBeTruthy();
     expect(screen.getAllByText('$125.00')).toHaveLength(2);
   });
 

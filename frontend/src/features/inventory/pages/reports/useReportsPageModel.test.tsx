@@ -2,23 +2,31 @@
 
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildOwnershipOwnerOptions,
-  filterOwnershipBoxes,
   buildDateRangeOptions,
   NO_OWNER_FILTER_VALUE,
   resolveMostUsedFilmDateBounds,
-  summarizeOwnershipBoxes,
   useReportsPageModel
 } from './useReportsPageModel';
+import {
+  buildOwnershipOwnerOptions,
+  buildOwnershipReportReadModel,
+  filterOwnershipReportRows,
+  summarizeOwnershipReportRows
+} from './ownerCompanyResolution';
 import type { Box, OwnerCompanyEntry } from '../../../../domain';
 
 const useReportsSummaryMock = vi.fn();
 const useWarehouseRegistryMock = vi.fn();
 const useOfflineInventorySearchMock = vi.fn();
 const useOwnerCompaniesMock = vi.fn();
+const useAuthMock = vi.fn();
+
+vi.mock('../../../auth/AuthContext', () => ({
+  useAuth: () => useAuthMock()
+}));
 
 vi.mock('../../../../hooks/useIsPhoneLayout', () => ({
   useIsPhoneLayout: () => false
@@ -75,9 +83,9 @@ function buildBox(overrides: Partial<Box> = {}): Box {
   return {
     boxId: 'IL1-1001',
     warehouse: 'IL1',
-    ownerCompanyId: 'owner-mgt',
-    ownerCompanyCode: 'MGT',
-    ownerCompanyDisplayName: 'MGT',
+    ownerCompanyId: 'owner-alpha',
+    ownerCompanyCode: 'ALP',
+    ownerCompanyDisplayName: 'Alpha Holdings',
     ownerCompanyIsActive: true,
     dealer: '',
     manufacturer: '3M Solar',
@@ -114,10 +122,10 @@ function buildBox(overrides: Partial<Box> = {}): Box {
 
 function buildOwner(overrides: Partial<OwnerCompanyEntry> = {}): OwnerCompanyEntry {
   return {
-    ownerCompanyId: 'owner-mgt',
-    code: 'MGT',
-    displayName: 'MGT',
-    lookupKey: 'mgt',
+    ownerCompanyId: 'owner-alpha',
+    code: 'ALP',
+    displayName: 'Alpha Holdings',
+    lookupKey: 'alp',
     isActive: true,
     createdAt: '',
     createdBy: '',
@@ -131,6 +139,13 @@ function buildOwner(overrides: Partial<OwnerCompanyEntry> = {}): OwnerCompanyEnt
 
 describe('useReportsPageModel', () => {
   beforeEach(() => {
+    useAuthMock.mockReset();
+    useAuthMock.mockReturnValue({
+      isAccessReady: true,
+      isApproved: true,
+      session: { user: { sub: 'user-a' } },
+      accessContext: { orgId: 'org-a' }
+    });
     useReportsSummaryMock.mockReset();
     useWarehouseRegistryMock.mockReset();
     useWarehouseRegistryMock.mockReturnValue({
@@ -219,7 +234,7 @@ describe('useReportsPageModel', () => {
       result.current.setReportType('ownership');
       result.current.patchOwnershipFilters({
         warehouse: '',
-        ownerCompanyId: 'owner-mgt',
+        ownerCompanyId: 'owner-alpha',
         manufacturer: 'Llumar'
       });
     });
@@ -227,7 +242,7 @@ describe('useReportsPageModel', () => {
     expect(result.current.ownershipFilters).toEqual(
       expect.objectContaining({
         warehouse: '',
-        ownerCompanyId: 'owner-mgt',
+        ownerCompanyId: 'owner-alpha',
         manufacturer: 'Llumar'
       })
     );
@@ -236,27 +251,48 @@ describe('useReportsPageModel', () => {
     expect(useOfflineInventorySearchMock).toHaveBeenLastCalledWith('', { enabled: true });
   });
 
+  it('keeps the canonical ownership dataset organization-wide as warehouse filters change', () => {
+    const { result } = renderHook(() => useReportsPageModel(), {
+      wrapper: createWrapper()
+    });
+
+    act(() => {
+      result.current.setReportType('ownership');
+      result.current.patchOwnershipFilters({ warehouse: 'MS1' });
+    });
+
+    expect(result.current.ownershipFilters.warehouse).toBe('MS1');
+    expect(useOfflineInventorySearchMock).toHaveBeenLastCalledWith('', { enabled: true });
+  });
+
   it('filters ownership boxes by owner after applying inventory-like filters', () => {
     const boxes = [
-      buildBox({ boxId: 'IL1-1001', ownerCompanyId: 'owner-mgt', manufacturer: '3M Solar', warehouse: 'IL1' }),
-      buildBox({ boxId: 'MS1-2001', ownerCompanyId: 'owner-mgt', manufacturer: '3M Solar', warehouse: 'MS1' }),
-      buildBox({ boxId: 'IL1-1002', ownerCompanyId: 'owner-edh', manufacturer: '3M Solar', warehouse: 'IL1' }),
+      buildBox({ boxId: 'IL1-1001', ownerCompanyId: 'owner-alpha', manufacturer: '3M Solar', warehouse: 'IL1' }),
+      buildBox({ boxId: 'MS1-2001', ownerCompanyId: 'owner-alpha', manufacturer: '3M Solar', warehouse: 'MS1' }),
+      buildBox({ boxId: 'IL1-1002', ownerCompanyId: 'owner-beta', ownerCompanyCode: 'BET', manufacturer: '3M Solar', warehouse: 'IL1' }),
       buildBox({ boxId: 'IL1-1003', ownerCompanyId: '', ownerCompanyCode: '', ownerCompanyDisplayName: '', warehouse: 'IL1' })
     ];
+    const rows = buildOwnershipReportReadModel({
+      boxes,
+      ownerCompanies: [
+        buildOwner(),
+        buildOwner({ ownerCompanyId: 'owner-beta', code: 'BET', displayName: 'Beta Holdings', lookupKey: 'bet' })
+      ]
+    }).rows;
 
     expect(
-      filterOwnershipBoxes(boxes, {
+      filterOwnershipReportRows(rows, {
         warehouse: 'IL1',
         manufacturer: '3M Solar',
         filmName: '',
         width: '',
         status: '',
         q: '',
-        ownerCompanyId: 'owner-mgt'
-      }).map((box) => box.boxId)
+        ownerCompanyId: 'owner-alpha'
+      }).map((row) => row.box.boxId)
     ).toEqual(['IL1-1001']);
     expect(
-      filterOwnershipBoxes(boxes, {
+      filterOwnershipReportRows(rows, {
         warehouse: 'IL1',
         manufacturer: '',
         filmName: '',
@@ -264,39 +300,185 @@ describe('useReportsPageModel', () => {
         status: '',
         q: '',
         ownerCompanyId: NO_OWNER_FILTER_VALUE
-      }).map((box) => box.boxId)
+      }).map((row) => row.box.boxId)
     ).toEqual(['IL1-1003']);
+  });
+
+  it('resolves production-shaped blank box labels through the scoped current-org registry', () => {
+    useOfflineInventorySearchMock.mockReturnValue({
+      snapshotBoxes: [
+        buildBox({ ownerCompanyCode: '', ownerCompanyDisplayName: '' }),
+        buildBox({
+          boxId: 'IL1-1002',
+          ownerCompanyId: 'owner-beta',
+          ownerCompanyCode: '',
+          ownerCompanyDisplayName: ''
+        })
+      ],
+      isLoading: false,
+      error: null
+    });
+    useOwnerCompaniesMock.mockReturnValue({
+      data: [
+        buildOwner(),
+        buildOwner({
+          ownerCompanyId: 'owner-beta',
+          code: 'BET',
+          displayName: 'Beta Holdings',
+          lookupKey: 'bet'
+        })
+      ],
+      isLoading: false,
+      error: null
+    });
+    const { result } = renderHook(() => useReportsPageModel(), {
+      wrapper: createWrapper()
+    });
+
+    act(() => result.current.setReportType('ownership'));
+
+    expect(result.current.ownershipRows.map((row) => row.owner.displayLabel)).toEqual([
+      'ALP - Alpha Holdings',
+      'BET - Beta Holdings'
+    ]);
+    expect(result.current.ownershipCountsByOwner).toEqual([
+      { key: 'owner-alpha', label: 'ALP - Alpha Holdings', count: 1 },
+      { key: 'owner-beta', label: 'BET - Beta Holdings', count: 1 }
+    ]);
+    expect(useOwnerCompaniesMock).toHaveBeenLastCalledWith({
+      includeInactive: true,
+      enabled: true,
+      scope: { userId: 'user-a', orgId: 'org-a' }
+    });
+  });
+
+  it('fails the Ownership read surface closed on a registry conflict', () => {
+    useOfflineInventorySearchMock.mockReturnValue({
+      snapshotBoxes: [buildBox()],
+      isLoading: false,
+      error: null
+    });
+    useOwnerCompaniesMock.mockReturnValue({
+      data: [
+        buildOwner(),
+        buildOwner({ ownerCompanyId: 'owner-beta', lookupKey: 'alp' })
+      ],
+      isLoading: false,
+      error: null
+    });
+    const { result } = renderHook(() => useReportsPageModel(), {
+      wrapper: createWrapper()
+    });
+
+    act(() => result.current.setReportType('ownership'));
+
+    expect(result.current.ownershipRows).toEqual([]);
+    expect(result.current.ownershipCountsByOwner).toEqual([]);
+    expect(result.current.unresolvedOwnerCount).toBe(0);
+    expect(result.current.ownershipError?.message).toBe(
+      'Owner company identities could not be resolved safely for this report.'
+    );
+  });
+
+  it('clears owner selection and derived rows when the active organization changes', async () => {
+    useOfflineInventorySearchMock.mockReturnValue({
+      snapshotBoxes: [buildBox()],
+      isLoading: false,
+      error: null
+    });
+    useOwnerCompaniesMock.mockReturnValue({
+      data: [buildOwner()],
+      isLoading: false,
+      error: null
+    });
+    const { result, rerender } = renderHook(() => useReportsPageModel(), {
+      wrapper: createWrapper()
+    });
+    act(() => {
+      result.current.setReportType('ownership');
+      result.current.patchOwnershipFilters({ ownerCompanyId: 'owner-alpha' });
+    });
+    expect(result.current.ownershipRows).toHaveLength(1);
+
+    useAuthMock.mockReturnValue({
+      isAccessReady: true,
+      isApproved: true,
+      session: { user: { sub: 'user-b' } },
+      accessContext: { orgId: 'org-b' }
+    });
+    useOfflineInventorySearchMock.mockReturnValue({
+      snapshotBoxes: [
+        buildBox({
+          ownerCompanyId: 'owner-beta',
+          ownerCompanyCode: '',
+          ownerCompanyDisplayName: ''
+        })
+      ],
+      isLoading: false,
+      error: null
+    });
+    useOwnerCompaniesMock.mockReturnValue({
+      data: [
+        buildOwner({
+          ownerCompanyId: 'owner-beta',
+          code: 'BET',
+          displayName: 'Beta Holdings',
+          lookupKey: 'bet'
+        })
+      ],
+      isLoading: false,
+      error: null
+    });
+    rerender();
+
+    await waitFor(() => expect(result.current.ownershipFilters.ownerCompanyId).toBe(''));
+    expect(result.current.ownershipRows.map((row) => row.owner.displayLabel)).toEqual([
+      'BET - Beta Holdings'
+    ]);
+    expect(result.current.ownerCompanyOptions).not.toContainEqual(
+      expect.objectContaining({ value: 'owner-alpha' })
+    );
+    expect(useOwnerCompaniesMock).toHaveBeenLastCalledWith({
+      includeInactive: true,
+      enabled: true,
+      scope: { userId: 'user-b', orgId: 'org-b' }
+    });
   });
 
   it('builds stable active, inactive-attached, selected inactive, and no-owner options', () => {
     const ownerCompanies = [
-      buildOwner({ ownerCompanyId: 'owner-mgt', code: 'MGT', displayName: 'MGT', isActive: true }),
-      buildOwner({ ownerCompanyId: 'owner-edh', code: 'EDH', displayName: 'Eastside Holdings', isActive: false }),
-      buildOwner({ ownerCompanyId: 'owner-kam', code: 'KAM', displayName: 'KAM', isActive: false })
+      buildOwner(),
+      buildOwner({ ownerCompanyId: 'owner-beta', code: 'BET', displayName: 'Beta Holdings', lookupKey: 'bet', isActive: false }),
+      buildOwner({ ownerCompanyId: 'owner-gamma', code: 'GAM', displayName: 'Gamma Holdings', lookupKey: 'gam', isActive: false })
     ];
     const boxes = [
-      buildBox({ ownerCompanyId: 'owner-edh', ownerCompanyCode: 'EDH', ownerCompanyDisplayName: 'Eastside Holdings', ownerCompanyIsActive: false }),
+      buildBox({ ownerCompanyId: 'owner-beta', ownerCompanyCode: 'BET', ownerCompanyDisplayName: '', ownerCompanyIsActive: false }),
       buildBox({ ownerCompanyId: '', ownerCompanyCode: '', ownerCompanyDisplayName: '' })
     ];
+    const readModel = buildOwnershipReportReadModel({ ownerCompanies, boxes });
 
-    expect(buildOwnershipOwnerOptions({ ownerCompanies, boxes, selectedOwnerCompanyId: 'owner-kam' })).toEqual([
+    expect(buildOwnershipOwnerOptions({ readModel, selectedOwnerCompanyId: 'owner-gamma' })).toEqual([
       { label: 'All Owners', value: '' },
-      { label: 'EDH - Eastside Holdings (inactive)', value: 'owner-edh' },
-      { label: 'KAM (inactive)', value: 'owner-kam' },
-      { label: 'MGT', value: 'owner-mgt' },
+      { label: 'ALP - Alpha Holdings', value: 'owner-alpha' },
+      { label: 'BET - Beta Holdings (inactive)', value: 'owner-beta' },
+      { label: 'GAM - Gamma Holdings (inactive)', value: 'owner-gamma' },
       { label: 'No owner assigned', value: NO_OWNER_FILTER_VALUE }
     ]);
   });
 
   it('summarizes ownership boxes by owner without totaling cost', () => {
-    expect(
-      summarizeOwnershipBoxes([
-        buildBox({ ownerCompanyId: 'owner-mgt', ownerCompanyCode: 'MGT' }),
-        buildBox({ boxId: 'IL1-1002', ownerCompanyId: 'owner-mgt', ownerCompanyCode: 'MGT', purchaseCost: 500 }),
+    const readModel = buildOwnershipReportReadModel({
+      ownerCompanies: [buildOwner()],
+      boxes: [
+        buildBox({ ownerCompanyId: 'owner-alpha', ownerCompanyCode: '' }),
+        buildBox({ boxId: 'IL1-1002', ownerCompanyId: 'owner-alpha', ownerCompanyCode: '', purchaseCost: 500 }),
         buildBox({ boxId: 'IL1-1003', ownerCompanyId: '', ownerCompanyCode: '', ownerCompanyDisplayName: '' })
-      ])
+      ]
+    });
+    expect(
+      summarizeOwnershipReportRows(readModel.rows)
     ).toEqual([
-      { key: 'owner-mgt', label: 'MGT', count: 2 },
+      { key: 'owner-alpha', label: 'ALP - Alpha Holdings', count: 2 },
       { key: NO_OWNER_FILTER_VALUE, label: 'No owner assigned', count: 1 }
     ]);
   });

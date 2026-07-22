@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
-  Box,
-  BoxStatus,
   MostUsedFilmRankBy,
-  OwnerCompanyEntry,
   ReportsSummaryFilters,
   Warehouse
 } from '../../../../domain';
-import { formatOwnerCompanyLabel } from '../../../../domain';
-import { filterOfflineBoxes } from '../../../../lib/offlineInventory';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
+import { useAuth } from '../../../auth/AuthContext';
 import { useDefaultWarehouse } from '../../hooks/useDefaultWarehouse';
 import { useWarehouseRegistry } from '../../hooks/useWarehouseRegistry';
 import {
@@ -19,6 +15,17 @@ import {
 import { useOfflineInventorySearch } from '../../hooks/useOfflineInventorySearch';
 import { canonicalizeManufacturerLabel } from '../../utils/boxHelpers';
 import { getSafeWarehouseFilterValue, parseWarehouseFilterValue } from '../../utils/warehouseOptions';
+import {
+  buildOwnershipOwnerOptions,
+  buildOwnershipReportReadModel,
+  filterOwnershipReportRows,
+  NO_OWNER_FILTER_VALUE,
+  OwnershipReportResolutionError,
+  summarizeOwnershipReportRows,
+  type OwnershipReportFilters
+} from './ownerCompanyResolution';
+
+export { NO_OWNER_FILTER_VALUE } from './ownerCompanyResolution';
 
 export type ReportType = 'most_used_film' | 'ownership' | 'warehouse_asset_audit';
 export type MostUsedFilmDateRange =
@@ -40,23 +47,7 @@ export interface MostUsedFilmFilters {
   rankBy: MostUsedFilmRankBy;
 }
 
-export interface OwnershipFilters {
-  warehouse: Warehouse | '';
-  manufacturer: string;
-  filmName: string;
-  width: string;
-  status: BoxStatus | '';
-  q: string;
-  ownerCompanyId: string;
-}
-
-export interface OwnershipCountSummary {
-  key: string;
-  label: string;
-  count: number;
-}
-
-export const NO_OWNER_FILTER_VALUE = '__NO_OWNER__';
+export type OwnershipFilters = OwnershipReportFilters;
 
 export const REPORT_TYPE_OPTIONS: Array<{ label: string; value: ReportType }> = [
   { label: 'Most Used Film', value: 'most_used_film' },
@@ -161,128 +152,13 @@ function ensureWidthOption(options: number[], value: string) {
   return [...options, width].sort((left, right) => left - right);
 }
 
-function getOwnerLabelFromBox(box: Box) {
-  return formatOwnerCompanyLabel({
-    code: box.ownerCompanyCode,
-    displayName: box.ownerCompanyDisplayName
-  }) || 'No owner assigned';
-}
-
-function getOwnerOptionLabel(entry: OwnerCompanyEntry) {
-  const label = formatOwnerCompanyLabel({
-    code: entry.code,
-    displayName: entry.displayName
-  });
-  return `${label}${entry.isActive ? '' : ' (inactive)'}`;
-}
-
-function sortSelectOptions(options: Array<{ label: string; value: string }>) {
-  return options.slice().sort((left, right) =>
-    left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
-  );
-}
-
-export function buildOwnershipOwnerOptions({
-  ownerCompanies,
-  boxes,
-  selectedOwnerCompanyId
-}: {
-  ownerCompanies: OwnerCompanyEntry[];
-  boxes: Box[];
-  selectedOwnerCompanyId: string;
-}) {
-  const attachedOwnerIds = new Set(
-    boxes
-      .map((box) => String(box.ownerCompanyId || '').trim())
-      .filter(Boolean)
-  );
-  const hasUnownedBoxes = boxes.some((box) => !String(box.ownerCompanyId || '').trim());
-  const selectedOwnerId = String(selectedOwnerCompanyId || '').trim();
-  const optionsById = new Map<string, { label: string; value: string }>();
-
-  for (const entry of ownerCompanies) {
-    const ownerId = String(entry.ownerCompanyId || '').trim();
-    if (!ownerId) {
-      continue;
-    }
-
-    if (entry.isActive || attachedOwnerIds.has(ownerId) || ownerId === selectedOwnerId) {
-      optionsById.set(ownerId, {
-        label: getOwnerOptionLabel(entry),
-        value: ownerId
-      });
-    }
-  }
-
-  for (const box of boxes) {
-    const ownerId = String(box.ownerCompanyId || '').trim();
-    if (!ownerId || optionsById.has(ownerId)) {
-      continue;
-    }
-
-    optionsById.set(ownerId, {
-      label: `${getOwnerLabelFromBox(box)}${box.ownerCompanyIsActive === false ? ' (inactive)' : ''}`,
-      value: ownerId
-    });
-  }
-
-  const noOwnerOption =
-    hasUnownedBoxes || selectedOwnerCompanyId === NO_OWNER_FILTER_VALUE
-      ? [{ label: 'No owner assigned', value: NO_OWNER_FILTER_VALUE }]
-      : [];
-
-  return [
-    { label: 'All Owners', value: '' },
-    ...sortSelectOptions(Array.from(optionsById.values())),
-    ...noOwnerOption
-  ];
-}
-
-export function filterOwnershipBoxes(boxes: Box[], filters: OwnershipFilters) {
-  const inventoryFiltered = filterOfflineBoxes(boxes, {
-    warehouse: filters.warehouse,
-    manufacturer: filters.manufacturer,
-    film: filters.filmName,
-    width: filters.width,
-    status: filters.status,
-    q: filters.q
-  });
-  const ownerCompanyId = String(filters.ownerCompanyId || '').trim();
-
-  if (!ownerCompanyId) {
-    return inventoryFiltered;
-  }
-
-  if (ownerCompanyId === NO_OWNER_FILTER_VALUE) {
-    return inventoryFiltered.filter((box) => !String(box.ownerCompanyId || '').trim());
-  }
-
-  return inventoryFiltered.filter((box) => String(box.ownerCompanyId || '').trim() === ownerCompanyId);
-}
-
-export function summarizeOwnershipBoxes(boxes: Box[]) {
-  const countsByOwner = new Map<string, OwnershipCountSummary>();
-
-  for (const box of boxes) {
-    const ownerId = String(box.ownerCompanyId || '').trim();
-    const key = ownerId || NO_OWNER_FILTER_VALUE;
-    const label = ownerId
-      ? `${getOwnerLabelFromBox(box)}${box.ownerCompanyIsActive === false ? ' (inactive)' : ''}`
-      : 'No owner assigned';
-    const current = countsByOwner.get(key);
-    countsByOwner.set(key, {
-      key,
-      label: current?.label || label,
-      count: (current?.count || 0) + 1
-    });
-  }
-
-  return Array.from(countsByOwner.values()).sort((left, right) =>
-    left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
-  );
-}
+const EMPTY_OWNERSHIP_READ_MODEL = buildOwnershipReportReadModel({
+  boxes: [],
+  ownerCompanies: []
+});
 
 export function useReportsPageModel() {
+  const auth = useAuth();
   const defaultWarehouse = useDefaultWarehouse();
   const warehouseRegistry = useWarehouseRegistry();
   const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
@@ -307,6 +183,20 @@ export function useReportsPageModel() {
     q: '',
     ownerCompanyId: ''
   }));
+  const ownerCompanyUserId = String(auth.session?.user?.sub || '').trim();
+  const ownerCompanyOrgId = String(auth.accessContext?.orgId || '').trim();
+  const ownerCompanyScopeReady =
+    auth.isAccessReady && auth.isApproved && Boolean(ownerCompanyUserId && ownerCompanyOrgId);
+  const ownerCompanyScope = useMemo(
+    () =>
+      ownerCompanyScopeReady
+        ? { userId: ownerCompanyUserId, orgId: ownerCompanyOrgId }
+        : null,
+    [ownerCompanyOrgId, ownerCompanyScopeReady, ownerCompanyUserId]
+  );
+  const ownerCompanyScopeKey = ownerCompanyScope
+    ? `${ownerCompanyScope.userId}\u0000${ownerCompanyScope.orgId}`
+    : '';
 
   const safeWarehouse = warehouseScopeReady
     ? getSafeWarehouseFilterValue(warehouseRegistry.entries, filters.warehouse)
@@ -349,6 +239,12 @@ export function useReportsPageModel() {
     }));
   }, [ownershipFilters.warehouse, safeOwnershipWarehouse, warehouseScopeReady]);
 
+  useEffect(() => {
+    setOwnershipFilters((current) =>
+      current.ownerCompanyId ? { ...current, ownerCompanyId: '' } : current
+    );
+  }, [ownerCompanyScopeKey]);
+
   const dateBounds = useMemo(
     () => resolveMostUsedFilmDateBounds(safeFilters),
     [safeFilters]
@@ -377,12 +273,13 @@ export function useReportsPageModel() {
   const reportsQuery = useReportsSummary(summaryFilters, {
     enabled: reportType === 'most_used_film'
   });
-  const ownershipBoxesQuery = useOfflineInventorySearch(safeOwnershipFilters.warehouse, {
+  const ownershipBoxesQuery = useOfflineInventorySearch('', {
     enabled: reportType === 'ownership'
   });
   const ownerCompaniesQuery = useOwnerCompanies({
     includeInactive: true,
-    enabled: reportType === 'ownership'
+    enabled: reportType === 'ownership',
+    scope: ownerCompanyScope
   });
   const mostUsedFilmOptions = reportsQuery.data?.mostUsedFilmOptions || {
     manufacturers: [],
@@ -429,22 +326,56 @@ export function useReportsPageModel() {
     }
     return ensureWidthOption(Array.from(widths).sort((left, right) => left - right), safeOwnershipFilters.width);
   }, [ownershipBoxesQuery.snapshotBoxes, safeOwnershipFilters.width]);
+  const ownershipResolution = useMemo(() => {
+    if (!ownerCompanyScopeReady || ownerCompaniesQuery.data === undefined) {
+      return {
+        readModel: EMPTY_OWNERSHIP_READ_MODEL,
+        error: null as Error | null
+      };
+    }
+
+    try {
+      return {
+        readModel: buildOwnershipReportReadModel({
+          boxes: ownershipBoxesQuery.snapshotBoxes,
+          ownerCompanies: ownerCompaniesQuery.data
+        }),
+        error: null as Error | null
+      };
+    } catch (error) {
+      return {
+        readModel: EMPTY_OWNERSHIP_READ_MODEL,
+        error:
+          error instanceof OwnershipReportResolutionError
+            ? error
+            : new OwnershipReportResolutionError()
+      };
+    }
+  }, [
+    ownerCompaniesQuery.data,
+    ownerCompanyScopeKey,
+    ownerCompanyScopeReady,
+    ownershipBoxesQuery.snapshotBoxes
+  ]);
   const ownerCompanyOptions = useMemo(
     () =>
       buildOwnershipOwnerOptions({
-        ownerCompanies: ownerCompaniesQuery.data || [],
-        boxes: ownershipBoxesQuery.snapshotBoxes,
+        readModel: ownershipResolution.readModel,
         selectedOwnerCompanyId: safeOwnershipFilters.ownerCompanyId
       }),
-    [ownerCompaniesQuery.data, ownershipBoxesQuery.snapshotBoxes, safeOwnershipFilters.ownerCompanyId]
+    [ownershipResolution.readModel, safeOwnershipFilters.ownerCompanyId]
   );
-  const ownershipBoxes = useMemo(
-    () => filterOwnershipBoxes(ownershipBoxesQuery.snapshotBoxes, safeOwnershipFilters),
-    [ownershipBoxesQuery.snapshotBoxes, safeOwnershipFilters]
+  const ownershipRows = useMemo(
+    () => filterOwnershipReportRows(ownershipResolution.readModel.rows, safeOwnershipFilters),
+    [ownershipResolution.readModel.rows, safeOwnershipFilters]
   );
   const ownershipCountsByOwner = useMemo(
-    () => summarizeOwnershipBoxes(ownershipBoxes),
-    [ownershipBoxes]
+    () => summarizeOwnershipReportRows(ownershipRows),
+    [ownershipRows]
+  );
+  const unresolvedOwnerCount = useMemo(
+    () => ownershipRows.filter((row) => row.owner.state === 'unresolved').length,
+    [ownershipRows]
   );
 
   function patchMostUsedFilmFilters(next: Partial<MostUsedFilmFilters>) {
@@ -485,14 +416,18 @@ export function useReportsPageModel() {
     ownershipManufacturerOptions,
     ownershipWidthOptions,
     ownerCompanyOptions,
-    ownershipBoxes,
+    ownershipRows,
     ownershipCountsByOwner,
+    unresolvedOwnerCount,
     showReportLoading: reportsQuery.isLoading && !reportsQuery.data,
     showOwnershipLoading:
       reportType === 'ownership' &&
-      (ownershipBoxesQuery.isLoading || (ownerCompaniesQuery.isLoading && !ownerCompaniesQuery.data)),
+      (!ownerCompanyScopeReady ||
+        ownershipBoxesQuery.isLoading ||
+        (ownerCompaniesQuery.isLoading && !ownerCompaniesQuery.data)),
     reportError: reportsQuery.error,
-    ownershipError: ownershipBoxesQuery.error || ownerCompaniesQuery.error,
+    ownershipError:
+      ownershipBoxesQuery.error || ownerCompaniesQuery.error || ownershipResolution.error,
     dateRangeError: dateBounds.error,
     patchMostUsedFilmFilters,
     patchOwnershipFilters

@@ -44,16 +44,6 @@ function formatMoney(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? USD_CURRENCY_FORMATTER.format(value) : '--';
 }
 
-function formatOwner(box: Box) {
-  const code = String(box.ownerCompanyCode || '').trim();
-  const displayName = String(box.ownerCompanyDisplayName || '').trim();
-  const label =
-    code && displayName && code.toLocaleLowerCase() !== displayName.toLocaleLowerCase()
-      ? `${code} - ${displayName}`
-      : code || displayName || 'No owner assigned';
-  return `${label}${box.ownerCompanyIsActive === false ? ' (inactive)' : ''}`;
-}
-
 function formatBoxDate(box: Box) {
   return formatDate(box.lastWeighedDate || box.receivedDate || box.orderDate);
 }
@@ -76,8 +66,9 @@ export default function ReportsPage() {
     ownershipManufacturerOptions,
     ownershipWidthOptions,
     ownerCompanyOptions,
-    ownershipBoxes,
+    ownershipRows,
     ownershipCountsByOwner,
+    unresolvedOwnerCount,
     showReportLoading,
     showOwnershipLoading,
     reportError,
@@ -278,7 +269,7 @@ export default function ReportsPage() {
                 : 'Based on job film requirements and requirement-level actual used LF. Warehouse filtering follows the job warehouse.'}
             </p>
           </div>
-          {isOwnershipReport ? <span className="muted-text">{ownershipBoxes.length} box(es)</span> : null}
+          {isOwnershipReport ? <span className="muted-text">{ownershipRows.length} box(es)</span> : null}
         </div>
 
         <DeferredLoadingState
@@ -290,10 +281,15 @@ export default function ReportsPage() {
 
         {isOwnershipReport && !showOwnershipLoading && !ownershipError ? (
           <>
+            {unresolvedOwnerCount ? (
+              <p className="error-text" role="status">
+                {unresolvedOwnerCount} matching box(es) have an owner identity that could not be resolved.
+              </p>
+            ) : null}
             <div className="ownership-report-summary" aria-label="Ownership report summary">
               <div className="summary-card">
                 <span className="summary-label">Matching Boxes</span>
-                <strong>{ownershipBoxes.length}</strong>
+                <strong>{ownershipRows.length}</strong>
               </div>
               {ownershipCountsByOwner.map((entry) => (
                 <div className="summary-card" key={entry.key}>
@@ -302,17 +298,17 @@ export default function ReportsPage() {
                 </div>
               ))}
             </div>
-            {!ownershipBoxes.length ? (
+            {!ownershipRows.length ? (
               <div className="empty-state">No matching boxes found.</div>
             ) : isPhoneLayout ? (
               <div className="mobile-record-list">
-                {ownershipBoxes.map((box) => {
+                {ownershipRows.map(({ box, owner }) => {
                   const displayBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
                   return (
                     <MobileRecordCard key={box.boxId}>
                       <MobileRecordHeader
                         title={displayBoxId}
-                        subtitle={`${formatOwner(box)} / ${box.warehouse}`}
+                        subtitle={`${owner.displayLabel} / ${box.warehouse}`}
                         badge={<span className={`badge badge-${box.status}`}>{box.status}</span>}
                         onTitleClick={() => openBox(box)}
                       />
@@ -348,7 +344,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {ownershipBoxes.map((box) => {
+                    {ownershipRows.map(({ box, owner }) => {
                       const displayBoxId = formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse);
                       return (
                         <tr key={box.boxId}>
@@ -357,7 +353,7 @@ export default function ReportsPage() {
                               {displayBoxId}
                             </button>
                           </td>
-                          <td>{formatOwner(box)}</td>
+                          <td>{owner.displayLabel}</td>
                           <td>{box.warehouse}</td>
                           <td>{box.manufacturer || '--'}</td>
                           <td>{box.filmName || '--'}</td>

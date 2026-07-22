@@ -139,6 +139,55 @@ describe('WarehouseAssetAuditReport', () => {
     expect(screen.getByText('5,500')).toBeTruthy();
   });
 
+  it('renders the server-resolved owner label and keeps owner filtering canonical', () => {
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 2);
+    snapshot.rows = snapshot.rows.map((row) => ({
+      ...row,
+      ownerCompanyId: 'owner-alpha',
+      ownerCompanyLabel: 'ALP - Alpha Holdings',
+      ownerCategory: 'ASSIGNED'
+    }));
+    snapshot.filterOptions.owners = [
+      { value: 'owner-alpha', label: 'ALP - Alpha Holdings' },
+      { value: 'UNASSIGNED', label: 'Unassigned' }
+    ];
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+
+    render(<WarehouseAssetAuditReport />);
+
+    expect(screen.getAllByText('ALP - Alpha Holdings')).toHaveLength(3);
+    const ownerSelect = screen.getByLabelText('Owner') as HTMLSelectElement;
+    expect(Array.from(ownerSelect.options).map((option) => option.textContent)).toContain(
+      'ALP - Alpha Holdings'
+    );
+    expect(screen.getByText('Total On-Hand LF')).toBeTruthy();
+    expect(screen.getByText('200')).toBeTruthy();
+    expect(screen.getAllByText('$200.00')).toHaveLength(1);
+  });
+
+  it('keeps rows, totals, financial values, and printing closed on a report error', () => {
+    useAuditQueryMock.mockReturnValue({
+      data: undefined,
+      error: new Error('Warehouse asset audit ownership could not be resolved safely.'),
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+
+    render(<WarehouseAssetAuditReport />);
+
+    expect(screen.getByText('Warehouse asset audit ownership could not be resolved safely.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelectorAll('[data-audit-row-id]')).toHaveLength(0);
+    expect(screen.queryByText('Total Known On-Hand Asset Cost')).toBeNull();
+  });
+
   it('disables printing while offline', () => {
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
     render(<WarehouseAssetAuditReport />);
