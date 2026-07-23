@@ -50,6 +50,8 @@
     "smoke:caulk:verify": "node scripts/verify-caulk-smoke-flow.mjs",
     "test:unit": "node --test scripts/lib",
     "verify:allocation-covered-feet-parity": "node scripts/verify-allocation-covered-feet-parity.mjs",
+    "verify:allocation-preview-browser:dev": "node scripts/verify-allocation-preview-browser-dev.mjs",
+    "verify:allocation-preview-timeout:dev": "node scripts/verify-allocation-preview-timeout-remediation-dev.mjs",
     "verify:allocation-timeout:dev": "node scripts/verify-atomic-allocation-timeout-remediation-dev.mjs",
     "verify:allocation-film-parity": "node scripts/verify-allocation-film-match-parity.mjs",
     "verify:caulk-transaction-reasons": "node scripts/verify-caulk-transaction-reasons.mjs",

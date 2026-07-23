@@ -159,7 +159,7 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0192_atomic_cross_warehouse_affected_box_scan\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
 
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);

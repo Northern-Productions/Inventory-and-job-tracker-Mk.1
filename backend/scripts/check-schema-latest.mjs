@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0192_atomic_cross_warehouse_affected_box_scan.sql';
+const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -136,6 +136,8 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.api_acl_allocations_apply_pre_0191(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.allocation_apply_box_states_0192(uuid, text[])' },
   { kind: 'function', signature: 'app_api.build_allocation_apply_plan_0192(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_allocation_preview_candidates(uuid, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.api_acl_boxes_resolve_checkout_allocations_pre_0191(uuid, text, jsonb)' },
@@ -342,6 +344,33 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "'warnings', '[]'::jsonb"
     ],
     excludes: ['app_api.api_allocations_apply_pre_0191']
+  },
+  {
+    signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)',
+    includes: [
+      "v_plan := app_api.build_allocation_apply_plan_0192(",
+      'from app_api.allocation_apply_box_states_0192(',
+      'where b.org_id = p_org_id',
+      'and b.width_in >= v_requested_width_in',
+      "and a.status in ('ACTIVE', 'FULFILLED')",
+      "and t.status = 'PENDING'",
+      "'pendingTransfersByBoxRecordId', v_pending_transfers",
+      "'candidateMetadata', v_candidate_metadata"
+    ],
+    excludes: [
+      'public.api_acl_list_boxes',
+      'set_config',
+      'statement_timeout',
+      'lock_timeout'
+    ]
+  },
+  {
+    signature: 'public.api_acl_allocation_preview_candidates(uuid, jsonb)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'read');",
+      'return app_api.allocation_preview_candidates_0193(p_org_id, p_payload);'
+    ],
+    excludes: ["'allocations', 'write'"]
   },
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
@@ -1747,6 +1776,7 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_acl_box_transfer_start(uuid, text, jsonb)',
   'public.api_acl_box_transfer_receive(uuid, text, jsonb)',
   'public.api_acl_box_transfer_cancel(uuid, text, jsonb)',
+  'public.api_acl_allocation_preview_candidates(uuid, jsonb)',
 ];
 
 function sqlLiteral(value) {

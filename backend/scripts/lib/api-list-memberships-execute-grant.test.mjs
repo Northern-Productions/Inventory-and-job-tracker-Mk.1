@@ -43,7 +43,7 @@ test('api list memberships execute grant is narrow and authenticated-only', asyn
 test('schema latest guard tracks api list memberships execute permission', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0192_atomic_cross_warehouse_affected_box_scan\.sql/);
+  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
   assert.match(schemaCheck, /public\.api_list_memberships\(\)/);
   assert.match(schemaCheck, /authenticated_list_memberships_execute/);
   assert.match(schemaCheck, /anon_list_memberships_execute/);

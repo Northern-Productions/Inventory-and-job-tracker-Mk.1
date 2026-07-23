@@ -714,6 +714,50 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return await enrichBoxesWithInternalIds(orgId, mapRows(rows, mapDbBoxRow));
   }
 
+  async function loadAllocationPreviewCandidateSnapshot(
+    client: any,
+    orgId: string,
+    payload: Record<string, unknown>,
+  ) {
+    const result = await deps.rpcOrThrow<Record<string, unknown>>(
+      client,
+      "api_acl_allocation_preview_candidates",
+      {
+        p_org_id: orgId,
+        p_payload: payload,
+      },
+    );
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new Error("Allocation preview candidates did not return a valid snapshot.");
+    }
+
+    const source = mapDbBoxRow(result.source);
+    if (!source) {
+      throw new Error("The allocation source changed while preview was loading. Reload and retry.");
+    }
+
+    return {
+      source,
+      boxes: mapRows(Array.isArray(result.boxes) ? result.boxes : [], mapDbBoxRow),
+      allocations: Array.isArray(result.allocations) ? result.allocations : [],
+      pendingTransfersByBoxRecordId:
+        result.pendingTransfersByBoxRecordId &&
+        typeof result.pendingTransfersByBoxRecordId === "object" &&
+        !Array.isArray(result.pendingTransfersByBoxRecordId)
+          ? result.pendingTransfersByBoxRecordId
+          : {},
+      candidateMetadata: Array.isArray(result.candidateMetadata) ? result.candidateMetadata : [],
+      context:
+        result.context && typeof result.context === "object" && !Array.isArray(result.context)
+          ? result.context
+          : {},
+      scope:
+        result.scope && typeof result.scope === "object" && !Array.isArray(result.scope)
+          ? result.scope
+          : {},
+    };
+  }
+
   async function findBoxById(client: any, orgId: string, boxId: string) {
     const row = await deps.rpcOrThrow<any | null>(client, "api_acl_find_box_by_id", {
       p_org_id: orgId,
@@ -970,5 +1014,6 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     listAuditEntries,
     listAuditEntriesByBox,
     listRollHistoryByBox,
+    loadAllocationPreviewCandidateSnapshot,
   };
 }

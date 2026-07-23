@@ -19,6 +19,8 @@ import {
 } from './lib/dev-fixture-cleanup-safety.mjs';
 
 const FIXTURE_SOURCE_PATH = new URL('./lib/dev-fixture-scenarios.mjs', import.meta.url);
+const FIXTURE_CREATE_SOURCE_PATH = new URL('./create-dev-fixture.mjs', import.meta.url);
+const FIXTURE_VERIFY_SOURCE_PATH = new URL('./verify-dev-fixture.mjs', import.meta.url);
 const OWNER_AUTH_SOURCE_PATH = new URL('../create-dev-owner-browser-auth-state.mjs', import.meta.url);
 
 test('parseArgs supports PowerShell-friendly --key value and --key=value forms', () => {
@@ -123,6 +125,15 @@ test('fixture dealer writes are insert-only and cleanup deletes the exact dealer
     source.slice(dealerDeleteIndex),
     /target\.id = p\.dealer_id[\s\S]*target\.lookup_key = p\.dealer_code[\s\S]*target\.name = p\.dealer_name/
   );
+});
+
+test('fixture create and verify commands support redacted safe output', () => {
+  const createSource = fs.readFileSync(FIXTURE_CREATE_SOURCE_PATH, 'utf8');
+  const verifySource = fs.readFileSync(FIXTURE_VERIFY_SOURCE_PATH, 'utf8');
+  assert.match(createSource, /safe-output/);
+  assert.match(createSource, /idCounts/);
+  assert.match(verifySource, /safe-output/);
+  assert.match(verifySource, /!\s*safeOutput\s*\?\s*\{\s*ids:/s);
 });
 
 test('owner browser cleanup verifies user, membership, preference, and session residue', () => {

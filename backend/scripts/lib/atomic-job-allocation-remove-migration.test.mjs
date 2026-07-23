@@ -64,7 +64,7 @@ test('latest schema check requires atomic allocation remove RPCs', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0192_atomic_cross_warehouse_affected_box_scan\.sql/);
+  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
 
   assert.match(schemaCheck, /public\.api_allocations_remove_box\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /public\.api_acl_allocations_remove_box\(uuid, text, jsonb\)/);

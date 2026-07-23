@@ -766,6 +766,92 @@ Deno.test("Edge box repository preserves raw stored feet separately from public 
   assertEquals(box?.ownerCompanyIsActive, false, "Expected Edge box mapper to preserve inactive owner state.");
 });
 
+Deno.test("Edge allocation preview repository performs one bounded ACL RPC and preserves canonical state", async () => {
+  const calls: Array<{ fn: string; params: Record<string, unknown> }> = [];
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async <T>(
+      _client: unknown,
+      fn: string,
+      params: Record<string, unknown> = {},
+    ): Promise<T> => {
+      calls.push({ fn, params });
+      return {
+        source: {
+          id: "source-record",
+          orgId: "org-1",
+          boxId: "IL1-SOURCE",
+          warehouse: "IL1",
+          manufacturer: "Llumar",
+          filmName: "RN 07",
+          widthIn: 48,
+          status: "IN_STOCK",
+          feetAvailable: 20,
+          physicalFeetAvailable: 20,
+          allocatableNowFeet: 20,
+        },
+        boxes: [{
+          id: "candidate-record",
+          orgId: "org-1",
+          boxId: "MS1-CANDIDATE",
+          warehouse: "MS1",
+          manufacturer: "Llumar",
+          filmName: "RN 07",
+          widthIn: 48,
+          status: "IN_STOCK",
+          feetAvailable: 50,
+          physicalFeetAvailable: 50,
+          allocatableNowFeet: 50,
+        }],
+        allocations: [{ allocationId: "ALLOC-1", boxId: "IL1-SOURCE", status: "ACTIVE" }],
+        pendingTransfersByBoxRecordId: {},
+        candidateMetadata: [{ boxId: "MS1-CANDIDATE", eligible: true, requiresTransfer: true, reason: "" }],
+        context: { jobWarehouse: "IL1", requestedFeet: 70, crossWarehouse: true },
+        scope: { coarseCandidateCount: 1, candidateCount: 1 },
+      } as T;
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    integerOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : null;
+    },
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+  });
+  const payload = {
+    boxId: "IL1-SOURCE",
+    jobId: "11111111-1111-4111-8111-111111111111",
+    requestedFeet: 70,
+    crossWarehouse: true,
+  };
+
+  const snapshot = await repositories.loadAllocationPreviewCandidateSnapshot(
+    {} as any,
+    "org-1",
+    payload,
+  );
+
+  assertEquals(
+    calls,
+    [{
+      fn: "api_acl_allocation_preview_candidates",
+      params: { p_org_id: "org-1", p_payload: payload },
+    }],
+    "Expected one bounded ACL RPC with the authenticated org.",
+  );
+  assertEquals(snapshot.source.boxId, "IL1-SOURCE", "Expected the canonical source box.");
+  assertEquals(snapshot.boxes.map((entry: any) => entry.boxId), ["MS1-CANDIDATE"], "Expected bounded candidates.");
+  assertEquals(snapshot.scope, { coarseCandidateCount: 1, candidateCount: 1 }, "Expected safe scope metadata.");
+});
+
 Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {
   const payload = await canonicalizeMutationPayloadForRoute({} as any, "org-1", "/boxes/receive", {
     boxId: "IL1-1234",
@@ -1080,9 +1166,10 @@ Deno.test("caulk fallback debug logging is opt-in and blocked for PROD", () => {
   assertEquals(logs.length, 1, "Expected no PROD env marker log entry.");
 });
 
-Deno.test("/allocations/preview uses source-warehouse boxes when crossWarehouse is false", async () => {
+Deno.test("/allocations/preview uses one bounded candidate snapshot when crossWarehouse is false", async () => {
   const calls: string[] = [];
   const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
+  const candidate = { boxId: "IL1-CANDIDATE", warehouse: "IL1", id: "candidate-record" };
 
   const response = await dispatchReadWithHandlers(
     {},
@@ -1096,24 +1183,30 @@ Deno.test("/allocations/preview uses source-warehouse boxes when crossWarehouse 
     },
     {} as any,
     {
-      requireString: (value: unknown) => String(value || ""),
       asTrimmedString: (value: unknown) => String(value || "").trim(),
-      findBoxById: async () => source,
-      resolveJobContext: async () => ({ jobNumber: "4803", installDate: "", crewLeader: "" }),
-      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
-      listBoxes: async () => {
-        calls.push("listBoxes");
-        return [{ boxId: "MS1-CANDIDATE", warehouse: "MS1" }];
+      loadAllocationPreviewCandidateSnapshot: async (
+        _client: unknown,
+        orgId: string,
+        payload: Record<string, unknown>,
+      ) => {
+        calls.push(`boundedSnapshot:${orgId}:${String(payload.crossWarehouse)}`);
+        return {
+          source,
+          boxes: [candidate],
+          allocations: [],
+          pendingTransfersByBoxRecordId: {},
+          context: {
+            requestedFeet: 1,
+            requestedWidthIn: 48,
+            crossWarehouse: false,
+            jobWarehouse: "IL1",
+            jobContext: { jobNumber: "4803", jobDate: "", crewLeader: "" },
+            requirementState: {},
+            phaseState: {},
+          },
+        };
       },
-      listBoxesByWarehouses: async (_client: unknown, orgId: string, warehouses: string[]) => {
-        calls.push(`listBoxesByWarehouses:${orgId}:${warehouses.join(",")}`);
-        return [source, { boxId: "IL1-CANDIDATE", warehouse: "IL1", id: "candidate-record" }];
-      },
-      resolveAllocationJobWarehouse: async () => "IL1",
-      listJobRequirementsByJob: async () => [],
-      buildPendingTransfersByBoxRecordId: async () => ({}),
-      listActiveAllocations: async () => [],
-      buildActiveAllocationsByBoxIndex: () => ({}),
+      buildCapacityAllocationsByBoxIndex: () => ({}),
       buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, _jobContext: unknown, options: any) => ({
         allBoxIds: options.allBoxes.map((box: any) => box.boxId),
         crossWarehouse: options.crossWarehouse,
@@ -1123,17 +1216,17 @@ Deno.test("/allocations/preview uses source-warehouse boxes when crossWarehouse 
 
   assertEquals(
     calls,
-    ["listBoxesByWarehouses:org-1:IL1"],
-    "Expected non-cross preview to avoid the full-org box read.",
+    ["boundedSnapshot:org-1:false"],
+    "Expected non-cross preview to use one auth-scoped bounded snapshot.",
   );
   assertEquals(
     response.data,
-    { allBoxIds: ["IL1-SOURCE", "IL1-CANDIDATE"], crossWarehouse: false },
-    "Expected route to pass warehouse-scoped boxes into the planner.",
+    { allBoxIds: ["IL1-CANDIDATE"], crossWarehouse: false },
+    "Expected route to pass only bounded candidates into the planner.",
   );
 });
 
-Deno.test("/allocations/preview canonical jobId path validates identity and loads requirements by job_id", async () => {
+Deno.test("/allocations/preview uses canonical jobId and requirement context returned by the bounded RPC", async () => {
   const calls: string[] = [];
   const jobId = "11111111-1111-4111-8111-111111111111";
   const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
@@ -1153,43 +1246,36 @@ Deno.test("/allocations/preview canonical jobId path validates identity and load
     },
     {} as any,
     {
-      requireString: (value: unknown) => String(value || ""),
       asTrimmedString: (value: unknown) => String(value || "").trim(),
-      findBoxById: async () => source,
-      findJobById: async (_client: unknown, orgId: string, selectedJobId: string) => {
-        calls.push(`findJobById:${orgId}:${selectedJobId}`);
+      loadAllocationPreviewCandidateSnapshot: async (
+        _client: unknown,
+        orgId: string,
+        payload: Record<string, unknown>,
+      ) => {
+        calls.push(`boundedSnapshot:${orgId}:${String(payload.jobId)}`);
         return {
-          id: selectedJobId,
-          jobNumber: "4803",
-          warehouse: "IL1",
-          installDate: "",
-          crewLeader: "",
-          lifecycleStatus: "ACTIVE",
+          source,
+          boxes: [],
+          allocations: [],
+          pendingTransfersByBoxRecordId: {},
+          context: {
+            requestedFeet: 1,
+            requestedWidthIn: 48,
+            crossWarehouse: false,
+            jobWarehouse: "IL1",
+            jobContext: { jobId, jobNumber: "4803", jobDate: "", crewLeader: "" },
+            requirementState: {
+              id: "req-1",
+              jobId,
+              manufacturer: "Llumar",
+              filmName: "RN 07",
+              widthIn: 48,
+            },
+            phaseState: {},
+          },
         };
       },
-      resolveJobContext: async () => {
-        throw new Error("legacy jobNumber context should not be used for canonical preview");
-      },
-      normalizeDateString: (value: unknown) => String(value || "").trim(),
-      normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
-      normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
-      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
-      listBoxes: async () => [],
-      listBoxesByWarehouses: async () => [source],
-      resolveAllocationJobWarehouse: async (_client: unknown, orgId: string, jobNumber: unknown, _warehouse: unknown, selectedJob: any) => {
-        calls.push(`resolveWarehouse:${orgId}:${jobNumber}:${selectedJob?.id}`);
-        return "IL1";
-      },
-      listJobRequirementsByJobId: async (_client: unknown, orgId: string, selectedJobId: string) => {
-        calls.push(`listRequirementsByJobId:${orgId}:${selectedJobId}`);
-        return [{ id: "req-1", jobId: selectedJobId, jobNumber: "4803", manufacturer: "Llumar", filmName: "RN 07", widthIn: 48 }];
-      },
-      listJobRequirementsByJob: async () => {
-        throw new Error("legacy jobNumber requirements should not be used for canonical preview");
-      },
-      buildPendingTransfersByBoxRecordId: async () => ({}),
-      listActiveAllocations: async () => [],
-      buildActiveAllocationsByBoxIndex: () => ({}),
+      buildCapacityAllocationsByBoxIndex: () => ({}),
       buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown, options: any) => ({
         jobContext,
         selectedRequirementId: options.selectedRequirement?.id,
@@ -1199,12 +1285,8 @@ Deno.test("/allocations/preview canonical jobId path validates identity and load
 
   assertEquals(
     calls,
-    [
-      `findJobById:org-1:${jobId}`,
-      `resolveWarehouse:org-1:4803:${jobId}`,
-      `listRequirementsByJobId:org-1:${jobId}`,
-    ],
-    "Expected canonical preview to use auth org and job_id-owned requirement loading.",
+    [`boundedSnapshot:org-1:${jobId}`],
+    "Expected canonical preview to delegate auth-org job identity resolution to the bounded RPC.",
   );
   assertEquals(
     response.data,
@@ -1244,47 +1326,34 @@ Deno.test("/allocations/preview canonical jobId path uses selected requirement p
     },
     {} as any,
     {
-      requireString: (value: unknown) => String(value || ""),
       asTrimmedString: (value: unknown) => String(value || "").trim(),
-      findBoxById: async () => source,
-      findJobById: async () => ({
-        id: jobId,
-        jobNumber: "4803",
-        warehouse: "IL1",
-        installDate: "2026-05-01",
-        crewLeader: "Phase One",
-        lifecycleStatus: "ACTIVE",
-      }),
-      resolveJobContext: async () => {
-        throw new Error("legacy jobNumber context should not be used for canonical preview");
-      },
-      normalizeDateString: (value: unknown) => String(value || "").trim(),
-      normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
-      normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
-      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
-      listBoxes: async () => [],
-      listBoxesByWarehouses: async () => [source],
-      resolveAllocationJobWarehouse: async () => "IL1",
-      listJobRequirementsByJobId: async () => [
-        {
-          id: "req-phase-2",
-          jobId,
-          jobNumber: "4803",
-          phaseId,
-          phaseNumber: 2,
-          phaseInstallDate: "2026-06-15",
-          phaseCrewLeader: "Phase Two",
-          manufacturer: "Llumar",
-          filmName: "RN 07",
-          widthIn: 48,
+      loadAllocationPreviewCandidateSnapshot: async () => ({
+        source,
+        boxes: [],
+        allocations: [],
+        pendingTransfersByBoxRecordId: {},
+        context: {
+          requestedFeet: 1,
+          requestedWidthIn: 48,
+          crossWarehouse: false,
+          jobWarehouse: "IL1",
+          jobContext: { jobId, jobNumber: "4803", jobDate: "2026-06-15", crewLeader: "Phase Two" },
+          requirementState: {
+            id: "req-phase-2",
+            jobId,
+            phaseId,
+            manufacturer: "Llumar",
+            filmName: "RN 07",
+            widthIn: 48,
+          },
+          phaseState: {
+            id: phaseId,
+            installDate: "2026-06-15",
+            crewLeader: "Phase Two",
+          },
         },
-      ],
-      listJobRequirementsByJob: async () => {
-        throw new Error("legacy jobNumber requirements should not be used for canonical preview");
-      },
-      buildPendingTransfersByBoxRecordId: async () => ({}),
-      listActiveAllocations: async () => [],
-      buildActiveAllocationsByBoxIndex: () => ({}),
+      }),
+      buildCapacityAllocationsByBoxIndex: () => ({}),
       buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown, options: any) => ({
         jobContext,
         selectedRequirementId: options.selectedRequirement?.id,
@@ -1330,47 +1399,30 @@ Deno.test("/allocations/preview canonical jobId path keeps placeholder phases un
     },
     {} as any,
     {
-      requireString: (value: unknown) => String(value || ""),
       asTrimmedString: (value: unknown) => String(value || "").trim(),
-      findBoxById: async () => source,
-      findJobById: async () => ({
-        id: jobId,
-        jobNumber: "4803",
-        warehouse: "IL1",
-        installDate: "2026-05-01",
-        crewLeader: "Phase One",
-        lifecycleStatus: "ACTIVE",
-      }),
-      resolveJobContext: async () => {
-        throw new Error("legacy jobNumber context should not be used for canonical preview");
-      },
-      normalizeDateString: (value: unknown) => String(value || "").trim(),
-      normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
-      normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
-      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
-      listBoxes: async () => [],
-      listBoxesByWarehouses: async () => [source],
-      resolveAllocationJobWarehouse: async () => "IL1",
-      listJobRequirementsByJobId: async () => [
-        {
-          id: "req-placeholder",
-          jobId,
-          jobNumber: "4803",
-          phaseId,
-          phaseNumber: 3,
-          phaseInstallDate: "",
-          phaseCrewLeader: "",
-          manufacturer: "Llumar",
-          filmName: "RN 07",
-          widthIn: 48,
+      loadAllocationPreviewCandidateSnapshot: async () => ({
+        source,
+        boxes: [],
+        allocations: [],
+        pendingTransfersByBoxRecordId: {},
+        context: {
+          requestedFeet: 1,
+          requestedWidthIn: 48,
+          crossWarehouse: false,
+          jobWarehouse: "IL1",
+          jobContext: { jobId, jobNumber: "4803", jobDate: "", crewLeader: "" },
+          requirementState: {
+            id: "req-placeholder",
+            jobId,
+            phaseId,
+            manufacturer: "Llumar",
+            filmName: "RN 07",
+            widthIn: 48,
+          },
+          phaseState: { id: phaseId, installDate: "", crewLeader: "" },
         },
-      ],
-      listJobRequirementsByJob: async () => {
-        throw new Error("legacy jobNumber requirements should not be used for canonical preview");
-      },
-      buildPendingTransfersByBoxRecordId: async () => ({}),
-      listActiveAllocations: async () => [],
-      buildActiveAllocationsByBoxIndex: () => ({}),
+      }),
+      buildCapacityAllocationsByBoxIndex: () => ({}),
       buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown) => ({
         jobContext,
       }),
@@ -1386,25 +1438,23 @@ Deno.test("/allocations/preview canonical jobId path keeps placeholder phases un
   );
 });
 
-Deno.test("/allocations/preview rejects invalid, missing, and mismatched canonical jobId", async () => {
-  const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
-  const baseDeps = {
-    requireString: (value: unknown) => String(value || ""),
+Deno.test("/allocations/preview preserves canonical bounded-RPC job identity denials", async () => {
+  const sourceBoxId = "IL1-SOURCE";
+  const rejectingDeps = (message: string) => ({
     asTrimmedString: (value: unknown) => String(value || "").trim(),
-    findBoxById: async () => source,
-    normalizeDateString: (value: unknown) => String(value || "").trim(),
-    normalizeCrewLeaderKey: (value: unknown) => String(value || "").trim().toUpperCase(),
-    normalizeJobLifecycleStatus: (value: unknown) => (value || "ACTIVE") as "ACTIVE",
-  };
+    loadAllocationPreviewCandidateSnapshot: async () => {
+      throw new Error(message);
+    },
+  });
 
   await assertRejectsWithMessage(
     () => dispatchReadWithHandlers(
       {},
       "org-1",
       "/allocations/preview",
-      { jobId: "not-a-uuid", boxId: source.boxId, jobNumber: "4803", requestedFeet: 1 },
+      { jobId: "not-a-uuid", boxId: sourceBoxId, jobNumber: "4803", requestedFeet: 1 },
       {} as any,
-      baseDeps as any,
+      rejectingDeps("jobId must be a valid UUID.") as any,
     ),
     "jobId must be a valid UUID.",
     "Expected invalid canonical preview jobId to reject.",
@@ -1417,15 +1467,12 @@ Deno.test("/allocations/preview rejects invalid, missing, and mismatched canonic
       "/allocations/preview",
       {
         jobId: "11111111-1111-4111-8111-111111111111",
-        boxId: source.boxId,
+        boxId: sourceBoxId,
         jobNumber: "4803",
         requestedFeet: 1,
       },
       {} as any,
-      {
-        ...baseDeps,
-        findJobById: async () => null,
-      } as any,
+      rejectingDeps("Job was not found.") as any,
     ),
     "Job was not found.",
     "Expected missing canonical preview job target to reject.",
@@ -1438,20 +1485,12 @@ Deno.test("/allocations/preview rejects invalid, missing, and mismatched canonic
       "/allocations/preview",
       {
         jobId: "11111111-1111-4111-8111-111111111111",
-        boxId: source.boxId,
+        boxId: sourceBoxId,
         jobNumber: "4803",
         requestedFeet: 1,
       },
       {} as any,
-      {
-        ...baseDeps,
-        findJobById: async () => ({
-          id: "11111111-1111-4111-8111-111111111111",
-          jobNumber: "9999",
-          warehouse: "IL1",
-          lifecycleStatus: "ACTIVE",
-        }),
-      } as any,
+      rejectingDeps("Job identity mismatch: selected job does not match jobNumber.") as any,
     ),
     "Job identity mismatch: selected job does not match jobNumber.",
     "Expected mismatched canonical preview job identity to reject.",
@@ -2582,9 +2621,10 @@ Deno.test("/jobs/check-duplicate uses workScope before legacy sections", async (
   );
 });
 
-Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true", async () => {
+Deno.test("/allocations/preview keeps cross-warehouse reads bounded by the candidate RPC", async () => {
   const calls: string[] = [];
   const source = { boxId: "IL1-SOURCE", warehouse: "IL1", id: "source-record" };
+  const candidate = { boxId: "MS1-CANDIDATE", warehouse: "MS1", id: "candidate-record" };
 
   const response = await dispatchReadWithHandlers(
     {},
@@ -2598,24 +2638,26 @@ Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true
     },
     {} as any,
     {
-      requireString: (value: unknown) => String(value || ""),
       asTrimmedString: (value: unknown) => String(value || "").trim(),
-      findBoxById: async () => source,
-      resolveJobContext: async () => ({ jobNumber: "4803", installDate: "", crewLeader: "" }),
-      parseCrossWarehouseFlag: (value: unknown) => value === true || String(value).toLowerCase() === "true",
-      listBoxes: async () => {
-        calls.push("listBoxes");
-        return [source, { boxId: "MS1-CANDIDATE", warehouse: "MS1", id: "candidate-record" }];
+      loadAllocationPreviewCandidateSnapshot: async (_client: unknown, orgId: string) => {
+        calls.push(`boundedSnapshot:${orgId}`);
+        return {
+          source,
+          boxes: [candidate],
+          allocations: [],
+          pendingTransfersByBoxRecordId: {},
+          context: {
+            requestedFeet: 1,
+            requestedWidthIn: 48,
+            crossWarehouse: true,
+            jobWarehouse: "IL1",
+            jobContext: { jobNumber: "4803", jobDate: "", crewLeader: "" },
+            requirementState: {},
+            phaseState: {},
+          },
+        };
       },
-      listBoxesByWarehouses: async () => {
-        calls.push("listBoxesByWarehouses");
-        return [];
-      },
-      resolveAllocationJobWarehouse: async () => "IL1",
-      listJobRequirementsByJob: async () => [],
-      buildPendingTransfersByBoxRecordId: async () => ({}),
-      listActiveAllocations: async () => [],
-      buildActiveAllocationsByBoxIndex: () => ({}),
+      buildCapacityAllocationsByBoxIndex: () => ({}),
       buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, _jobContext: unknown, options: any) => ({
         allBoxIds: options.allBoxes.map((box: any) => box.boxId),
         crossWarehouse: options.crossWarehouse,
@@ -2623,11 +2665,11 @@ Deno.test("/allocations/preview keeps full-org boxes when crossWarehouse is true
     } as any,
   );
 
-  assertEquals(calls, ["listBoxes"], "Expected cross-warehouse preview to keep the full-org box read.");
+  assertEquals(calls, ["boundedSnapshot:org-1"], "Expected one auth-scoped bounded candidate read.");
   assertEquals(
     response.data,
-    { allBoxIds: ["IL1-SOURCE", "MS1-CANDIDATE"], crossWarehouse: true },
-    "Expected route to pass full-org boxes into the planner.",
+    { allBoxIds: ["MS1-CANDIDATE"], crossWarehouse: true },
+    "Expected route to pass the bounded cross-warehouse candidates into the planner.",
   );
 });
 
@@ -2672,6 +2714,7 @@ Deno.test("Edge read routes ignore client-supplied org IDs and use the authentic
     normalizeJobLifecycleStatus: () => "ACTIVE",
     parseCrossWarehouseFlag: (value: unknown) => value === true || String(value || "").toLowerCase() === "true",
     buildActiveAllocationsByBoxIndex: () => ({}),
+    buildCapacityAllocationsByBoxIndex: () => ({}),
     buildSearchBoxes: async (_client: unknown, orgId: string, params: Record<string, unknown>) => {
       record("buildSearchBoxes", orgId);
       return { entries: [{ boxId: params.q }] };
@@ -2770,6 +2813,24 @@ Deno.test("Edge read routes ignore client-supplied org IDs and use the authentic
       record("buildPendingTransfersByBoxRecordId", orgId);
       return {};
     },
+    loadAllocationPreviewCandidateSnapshot: async (_client: unknown, orgId: string) => {
+      record("loadAllocationPreviewCandidateSnapshot", orgId);
+      return {
+        source: sourceBox,
+        boxes: [],
+        allocations: [],
+        pendingTransfersByBoxRecordId: {},
+        context: {
+          requestedFeet: 10,
+          requestedWidthIn: 36,
+          crossWarehouse: false,
+          jobWarehouse: "IL1",
+          jobContext: { jobNumber: "81234", jobDate: "", crewLeader: "" },
+          requirementState: {},
+          phaseState: {},
+        },
+      };
+    },
     buildAllocationPreviewPlan: (_source: unknown, _requestedFeet: unknown, jobContext: unknown, options: any) => ({
       jobContext,
       allBoxIds: options.allBoxes.map((box: Record<string, unknown>) => box.boxId),
@@ -2859,12 +2920,7 @@ Deno.test("Edge read routes ignore client-supplied org IDs and use the authentic
         organizationId: orgFromParams,
       },
       expectedCalls: [
-        "findBoxById:ORG-B-BOX:org-from-auth",
-        "resolveJobContext:81234:org-from-auth",
-        "resolveAllocationJobWarehouse:81234:org-from-auth",
-        "listBoxesByWarehouses:IL1:org-from-auth",
-        "listActiveAllocations:org-from-auth",
-        "buildPendingTransfersByBoxRecordId:org-from-auth",
+        "loadAllocationPreviewCandidateSnapshot:org-from-auth",
       ],
     },
   ];

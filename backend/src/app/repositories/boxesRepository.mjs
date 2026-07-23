@@ -212,6 +212,47 @@ async function listBoxes(client, orgId) {
   return rows.map(mapDbBoxRow);
 }
 
+async function loadAllocationPreviewCandidateSnapshot(client, orgId, payload) {
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_allocation_preview_candidates(
+        $1::uuid,
+        $2::jsonb
+      ) as result
+    `,
+    [orgId, payload || {}]
+  );
+  const result = row?.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new HttpError(500, 'Allocation preview candidates did not return a valid snapshot.');
+  }
+
+  const source = mapDbBoxRow(result.source);
+  if (!source) {
+    throw new HttpError(409, 'The allocation source changed while preview was loading. Reload and retry.');
+  }
+
+  return {
+    source,
+    boxes: (Array.isArray(result.boxes) ? result.boxes : []).map(mapDbBoxRow).filter(Boolean),
+    allocations: Array.isArray(result.allocations) ? result.allocations : [],
+    pendingTransfersByBoxRecordId:
+      result.pendingTransfersByBoxRecordId &&
+      typeof result.pendingTransfersByBoxRecordId === 'object' &&
+      !Array.isArray(result.pendingTransfersByBoxRecordId)
+        ? result.pendingTransfersByBoxRecordId
+        : {},
+    candidateMetadata: Array.isArray(result.candidateMetadata) ? result.candidateMetadata : [],
+    context: result.context && typeof result.context === 'object' && !Array.isArray(result.context)
+      ? result.context
+      : {},
+    scope: result.scope && typeof result.scope === 'object' && !Array.isArray(result.scope)
+      ? result.scope
+      : {}
+  };
+}
+
 async function listBoxesByWarehouses(client, orgId, warehouses) {
   const normalizedWarehouses = Array.from(
     new Set(
@@ -720,6 +761,7 @@ export {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  loadAllocationPreviewCandidateSnapshot,
   listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,

@@ -1661,6 +1661,7 @@ const {
   toPublicAllocation,
   toPublicFilmOrder,
   listBoxes,
+  loadAllocationPreviewCandidateSnapshot,
   findBoxById,
   listFilmCatalog,
   listAllocations,
@@ -4149,6 +4150,25 @@ function buildActiveAllocationsByBoxIndex(entries: any[]) {
       grouped[entry.boxId] = [];
     }
     grouped[entry.boxId].push(entry);
+  }
+  return grouped;
+}
+
+function buildCapacityAllocationsByBoxIndex(entries: any[]) {
+  const grouped: Record<string, any[]> = {};
+  for (const entry of entries) {
+    const status = asTrimmedString(entry?.status).toUpperCase();
+    if (status !== "ACTIVE" && status !== "FULFILLED") {
+      continue;
+    }
+    const boxId = asTrimmedString(entry?.boxId);
+    if (!boxId) {
+      continue;
+    }
+    if (!grouped[boxId]) {
+      grouped[boxId] = [];
+    }
+    grouped[boxId].push(entry);
   }
   return grouped;
 }
@@ -9897,6 +9917,7 @@ async function dispatchRead(
     resolveAllocationJobWarehouse,
     resolveJobContext,
     parseCrossWarehouseFlag,
+    loadAllocationPreviewCandidateSnapshot,
     listBoxes,
     listBoxesByWarehouses,
     buildPendingTransfersByBoxRecordId,
@@ -9908,6 +9929,7 @@ async function dispatchRead(
       selectedJob: any,
     ) => listJobRequirementsByJobIdDirect(readOrgId, selectedJob),
     buildActiveAllocationsByBoxIndex,
+    buildCapacityAllocationsByBoxIndex,
     listActiveAllocations,
     listJobs,
     buildJobsList,

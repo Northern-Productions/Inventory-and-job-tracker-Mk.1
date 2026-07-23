@@ -79,6 +79,11 @@ export type ReadHandlerDeps = {
     crewLeader: unknown,
   ) => Promise<JobContext>;
   parseCrossWarehouseFlag: (value: unknown) => boolean;
+  loadAllocationPreviewCandidateSnapshot: (
+    client: any,
+    orgId: string,
+    payload: Record<string, unknown>,
+  ) => Promise<any>;
   listBoxes: (client: any, orgId: string) => Promise<any[]>;
   listBoxesByWarehouses: (client: any, orgId: string, warehouses: string[]) => Promise<any[]>;
   buildPendingTransfersByBoxRecordId: (
@@ -94,6 +99,7 @@ export type ReadHandlerDeps = {
     selectedJob?: any,
   ) => Promise<any[]>;
   buildActiveAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
+  buildCapacityAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
   listJobs: (client: any, orgId: string, options?: { warehouse?: unknown }) => Promise<any[]>;
   buildJobsList: (
@@ -861,76 +867,39 @@ const readHandlers: Record<string, ReadHandler> = {
     return ok(await deps.buildAllocationJobDetail(client, orgId, params.jobNumber));
   },
   "/allocations/preview": async ({ client, orgId, params }, deps) => {
-    const source = await deps.findBoxById(client, orgId, deps.requireString(params.boxId, "BoxID"));
-    if (!source) {
-      throw new HttpError(404, "Box not found.");
-    }
-    const requirementId = deps.asTrimmedString(params.requirementId);
-    const previewTarget = await resolveAllocationPreviewJobContext(client, orgId, params, deps, {
-      allowPhaseScheduleOverride: Boolean(requirementId),
+    const snapshot = await deps.loadAllocationPreviewCandidateSnapshot(client, orgId, {
+      ...params,
+      jobDate: params.installDate ?? params.jobDate,
     });
-    let jobContext = previewTarget.jobContext;
-    const requestedCrossWarehouse = deps.parseCrossWarehouseFlag(params.crossWarehouse);
-    const autoAllocate =
-      params.autoAllocate === true ||
-      deps.asTrimmedString(params.autoAllocate).toLowerCase() === "true";
-    const jobWarehouse = await deps.resolveAllocationJobWarehouse(
-      client,
-      orgId,
-      (jobContext as Record<string, unknown>).jobNumber,
-      params.jobWarehouse,
-      previewTarget.job,
-    );
-    if (autoAllocate && !jobWarehouse) {
-      throw new HttpError(400, "Assign a warehouse to this job before auto-allocating material.");
-    }
-    if (
-      autoAllocate &&
-      deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase() !== jobWarehouse
-    ) {
-      throw new HttpError(400, `Auto Allocate only uses material from the job warehouse (${jobWarehouse}).`);
-    }
-    const crossWarehouse = autoAllocate ? false : requestedCrossWarehouse;
-    const sourceWarehouse = deps.asTrimmedString((source as Record<string, unknown>).warehouse).toUpperCase();
-    const allBoxes = autoAllocate && jobWarehouse
-      ? await deps.listBoxesByWarehouses(client, orgId, [jobWarehouse])
-      : crossWarehouse || !sourceWarehouse
-        ? await deps.listBoxes(client, orgId)
-        : await deps.listBoxesByWarehouses(client, orgId, [sourceWarehouse]);
-    const requirements = requirementId
-      ? previewTarget.jobId
-        ? await deps.listJobRequirementsByJobId(client, orgId, previewTarget.jobId, previewTarget.job)
-        : await deps.listJobRequirementsByJob(
-            client,
-            orgId,
-            deps.asTrimmedString((jobContext as Record<string, unknown>).jobNumber),
-          )
-      : [];
-    const selectedRequirement = requirementId
-      ? requirements.find((entry) => deps.asTrimmedString((entry as Record<string, unknown>).id) === requirementId) || null
+    const context = (snapshot.context || {}) as Record<string, any>;
+    const canonicalJobContext = (context.jobContext || {}) as Record<string, unknown>;
+    const requirementState = (context.requirementState || {}) as Record<string, unknown>;
+    const phaseState = (context.phaseState || {}) as Record<string, unknown>;
+    const selectedRequirement = deps.asTrimmedString(requirementState.id)
+      ? {
+          ...requirementState,
+          phaseInstallDate: deps.asTrimmedString(phaseState.installDate),
+          phaseCrewLeader: deps.asTrimmedString(phaseState.crewLeader),
+        }
       : null;
-    if (requirementId && !selectedRequirement) {
-      throw new HttpError(
-        400,
-        `Requirement ${requirementId} does not belong to job ${deps.asTrimmedString((jobContext as Record<string, unknown>).jobNumber)}.`,
-      );
-    }
-    jobContext = resolveRequirementScheduleJobContext(jobContext, selectedRequirement, params, deps);
+    const jobContext = {
+      jobNumber: deps.asTrimmedString(canonicalJobContext.jobNumber),
+      installDate: deps.asTrimmedString(canonicalJobContext.jobDate ?? canonicalJobContext.installDate),
+      crewLeader: deps.asTrimmedString(canonicalJobContext.crewLeader),
+    };
+
     return ok(deps.buildAllocationPreviewPlan(
-      source,
-      params.requestedFeet,
+      snapshot.source,
+      context.requestedFeet,
       jobContext,
       {
-        crossWarehouse,
-        minimumWidthIn: params.requestedWidthIn,
-        allBoxes,
-        activeAllocationsByBox: deps.buildActiveAllocationsByBoxIndex(await deps.listActiveAllocations(client, orgId)),
+        crossWarehouse: context.crossWarehouse === true,
+        minimumWidthIn: context.requestedWidthIn,
+        allBoxes: snapshot.boxes,
+        activeAllocationsByBox: deps.buildCapacityAllocationsByBoxIndex(snapshot.allocations),
         selectedRequirement,
-        jobWarehouse,
-        pendingTransfersByBoxRecordId: await deps.buildPendingTransfersByBoxRecordId(client, orgId, [
-          source,
-          ...allBoxes,
-        ]),
+        jobWarehouse: deps.asTrimmedString(context.jobWarehouse).toUpperCase(),
+        pendingTransfersByBoxRecordId: snapshot.pendingTransfersByBoxRecordId,
       },
     ));
   },

@@ -1,7 +1,15 @@
 import { withMutation, withReadClient, queryRow, queryRows } from '../../../src/db/client.mjs';
 import { createJob, buildJobDetailById } from '../../../src/app/services/jobs.mjs';
-import { addBox, updateBox, setBoxStatus } from '../../../src/app/services/boxes.mjs';
-import { applyAllocationPlan } from '../../../src/app/services/allocations.mjs';
+import {
+  addBox,
+  updateBox,
+  setBoxStatus,
+  startBoxTransfer,
+} from '../../../src/app/services/boxes.mjs';
+import {
+  applyAllocationPlan,
+  removeAllocationFromJob,
+} from '../../../src/app/services/allocations.mjs';
 import {
   asText,
   assertFixtureDealerAvailable,
@@ -278,13 +286,31 @@ function boxPayload({
   };
 }
 
-function jobPayload({ jobNumber, warehouse, tag, manufacturer, filmName, requiredFeet, installOffset = 3 }) {
-  const installDate = addDays(today(), installOffset);
+function jobPayload({
+  jobNumber,
+  warehouse,
+  tag,
+  manufacturer,
+  filmName,
+  requiredFeet,
+  installOffset = 3,
+  installDate: installDateInput,
+  crewLeader: crewLeaderInput,
+  workflowStatus = 'ACTIVE',
+}) {
+  const installDate =
+    installDateInput === undefined ? addDays(today(), installOffset) : asText(installDateInput);
+  const crewLeader =
+    crewLeaderInput === undefined
+      ? installDate
+        ? `Codex Fixture ${shortTag(tag)}`
+        : ''
+      : asText(crewLeaderInput);
   return {
     jobNumber,
     warehouse,
     installDate,
-    crewLeader: `Codex Fixture ${shortTag(tag)}`,
+    crewLeader,
     workScope: tag,
     notes: tag,
     phases: [
@@ -292,8 +318,8 @@ function jobPayload({ jobNumber, warehouse, tag, manufacturer, filmName, require
         phaseNumber: 1,
         workScope: tag,
         installDate,
-        crewLeader: `Codex Fixture ${shortTag(tag)}`,
-        workflowStatus: 'ACTIVE',
+        crewLeader,
+        workflowStatus,
         requirements: [
           {
             manufacturer,
@@ -370,6 +396,27 @@ async function checkoutFixtureBox(client, orgId, { boxId, jobId, tag }) {
     tag
   );
   return response.data?.box || response.data;
+}
+
+async function fetchCanonicalAllocationState(client, orgId, boxIds) {
+  const rows = await queryRows(
+    client,
+    `
+      select
+        state.box_id,
+        state.status,
+        state.warehouse,
+        state.physical_feet,
+        state.reserved_feet,
+        state.reservation_count,
+        state.planning_feet,
+        state.pending_transfer
+      from app_api.allocation_apply_box_states_0192($1::uuid, $2::text[]) state
+      order by state.box_id
+    `,
+    [orgId, boxIds]
+  );
+  return Object.fromEntries(rows.map((row) => [asText(row.box_id), row]));
 }
 
 async function zeroFixtureBox(client, orgId, { existingBoxPayload, tag }) {
@@ -688,23 +735,51 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
       config.orgId,
       dealerPreflight.fixtureDealer
     );
-    const warehouse = await chooseWarehouse(client, config.orgId);
-    const ownerCompanyId = await chooseOwnerCompanyId(client, config.orgId, warehouse);
+    const { sourceWarehouse, destinationWarehouse } = await chooseWarehousePair(
+      client,
+      config.orgId
+    );
+    const sourceOwnerCompanyId = await chooseOwnerCompanyId(
+      client,
+      config.orgId,
+      sourceWarehouse
+    );
+    const destinationOwnerCompanyId = await chooseOwnerCompanyId(
+      client,
+      config.orgId,
+      destinationWarehouse
+    );
     const manufacturer = 'Codex Fixture';
     const filmName = `Allocation Timeout ${shortTag(tag)}`;
-    const oneBoxId = buildBoxId(warehouse, 'T01', tag);
-    const sourceBoxId = buildBoxId(warehouse, 'T30', tag);
+    const oneBoxId = buildBoxId(destinationWarehouse, 'T01', tag);
+    const sourceBoxId = buildBoxId(destinationWarehouse, 'T30', tag);
     const candidateBoxIds = [
-      buildBoxId(warehouse, 'T31', tag),
-      buildBoxId(warehouse, 'T32', tag),
+      buildBoxId(destinationWarehouse, 'T31', tag),
+      buildBoxId(destinationWarehouse, 'T32', tag),
     ];
-    const extraBoxId = buildBoxId(warehouse, 'TEX', tag);
+    const extraBoxId = buildBoxId(destinationWarehouse, 'TEX', tag);
+    const sameWarehousePartialBoxId = buildBoxId(destinationWarehouse, 'TSW', tag);
+    const checkedOutBoxId = buildBoxId(sourceWarehouse, 'TCO', tag);
+    const crossWarehouseZeroReservationBoxId = buildBoxId(sourceWarehouse, 'TCZ', tag);
+    const scheduledReservedBoxId = buildBoxId(sourceWarehouse, 'TSR', tag);
+    const placeholderReservedBoxId = buildBoxId(sourceWarehouse, 'TPR', tag);
+    const historicalOnlyBoxId = buildBoxId(sourceWarehouse, 'THI', tag);
+    const pendingTransferBoxId = buildBoxId(sourceWarehouse, 'TPT', tag);
+    const staleRevalidationBoxId = buildBoxId(sourceWarehouse, 'TST', tag);
     const boxSpecs = [
-      { boxId: oneBoxId, initialFeet: 40 },
-      { boxId: sourceBoxId, initialFeet: 30 },
-      { boxId: candidateBoxIds[0], initialFeet: 30 },
-      { boxId: candidateBoxIds[1], initialFeet: 30 },
-      { boxId: extraBoxId, initialFeet: 20 },
+      { boxId: oneBoxId, warehouse: destinationWarehouse, ownerCompanyId: destinationOwnerCompanyId, initialFeet: 40 },
+      { boxId: sourceBoxId, warehouse: destinationWarehouse, ownerCompanyId: destinationOwnerCompanyId, initialFeet: 30 },
+      { boxId: candidateBoxIds[0], warehouse: destinationWarehouse, ownerCompanyId: destinationOwnerCompanyId, initialFeet: 30 },
+      { boxId: candidateBoxIds[1], warehouse: destinationWarehouse, ownerCompanyId: destinationOwnerCompanyId, initialFeet: 30 },
+      { boxId: extraBoxId, warehouse: destinationWarehouse, ownerCompanyId: destinationOwnerCompanyId, initialFeet: 20 },
+      { boxId: sameWarehousePartialBoxId, warehouse: destinationWarehouse, ownerCompanyId: destinationOwnerCompanyId, initialFeet: 50 },
+      { boxId: checkedOutBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
+      { boxId: crossWarehouseZeroReservationBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
+      { boxId: scheduledReservedBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
+      { boxId: placeholderReservedBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
+      { boxId: historicalOnlyBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
+      { boxId: pendingTransferBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
+      { boxId: staleRevalidationBoxId, warehouse: sourceWarehouse, ownerCompanyId: sourceOwnerCompanyId, initialFeet: 45 },
     ];
 
     for (const spec of boxSpecs) {
@@ -713,8 +788,6 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
         config.orgId,
         boxPayload({
           ...spec,
-          warehouse,
-          ownerCompanyId,
           dealerName: fixtureDealer.name,
           tag,
           manufacturer,
@@ -729,7 +802,7 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
       config.orgId,
       jobPayload({
         jobNumber: buildJobNumber(tag, 31),
-        warehouse,
+        warehouse: destinationWarehouse,
         tag,
         manufacturer,
         filmName,
@@ -743,7 +816,7 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
       config.orgId,
       jobPayload({
         jobNumber: buildJobNumber(tag, 32),
-        warehouse,
+        warehouse: destinationWarehouse,
         tag,
         manufacturer,
         filmName,
@@ -752,22 +825,221 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
       }),
       tag
     );
+    const previewTargetJob = await createFixtureJob(
+      client,
+      config.orgId,
+      jobPayload({
+        jobNumber: buildJobNumber(tag, 33),
+        warehouse: destinationWarehouse,
+        tag,
+        manufacturer,
+        filmName,
+        requiredFeet: 180,
+        installOffset: 7,
+      }),
+      tag
+    );
+    const sourceReservationJob = await createFixtureJob(
+      client,
+      config.orgId,
+      jobPayload({
+        jobNumber: buildJobNumber(tag, 34),
+        warehouse: sourceWarehouse,
+        tag,
+        manufacturer,
+        filmName,
+        requiredFeet: 100,
+        installOffset: 8,
+      }),
+      tag
+    );
+    const destinationReservationJob = await createFixtureJob(
+      client,
+      config.orgId,
+      jobPayload({
+        jobNumber: buildJobNumber(tag, 35),
+        warehouse: destinationWarehouse,
+        tag,
+        manufacturer,
+        filmName,
+        requiredFeet: 100,
+        installOffset: 9,
+      }),
+      tag
+    );
+    const placeholderReservationJob = await createFixtureJob(
+      client,
+      config.orgId,
+      jobPayload({
+        jobNumber: buildJobNumber(tag, 36),
+        warehouse: sourceWarehouse,
+        tag,
+        manufacturer,
+        filmName,
+        requiredFeet: 50,
+        installDate: '',
+        crewLeader: '',
+        workflowStatus: 'PLACEHOLDER',
+      }),
+      tag
+    );
     const oneRequirement = firstRequirement(oneBoxJob);
     const threeRequirement = firstRequirement(threeBoxJob);
+    const previewRequirement = firstRequirement(previewTargetJob);
+    const sourceReservationRequirement = firstRequirement(sourceReservationJob);
+    const destinationReservationRequirement = firstRequirement(destinationReservationJob);
+    const placeholderReservationRequirement = firstRequirement(placeholderReservationJob);
+
+    const sameWarehouseAllocations = await allocateFixtureBox(client, config.orgId, {
+      jobDetail: destinationReservationJob,
+      boxId: sameWarehousePartialBoxId,
+      requestedFeet: 15,
+      tag,
+    });
+    const checkedOutAllocations = await allocateFixtureBox(client, config.orgId, {
+      jobDetail: sourceReservationJob,
+      boxId: checkedOutBoxId,
+      requestedFeet: 20,
+      tag,
+    });
+    await checkoutFixtureBox(client, config.orgId, {
+      boxId: checkedOutBoxId,
+      jobId: sourceReservationJob.summary.jobId,
+      tag,
+    });
+    const scheduledAllocations = await allocateFixtureBox(client, config.orgId, {
+      jobDetail: sourceReservationJob,
+      boxId: scheduledReservedBoxId,
+      requestedFeet: 15,
+      tag,
+    });
+    const placeholderAllocations = await allocateFixtureBox(client, config.orgId, {
+      jobDetail: placeholderReservationJob,
+      boxId: placeholderReservedBoxId,
+      requestedFeet: 15,
+      tag,
+    });
+    const historicalAllocations = await allocateFixtureBox(client, config.orgId, {
+      jobDetail: sourceReservationJob,
+      boxId: historicalOnlyBoxId,
+      requestedFeet: 15,
+      tag,
+    });
+    const historicalAllocationId = asText(historicalAllocations[0]?.allocationId);
+    if (!historicalAllocationId) {
+      throw new Error('Historical allocation fixture did not create its tagged allocation.');
+    }
+    await removeAllocationFromJob(
+      client,
+      config.orgId,
+      sourceReservationJob.summary.jobNumber,
+      historicalAllocationId,
+      tag,
+      tag
+    );
+    await startBoxTransfer(
+      client,
+      config.orgId,
+      {
+        boxId: pendingTransferBoxId,
+        toWarehouse: destinationWarehouse,
+        notes: tag,
+      },
+      tag
+    );
+
+    const canonicalStateByBoxId = await fetchCanonicalAllocationState(client, config.orgId, [
+      sameWarehousePartialBoxId,
+      checkedOutBoxId,
+      crossWarehouseZeroReservationBoxId,
+      scheduledReservedBoxId,
+      placeholderReservedBoxId,
+      historicalOnlyBoxId,
+      pendingTransferBoxId,
+      staleRevalidationBoxId,
+    ]);
+    const partialState = canonicalStateByBoxId[sameWarehousePartialBoxId];
+    const checkedOutState = canonicalStateByBoxId[checkedOutBoxId];
+    const crossWarehouseState = canonicalStateByBoxId[crossWarehouseZeroReservationBoxId];
+    const scheduledState = canonicalStateByBoxId[scheduledReservedBoxId];
+    const placeholderState = canonicalStateByBoxId[placeholderReservedBoxId];
+    const historicalState = canonicalStateByBoxId[historicalOnlyBoxId];
+    const pendingState = canonicalStateByBoxId[pendingTransferBoxId];
+    const staleState = canonicalStateByBoxId[staleRevalidationBoxId];
+    if (
+      !partialState ||
+      integer(partialState.reservation_count) !== 1 ||
+      integer(partialState.planning_feet) <= 0 ||
+      !checkedOutState ||
+      asText(checkedOutState.status).toUpperCase() !== 'CHECKED_OUT' ||
+      integer(checkedOutState.reservation_count) !== 1 ||
+      !crossWarehouseState ||
+      integer(crossWarehouseState.reservation_count) !== 0 ||
+      !scheduledState ||
+      integer(scheduledState.reservation_count) !== 1 ||
+      !placeholderState ||
+      integer(placeholderState.reservation_count) !== 1 ||
+      !historicalState ||
+      integer(historicalState.reservation_count) !== 0 ||
+      !pendingState ||
+      pendingState.pending_transfer !== true ||
+      !staleState ||
+      integer(staleState.reservation_count) !== 0
+    ) {
+      throw new Error('Allocation preview fixture canonical state did not match the requested matrix.');
+    }
+
+    const setupAllocationIds = [
+      ...sameWarehouseAllocations,
+      ...checkedOutAllocations,
+      ...scheduledAllocations,
+      ...placeholderAllocations,
+      ...historicalAllocations,
+    ].map((entry) => entry.allocationId).filter(Boolean);
+    const allBoxIds = [
+      oneBoxId,
+      sourceBoxId,
+      ...candidateBoxIds,
+      extraBoxId,
+      sameWarehousePartialBoxId,
+      checkedOutBoxId,
+      crossWarehouseZeroReservationBoxId,
+      scheduledReservedBoxId,
+      placeholderReservedBoxId,
+      historicalOnlyBoxId,
+      pendingTransferBoxId,
+      staleRevalidationBoxId,
+    ];
 
     return buildManifest({
       config,
       tag,
       scenario: 'allocation-timeout-remediation',
-      jobDetail: threeBoxJob,
-      extraJobDetails: [oneBoxJob],
-      phaseId: firstPhaseId(threeBoxJob),
-      requirementIds: [threeRequirement.requirementId, oneRequirement.requirementId],
-      boxIds: [oneBoxId, sourceBoxId, ...candidateBoxIds, extraBoxId],
+      jobDetail: previewTargetJob,
+      extraJobDetails: [
+        oneBoxJob,
+        threeBoxJob,
+        sourceReservationJob,
+        destinationReservationJob,
+        placeholderReservationJob,
+      ],
+      phaseId: firstPhaseId(previewTargetJob),
+      requirementIds: [
+        previewRequirement.requirementId,
+        threeRequirement.requirementId,
+        oneRequirement.requirementId,
+        sourceReservationRequirement.requirementId,
+        destinationReservationRequirement.requirementId,
+        placeholderReservationRequirement.requirementId,
+      ],
+      allocationIds: setupAllocationIds,
+      boxIds: allBoxIds,
       fixtureDealer,
       dealerTableBefore: dealerPreflight.dealerTableBefore,
       summary: {
-        warehouse,
+        warehouse: destinationWarehouse,
+        sourceWarehouse,
+        destinationWarehouse,
         oneBox: {
           jobId: oneBoxJob.summary.jobId,
           jobNumber: oneBoxJob.summary.jobNumber,
@@ -775,6 +1047,8 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
           widthIn: oneRequirement.widthIn,
           boxId: oneBoxId,
           requestedFeet: 20,
+          installDate: asText(oneRequirement.phaseInstallDate || oneBoxJob.summary.installDate),
+          crewLeader: asText(oneRequirement.phaseCrewLeader || oneBoxJob.summary.crewLeader),
         },
         threeBox: {
           jobId: threeBoxJob.summary.jobId,
@@ -786,6 +1060,41 @@ async function createAllocationTimeoutRemediation(config, tag, dealerPreflight) 
           extraBoxId,
           requestedFeet: 75,
           extraFeet: 5,
+          installDate: asText(threeRequirement.phaseInstallDate || threeBoxJob.summary.installDate),
+          crewLeader: asText(threeRequirement.phaseCrewLeader || threeBoxJob.summary.crewLeader),
+        },
+        previewTarget: {
+          jobId: previewTargetJob.summary.jobId,
+          jobNumber: previewTargetJob.summary.jobNumber,
+          requirementId: previewRequirement.requirementId,
+          widthIn: previewRequirement.widthIn,
+          installDate: asText(previewRequirement.phaseInstallDate || previewTargetJob.summary.installDate),
+          crewLeader: asText(previewRequirement.phaseCrewLeader || previewTargetJob.summary.crewLeader),
+          warehouse: destinationWarehouse,
+        },
+        sourceReservation: {
+          jobId: sourceReservationJob.summary.jobId,
+          jobNumber: sourceReservationJob.summary.jobNumber,
+          requirementId: sourceReservationRequirement.requirementId,
+          widthIn: sourceReservationRequirement.widthIn,
+          installDate: asText(
+            sourceReservationRequirement.phaseInstallDate || sourceReservationJob.summary.installDate
+          ),
+          crewLeader: asText(
+            sourceReservationRequirement.phaseCrewLeader || sourceReservationJob.summary.crewLeader
+          ),
+          warehouse: sourceWarehouse,
+        },
+        cases: {
+          sameWarehousePartialBoxId,
+          sameWarehousePartialPlanningFeet: integer(partialState.planning_feet),
+          checkedOutBoxId,
+          crossWarehouseZeroReservationBoxId,
+          scheduledReservedBoxId,
+          placeholderReservedBoxId,
+          historicalOnlyBoxId,
+          pendingTransferBoxId,
+          staleRevalidationBoxId,
         },
       },
     });

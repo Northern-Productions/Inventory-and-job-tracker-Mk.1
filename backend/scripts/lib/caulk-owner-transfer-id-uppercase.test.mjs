@@ -63,7 +63,7 @@ test('caulk transfer value format remains uppercase-only', async () => {
 test('schema latest guard tracks caulk owner transfer ID canonicalization', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0192_atomic_cross_warehouse_affected_box_scan\.sql/);
+  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
   assert.match(
     schemaCheck,
     /app_api\.caulk_start_pending_transfer_for_owner\(uuid, text, uuid, text, uuid, text, uuid, uuid, text, text, integer, text\)/

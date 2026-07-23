@@ -45,7 +45,7 @@ test('latest schema check requires manual-only planner semantics after global ca
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0192_atomic_cross_warehouse_affected_box_scan\.sql/);
+  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
 
   assert.match(schemaCheck, /'manualOnly', true/);
   assert.match(schemaCheck, /filmInserted', 0/);

@@ -135,10 +135,10 @@ test('0192 preserves the canonical public contract and private helper grants', a
   assert.match(migration, /acl\.grantee = 0 or r\.rolname in \('anon', 'authenticated', 'service_role'\)/);
 });
 
-test('schema latest requires the 0192 bounded allocator contract', async () => {
+test('schema latest retains the 0192 bounded allocator contract after 0193', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0192_atomic_cross_warehouse_affected_box_scan\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
   assert.match(schemaLatest, /app_api\.allocation_apply_box_states_0192\(uuid, text\[\]\)/);
   assert.match(schemaLatest, /app_api\.build_allocation_apply_plan_0192\(uuid, text, jsonb\)/);
   assert.match(schemaLatest, /v_plan := app_api\.build_allocation_apply_plan_0192/);
