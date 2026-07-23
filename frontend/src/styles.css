@@ -5979,6 +5979,27 @@ td.col-available-linear-ft {
   accent-color: #167c72;
 }
 
+:root[data-theme="dark"] .warehouse-asset-audit-status-filter {
+  border-top-color: var(--color-border-soft);
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-status-filter legend {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-status-filter label {
+  color: var(--color-text-1);
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-status-filter input {
+  accent-color: var(--color-selected-bg);
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-status-filter input:focus-visible {
+  outline: 2px solid var(--color-text-1);
+  outline-offset: 2px;
+}
+
 .warehouse-asset-audit-screen-table {
   max-height: min(65vh, 44rem);
 }
@@ -6007,6 +6028,21 @@ td.col-available-linear-ft {
   gap: 0.75rem;
   color: #4f6e74;
   font-size: 0.88rem;
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-pagination {
+  color: var(--color-text-2);
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-pagination .button-secondary {
+  color: var(--color-primary-strong);
+}
+
+:root[data-theme="dark"] .warehouse-asset-audit-pagination .button-secondary:disabled {
+  opacity: 1;
+  background: var(--color-control-bg);
+  color: var(--color-text-3);
+  box-shadow: inset 0 0 0 1px var(--color-control-border);
 }
 
 .warehouse-asset-audit-totals {

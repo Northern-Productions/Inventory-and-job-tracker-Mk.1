@@ -128,6 +128,54 @@ describe('theme contrast styles', () => {
     );
   });
 
+  it('keeps Warehouse Asset Audit controls readable with dark-only scoped theme tokens', () => {
+    expect(css).toMatch(
+      /\.warehouse-asset-audit-status-filter legend\s*{[^}]*color:\s*#3c5f66;/s
+    );
+    expect(css).toMatch(
+      /\.warehouse-asset-audit-status-filter label\s*{[^}]*color:\s*#183f47;/s
+    );
+    expect(css).toMatch(
+      /\.warehouse-asset-audit-pagination\s*{[^}]*color:\s*#4f6e74;/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-status-filter legend\s*{[^}]*color:\s*var\(--color-text-2\);/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-status-filter label\s*{[^}]*color:\s*var\(--color-text-1\);/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-status-filter input\s*{[^}]*accent-color:\s*var\(--color-selected-bg\);/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-status-filter input:focus-visible\s*{[^}]*outline:\s*2px solid var\(--color-text-1\);[^}]*outline-offset:\s*2px;/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-pagination\s*{[^}]*color:\s*var\(--color-text-2\);/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-pagination \.button-secondary\s*{[^}]*color:\s*var\(--color-primary-strong\);/s
+    );
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\] \.warehouse-asset-audit-pagination \.button-secondary:disabled\s*{[^}]*opacity:\s*1;[^}]*background:\s*var\(--color-control-bg\);[^}]*color:\s*var\(--color-text-3\);[^}]*box-shadow:\s*inset 0 0 0 1px var\(--color-control-border\);/s
+    );
+
+    expect(contrastRatio('#d8e5e6', '#12343b')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#fff8e8', '#12343b')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#fff0d3', '#12343b')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#0b242a', '#d37f4a')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#afc3c7', '#12343b')).toBeGreaterThanOrEqual(4.5);
+
+    const auditDarkRules = Array.from(
+      css.matchAll(
+        /:root\[data-theme="dark"\] \.warehouse-asset-audit-(?:status-filter|pagination)[^{]*\{[^}]*}/gs
+      ),
+      (match) => match[0]
+    ).join('\n');
+    expect(auditDarkRules).not.toContain('!important');
+    expect(css).not.toMatch(/:root\[data-theme="dark"\]\s+(?:legend|label|\.button-secondary)\s*{/);
+  });
+
   it('uses soft status color variables and lively motion for toast variants', () => {
     expect(css).toMatch(
       /\.toast\s*{[^}]*animation:\s*toast-pop-in 520ms[\s\S]*toast-radiate 2600ms/s

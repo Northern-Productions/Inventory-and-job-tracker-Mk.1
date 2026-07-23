@@ -11,6 +11,73 @@ const storageStatePath = path.resolve(
   process.env.PLAYWRIGHT_STORAGE_STATE || '.secrets/playwright/dev-storage-state.json'
 );
 
+interface Rgba {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
+function parseCssColor(value: string): Rgba {
+  const normalized = value.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(normalized)) {
+    return {
+      r: Number.parseInt(normalized.slice(1, 3), 16),
+      g: Number.parseInt(normalized.slice(3, 5), 16),
+      b: Number.parseInt(normalized.slice(5, 7), 16),
+      a: 1
+    };
+  }
+  const match = normalized.match(
+    /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/
+  );
+  if (!match) {
+    throw new Error(`Unsupported CSS color format: ${value}`);
+  }
+  return {
+    r: Number(match[1]),
+    g: Number(match[2]),
+    b: Number(match[3]),
+    a: match[4] === undefined ? 1 : Number(match[4])
+  };
+}
+
+function compositeColor(foreground: Rgba, background: Rgba): Rgba {
+  return {
+    r: foreground.r * foreground.a + background.r * (1 - foreground.a),
+    g: foreground.g * foreground.a + background.g * (1 - foreground.a),
+    b: foreground.b * foreground.a + background.b * (1 - foreground.a),
+    a: 1
+  };
+}
+
+function contrastRatio(foreground: Rgba, background: Rgba) {
+  const luminance = ({ r, g, b }: Rgba) => {
+    const channel = (value: number) => {
+      const normalized = value / 255;
+      return normalized <= 0.03928
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  };
+  const foregroundLuminance = luminance(foreground);
+  const backgroundLuminance = luminance(background);
+  return (
+    (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+    (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+  );
+}
+
+function expectSameColor(actual: string, expected: string) {
+  const actualColor = parseCssColor(actual);
+  const expectedColor = parseCssColor(expected);
+  expect(actualColor.r).toBeCloseTo(expectedColor.r, 0);
+  expect(actualColor.g).toBeCloseTo(expectedColor.g, 0);
+  expect(actualColor.b).toBeCloseTo(expectedColor.b, 0);
+  expect(actualColor.a).toBeCloseTo(expectedColor.a, 2);
+}
+
 function isWarehouseAssetAuditUrl(value: string) {
   const url = new URL(value);
   return (
@@ -50,6 +117,7 @@ test('prints one forced live warehouse asset audit response completely and exact
         const table = root?.querySelector<HTMLTableElement>('.warehouse-asset-audit-table');
         const headers = Array.from(table?.querySelectorAll('thead th') || []);
         const cells = Array.from(table?.querySelectorAll('th, td') || []);
+        const bodyCells = Array.from(table?.querySelectorAll('tbody td') || []);
         const numericCells = Array.from(
           table?.querySelectorAll(
             [
@@ -152,6 +220,17 @@ test('prints one forced live warehouse asset audit response completely and exact
             getComputedStyle(cell).fontVariantNumeric.includes('tabular-nums')
           ).length
         );
+        document.body.dataset.auditPrintDarkTextCells = String(
+          cells.filter((cell) => getComputedStyle(cell).color === 'rgb(17, 17, 17)').length
+        );
+        document.body.dataset.auditPrintWhiteBodyCells = String(
+          bodyCells.filter((cell) => getComputedStyle(cell).backgroundColor === 'rgb(255, 255, 255)')
+            .length
+        );
+        document.body.dataset.auditPrintBodyCellCount = String(bodyCells.length);
+        const worksheetStyle = root ? getComputedStyle(root) : null;
+        document.body.dataset.auditPrintWorksheetColor = worksheetStyle?.color || '';
+        document.body.dataset.auditPrintWorksheetBackground = worksheetStyle?.backgroundColor || '';
         document.body.dataset.auditPrintOverflowCells = String(overflowCells);
         document.body.dataset.auditPrintOrphanCells = String(orphanCells);
         document.body.dataset.auditPrintHeaderCollisions = String(headerCollisions);
@@ -228,6 +307,176 @@ test('prints one forced live warehouse asset audit response completely and exact
   await expect(page.getByText('Total Known On-Hand Asset Cost').last()).toBeVisible();
   await expect(page.getByText('Boxes Missing Cost Basis').last()).toBeVisible();
 
+  const selectTheme = async (theme: 'light' | 'dark') => {
+    const themeLabel = theme === 'light' ? 'Light' : 'Dark';
+    const themeButton = page.getByRole('button', { name: themeLabel, exact: true });
+    if (!(await themeButton.isVisible())) {
+      await page.getByRole('button', { name: 'Account actions' }).click();
+    }
+    await themeButton.click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(250);
+  };
+
+  const readContrastState = async () => {
+    const checkbox = page.locator('.warehouse-asset-audit-status-filter input').first();
+    await checkbox.focus();
+    const checkboxState = await checkbox.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        accentColor: style.accentColor,
+        focusVisible: node.matches(':focus-visible'),
+        outlineColor: style.outlineColor,
+        outlineStyle: style.outlineStyle,
+        outlineWidth: style.outlineWidth
+      };
+    });
+
+    const enabledButton = page.locator(
+      '.warehouse-asset-audit-pagination .button-secondary:not(:disabled)'
+    );
+    await enabledButton.focus();
+    const enabledFocusShadow = await enabledButton.evaluate(
+      (node) => getComputedStyle(node).boxShadow
+    );
+
+    return {
+      checkbox: checkboxState,
+      enabledFocusShadow,
+      ...(await page.evaluate(() => {
+        const rootStyle = getComputedStyle(document.documentElement);
+        const readButton = (selector: string) => {
+          const node = document.querySelector<HTMLButtonElement>(selector);
+          if (!node) {
+            throw new Error('Expected audit pagination button was not rendered.');
+          }
+          const style = getComputedStyle(node);
+          return {
+            backgroundColor: style.backgroundColor,
+            color: style.color,
+            opacity: style.opacity
+          };
+        };
+        const labels = Array.from(
+          document.querySelectorAll('.warehouse-asset-audit-status-filter label'),
+          (node) => getComputedStyle(node).color
+        );
+        const legend = document.querySelector('.warehouse-asset-audit-status-filter legend');
+        const pageIndicator = document.querySelector('.warehouse-asset-audit-pagination > span');
+        if (!legend || !pageIndicator) {
+          throw new Error('Expected audit contrast target was not rendered.');
+        }
+        return {
+          theme: document.documentElement.getAttribute('data-theme'),
+          tokens: {
+            primary: rootStyle.getPropertyValue('--color-primary').trim(),
+            primaryStrong: rootStyle.getPropertyValue('--color-primary-strong').trim(),
+            selectedBackground: rootStyle.getPropertyValue('--color-selected-bg').trim(),
+            text1: rootStyle.getPropertyValue('--color-text-1').trim(),
+            text2: rootStyle.getPropertyValue('--color-text-2').trim(),
+            text3: rootStyle.getPropertyValue('--color-text-3').trim(),
+            controlBackground: rootStyle.getPropertyValue('--color-control-bg').trim()
+          },
+          legendColor: getComputedStyle(legend).color,
+          labelColors: labels,
+          pageIndicatorColor: getComputedStyle(pageIndicator).color,
+          enabledButton: readButton(
+            '.warehouse-asset-audit-pagination .button-secondary:not(:disabled)'
+          ),
+          disabledButton: readButton(
+            '.warehouse-asset-audit-pagination .button-secondary:disabled'
+          ),
+          horizontalOverflow:
+            document.documentElement.scrollWidth > document.documentElement.clientWidth
+        };
+      }))
+    };
+  };
+
+  await selectTheme('light');
+  const lightContrast = await readContrastState();
+  expect(lightContrast.labelColors).toHaveLength(3);
+  expectSameColor(lightContrast.legendColor, 'rgb(60, 95, 102)');
+  lightContrast.labelColors.forEach((color) =>
+    expectSameColor(color, 'rgb(24, 63, 71)')
+  );
+  expectSameColor(lightContrast.pageIndicatorColor, 'rgb(79, 110, 116)');
+  expect(
+    contrastRatio(parseCssColor(lightContrast.legendColor), parseCssColor('#ffffff'))
+  ).toBeGreaterThanOrEqual(4.5);
+  lightContrast.labelColors.forEach((color) =>
+    expect(contrastRatio(parseCssColor(color), parseCssColor('#ffffff'))).toBeGreaterThanOrEqual(4.5)
+  );
+  expect(
+    contrastRatio(parseCssColor(lightContrast.pageIndicatorColor), parseCssColor('#ffffff'))
+  ).toBeGreaterThanOrEqual(4.5);
+  expect(lightContrast.enabledButton.opacity).toBe('1');
+  expect(lightContrast.disabledButton.opacity).toBe('0.55');
+  expect(lightContrast.enabledButton.backgroundColor).toBe(
+    lightContrast.disabledButton.backgroundColor
+  );
+  expect(lightContrast.horizontalOverflow).toBe(false);
+
+  await selectTheme('dark');
+  const darkContrast = await readContrastState();
+  expect(darkContrast.labelColors).toHaveLength(3);
+  expectSameColor(darkContrast.legendColor, darkContrast.tokens.text2);
+  darkContrast.labelColors.forEach((color) =>
+    expectSameColor(color, darkContrast.tokens.text1)
+  );
+  expectSameColor(darkContrast.pageIndicatorColor, darkContrast.tokens.text2);
+  expectSameColor(darkContrast.checkbox.accentColor, darkContrast.tokens.selectedBackground);
+  expect(darkContrast.checkbox.focusVisible).toBe(true);
+  expect(darkContrast.checkbox.outlineStyle).toBe('solid');
+  expect(darkContrast.checkbox.outlineWidth).toBe('2px');
+  expectSameColor(darkContrast.checkbox.outlineColor, darkContrast.tokens.text1);
+  expectSameColor(darkContrast.enabledButton.color, darkContrast.tokens.primaryStrong);
+  expect(darkContrast.enabledButton.opacity).toBe('1');
+  expect(darkContrast.enabledFocusShadow).not.toBe('none');
+  expectSameColor(darkContrast.disabledButton.color, darkContrast.tokens.text3);
+  expectSameColor(
+    darkContrast.disabledButton.backgroundColor,
+    darkContrast.tokens.controlBackground
+  );
+  expect(darkContrast.disabledButton.opacity).toBe('1');
+  expect(darkContrast.disabledButton.backgroundColor).not.toBe(
+    darkContrast.enabledButton.backgroundColor
+  );
+  expect(
+    contrastRatio(
+      parseCssColor(darkContrast.legendColor),
+      parseCssColor(darkContrast.tokens.primary)
+    )
+  ).toBeGreaterThanOrEqual(4.5);
+  darkContrast.labelColors.forEach((color) =>
+    expect(
+      contrastRatio(parseCssColor(color), parseCssColor(darkContrast.tokens.primary))
+    ).toBeGreaterThanOrEqual(4.5)
+  );
+  expect(
+    contrastRatio(
+      parseCssColor(darkContrast.pageIndicatorColor),
+      parseCssColor(darkContrast.tokens.primary)
+    )
+  ).toBeGreaterThanOrEqual(4.5);
+  expect(
+    contrastRatio(
+      parseCssColor(darkContrast.enabledButton.color),
+      parseCssColor(darkContrast.enabledButton.backgroundColor)
+    )
+  ).toBeGreaterThanOrEqual(4.5);
+  expect(
+    contrastRatio(
+      parseCssColor(darkContrast.disabledButton.color),
+      compositeColor(
+        parseCssColor(darkContrast.disabledButton.backgroundColor),
+        parseCssColor(darkContrast.tokens.primary)
+      )
+    )
+  ).toBeGreaterThanOrEqual(4.5);
+  expect(darkContrast.horizontalOverflow).toBe(false);
+
   const responseCountBeforePrint = auditResponses.length;
   const printButton = page.getByRole('button', { name: 'Print Audit' });
   await expect(printButton).toBeEnabled();
@@ -263,6 +512,11 @@ test('prints one forced live warehouse asset audit response completely and exact
     cellCount: Number(body.dataset.auditPrintCellCount || 0),
     numericCells: Number(body.dataset.auditPrintNumericCells || 0),
     tabularCells: Number(body.dataset.auditPrintTabularCells || 0),
+    darkTextCells: Number(body.dataset.auditPrintDarkTextCells || 0),
+    whiteBodyCells: Number(body.dataset.auditPrintWhiteBodyCells || 0),
+    bodyCellCount: Number(body.dataset.auditPrintBodyCellCount || 0),
+    worksheetColor: body.dataset.auditPrintWorksheetColor || '',
+    worksheetBackground: body.dataset.auditPrintWorksheetBackground || '',
     overflowCells: Number(body.dataset.auditPrintOverflowCells || 0),
     orphanCells: Number(body.dataset.auditPrintOrphanCells || 0),
     headerCollisions: Number(body.dataset.auditPrintHeaderCollisions || 0),
@@ -289,6 +543,10 @@ test('prints one forced live warehouse asset audit response completely and exact
   expect(printMetrics.centeredCells).toBe(printMetrics.cellCount);
   expect(printMetrics.middleCells).toBe(printMetrics.cellCount);
   expect(printMetrics.tabularCells).toBe(printMetrics.numericCells);
+  expect(printMetrics.darkTextCells).toBe(printMetrics.cellCount);
+  expect(printMetrics.whiteBodyCells).toBe(printMetrics.bodyCellCount);
+  expect(printMetrics.worksheetColor).toBe('rgb(17, 17, 17)');
+  expect(printMetrics.worksheetBackground).toBe('rgb(255, 255, 255)');
   expect(printMetrics.overflowCells).toBe(0);
   expect(printMetrics.orphanCells).toBe(0);
   expect(printMetrics.headerCollisions).toBe(0);
