@@ -5993,12 +5993,9 @@ td.col-available-linear-ft {
   vertical-align: top;
 }
 
-.warehouse-asset-audit-table th:nth-child(7),
-.warehouse-asset-audit-table th:nth-child(8),
-.warehouse-asset-audit-table th:nth-child(10),
-.warehouse-asset-audit-table td:nth-child(7),
-.warehouse-asset-audit-table td:nth-child(8),
-.warehouse-asset-audit-table td:nth-child(10) {
+.warehouse-asset-audit-table .warehouse-asset-audit-col-width,
+.warehouse-asset-audit-table .warehouse-asset-audit-col-on-hand-lf,
+.warehouse-asset-audit-table .warehouse-asset-audit-col-asset-cost {
   text-align: right;
   white-space: nowrap;
 }
@@ -6046,6 +6043,16 @@ td.col-available-linear-ft {
   line-height: 1.25;
 }
 
+.warehouse-asset-audit-cost-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.55rem 0.9rem;
+  border-top: 1px solid rgba(18, 52, 59, 0.12);
+  color: #55737a;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
 .warehouse-asset-audit-print-only-root {
   display: none;
 }
@@ -6057,19 +6064,33 @@ td.col-available-linear-ft {
 }
 
 .warehouse-asset-audit-print-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(2.6in, 3.4in);
   align-items: start;
-  justify-content: space-between;
   gap: 0.3in;
   margin-bottom: 0.12in;
   padding-bottom: 0.08in;
   border-bottom: 2px solid #111;
 }
 
+.warehouse-asset-audit-print-header > div,
+.warehouse-asset-audit-print-header dl,
+.warehouse-asset-audit-print-header dl div {
+  min-width: 0;
+}
+
 .warehouse-asset-audit-print-header h1 {
   margin: 0 0 0.03in;
   font-size: 18pt;
   line-height: 1.1;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+
+.warehouse-asset-audit-print-header > div > strong {
+  display: block;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
 }
 
 .warehouse-asset-audit-print-header dl,
@@ -6080,13 +6101,12 @@ td.col-available-linear-ft {
 .warehouse-asset-audit-print-header dl {
   display: grid;
   gap: 0.03in;
-  min-width: 2.6in;
   font-size: 7.5pt;
 }
 
 .warehouse-asset-audit-print-header dl div {
   display: grid;
-  grid-template-columns: 0.7in 1fr;
+  grid-template-columns: 0.82in minmax(0, 1fr);
   gap: 0.08in;
 }
 
@@ -6096,6 +6116,8 @@ td.col-available-linear-ft {
 
 .warehouse-asset-audit-print-header dd {
   margin: 0;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
 }
 
 .warehouse-asset-audit-print-filters {
@@ -6105,6 +6127,12 @@ td.col-available-linear-ft {
   margin-bottom: 0.1in;
   font-size: 7pt;
   line-height: 1.3;
+}
+
+.warehouse-asset-audit-print-filters span {
+  min-width: 0;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
 }
 
 @media (max-width: 760px) {
@@ -6269,10 +6297,13 @@ td.col-available-linear-ft {
 
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table {
     width: 100%;
+    max-width: 100%;
     min-width: 0;
+    box-sizing: border-box;
     border-collapse: collapse;
     table-layout: fixed;
-    font-size: 6.5pt;
+    font-size: 6.75pt;
+    line-height: 1.18;
   }
 
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table thead {
@@ -6286,51 +6317,154 @@ td.col-available-linear-ft {
 
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table th,
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table td {
-    padding: 0.035in 0.04in;
-    overflow-wrap: anywhere;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 0.035in 0.025in;
+    overflow-wrap: normal;
+    word-break: normal;
+    white-space: normal;
+    text-align: center;
+    vertical-align: middle;
     border: 0.5pt solid #777;
     color: #111;
     background: #fff;
   }
 
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table th {
+    padding-block: 0.04in;
+    overflow-wrap: normal;
     font-weight: 700;
+    font-size: 6.5pt;
+    line-height: 1.15;
+    text-transform: none;
+    letter-spacing: 0;
+    text-wrap: balance;
     background: #e9eeee;
   }
 
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(1) { width: 0.72in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(2) { width: 1.05in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(3) { width: 0.7in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(4) { width: 0.9in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(5) { width: 0.9in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(6) { width: 1.15in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(7) { width: 0.42in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(8) { width: 0.55in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(9) { width: 1.05in; }
-  body.warehouse-asset-audit-printing .warehouse-asset-audit-table th:nth-child(10) { width: 0.8in; }
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-table td {
+    text-wrap: pretty;
+  }
 
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-table
+    :is(
+      .warehouse-asset-audit-col-box-id,
+      .warehouse-asset-audit-col-owner,
+      .warehouse-asset-audit-col-custody,
+      .warehouse-asset-audit-col-status,
+      .warehouse-asset-audit-col-manufacturer,
+      .warehouse-asset-audit-col-film
+    ) {
+    overflow-wrap: break-word;
+  }
+
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-table
+    :is(
+      .warehouse-asset-audit-col-width,
+      .warehouse-asset-audit-col-on-hand-lf,
+      .warehouse-asset-audit-col-asset-cost
+    ) {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-box-id {
+    width: 10.5%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-owner {
+    width: 8.5%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-custody {
+    width: 11%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-status {
+    width: 10%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-manufacturer {
+    width: 12%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-film {
+    width: 23%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-width {
+    width: 6%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-on-hand-lf {
+    width: 8%;
+  }
+
+  body.warehouse-asset-audit-printing
+    .warehouse-asset-audit-table
+    col.warehouse-asset-audit-col-asset-cost {
+    width: 11%;
+  }
+
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-print-summary,
   body.warehouse-asset-audit-printing .warehouse-asset-audit-print-footer {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    margin-top: 0.12in;
     break-inside: avoid;
     page-break-inside: avoid;
     border-color: #111;
     background: #fff;
   }
 
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-print-summary {
+    margin-bottom: 0.1in;
+  }
+
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-print-footer {
+    margin-top: 0.12in;
+  }
+
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-print-summary > div,
   body.warehouse-asset-audit-printing .warehouse-asset-audit-print-footer > div {
     padding: 0.07in;
     border-color: #999;
   }
 
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-print-summary span,
   body.warehouse-asset-audit-printing .warehouse-asset-audit-print-footer span {
     color: #333;
     font-size: 6.5pt;
   }
 
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-print-summary strong,
   body.warehouse-asset-audit-printing .warehouse-asset-audit-print-footer strong {
     color: #111;
     font-size: 8pt;
+  }
+
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-cost-note {
+    padding: 0.045in 0.07in;
+    border-color: #999;
+    color: #333;
+    font-size: 6.25pt;
+    line-height: 1.2;
+    text-align: center;
+    text-wrap: pretty;
   }
 }
 

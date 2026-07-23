@@ -1,5 +1,4 @@
 import type {
-  WarehouseAssetAuditCostBasis,
   WarehouseAssetAuditResponse,
   WarehouseAssetAuditRow
 } from '../../../../domain';
@@ -24,12 +23,6 @@ export function formatAuditNumber(value: number) {
   return NUMBER_FORMATTER.format(value);
 }
 
-export function formatCostBasis(value: WarehouseAssetAuditCostBasis) {
-  if (value === 'DIRECT_PRICE_PER_LF') return 'Direct price/LF';
-  if (value === 'DERIVED_FROM_PURCHASE_COST') return 'Purchase cost / initial LF';
-  return 'Missing';
-}
-
 function formatGeneratedAt(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
@@ -40,16 +33,17 @@ export function WarehouseAssetAuditRows({ rows }: { rows: WarehouseAssetAuditRow
     <tbody>
       {rows.map((row) => (
         <tr key={row.boxId} data-audit-row-id={row.boxId}>
-          <td>{row.boxId}</td>
-          <td>{row.ownerCompanyLabel}</td>
-          <td>{row.warehouse}</td>
-          <td>{row.statusLabel}</td>
-          <td>{row.manufacturer}</td>
-          <td>{row.filmName}</td>
-          <td>{formatAuditNumber(row.widthIn)}&quot;</td>
-          <td>{formatAuditNumber(row.onHandLf)}</td>
-          <td>{formatCostBasis(row.costBasis)}</td>
-          <td>{formatAuditCurrencyCents(row.onHandAssetCostCents)}</td>
+          <td className="warehouse-asset-audit-col-box-id">{row.boxId}</td>
+          <td className="warehouse-asset-audit-col-owner">{row.ownerCompanyLabel}</td>
+          <td className="warehouse-asset-audit-col-custody">{row.warehouse}</td>
+          <td className="warehouse-asset-audit-col-status">{row.statusLabel}</td>
+          <td className="warehouse-asset-audit-col-manufacturer">{row.manufacturer}</td>
+          <td className="warehouse-asset-audit-col-film">{row.filmName}</td>
+          <td className="warehouse-asset-audit-col-width">{formatAuditNumber(row.widthIn)}&quot;</td>
+          <td className="warehouse-asset-audit-col-on-hand-lf">{formatAuditNumber(row.onHandLf)}</td>
+          <td className="warehouse-asset-audit-col-asset-cost">
+            {formatAuditCurrencyCents(row.onHandAssetCostCents)}
+          </td>
         </tr>
       ))}
     </tbody>
@@ -59,18 +53,46 @@ export function WarehouseAssetAuditRows({ rows }: { rows: WarehouseAssetAuditRow
 export function WarehouseAssetAuditTable({ rows }: { rows: WarehouseAssetAuditRow[] }) {
   return (
     <table className="warehouse-asset-audit-table">
+      <colgroup>
+        <col className="warehouse-asset-audit-col-box-id" />
+        <col className="warehouse-asset-audit-col-owner" />
+        <col className="warehouse-asset-audit-col-custody" />
+        <col className="warehouse-asset-audit-col-status" />
+        <col className="warehouse-asset-audit-col-manufacturer" />
+        <col className="warehouse-asset-audit-col-film" />
+        <col className="warehouse-asset-audit-col-width" />
+        <col className="warehouse-asset-audit-col-on-hand-lf" />
+        <col className="warehouse-asset-audit-col-asset-cost" />
+      </colgroup>
       <thead>
         <tr>
-          <th>Box ID</th>
-          <th>Owner</th>
-          <th>Custody Warehouse</th>
-          <th>Status</th>
-          <th>Manufacturer</th>
-          <th>Film</th>
-          <th>Width</th>
-          <th>On-Hand LF</th>
-          <th>Cost Basis</th>
-          <th>On-Hand Asset Cost</th>
+          <th className="warehouse-asset-audit-col-box-id" scope="col">
+            Box ID
+          </th>
+          <th className="warehouse-asset-audit-col-owner" scope="col">
+            Owner
+          </th>
+          <th className="warehouse-asset-audit-col-custody" scope="col">
+            Custody Warehouse
+          </th>
+          <th className="warehouse-asset-audit-col-status" scope="col">
+            Status
+          </th>
+          <th className="warehouse-asset-audit-col-manufacturer" scope="col">
+            Manufacturer
+          </th>
+          <th className="warehouse-asset-audit-col-film" scope="col">
+            Film
+          </th>
+          <th className="warehouse-asset-audit-col-width" scope="col">
+            Width
+          </th>
+          <th className="warehouse-asset-audit-col-on-hand-lf" scope="col">
+            On-Hand LF
+          </th>
+          <th className="warehouse-asset-audit-col-asset-cost" scope="col">
+            On-Hand Asset Cost
+          </th>
         </tr>
       </thead>
       <WarehouseAssetAuditRows rows={rows} />
@@ -103,6 +125,9 @@ export function WarehouseAssetAuditTotals({
         <span>Boxes Missing Cost Basis</span>
         <strong>{snapshot.totals.boxesMissingCostBasis.toLocaleString()}</strong>
       </div>
+      <p className="warehouse-asset-audit-cost-note">
+        Known asset total excludes boxes with unavailable cost basis.
+      </p>
     </div>
   );
 }
@@ -140,6 +165,7 @@ export function WarehouseAssetAuditWorksheet({ snapshot }: { snapshot: Warehouse
         <span><strong>Status:</strong> {filters.statuses.join(', ')}</span>
         <span><strong>Search:</strong> {filters.search}</span>
       </div>
+      <WarehouseAssetAuditTotals snapshot={snapshot} className="warehouse-asset-audit-print-summary" />
       <WarehouseAssetAuditTable rows={snapshot.rows} />
       <WarehouseAssetAuditTotals snapshot={snapshot} className="warehouse-asset-audit-print-footer" />
     </article>

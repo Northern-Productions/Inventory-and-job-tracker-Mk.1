@@ -109,6 +109,31 @@ afterEach(() => {
 });
 
 describe('WarehouseAssetAuditReport', () => {
+  it('renders exactly the approved nine screen columns without retired fields', () => {
+    const { container } = render(<WarehouseAssetAuditReport />);
+    const table = container.querySelector('.warehouse-asset-audit-screen-table table');
+    const headers = Array.from(table?.querySelectorAll('thead th') || [], (header) =>
+      header.textContent?.trim()
+    );
+
+    expect(headers).toEqual([
+      'Box ID',
+      'Owner',
+      'Custody Warehouse',
+      'Status',
+      'Manufacturer',
+      'Film',
+      'Width',
+      'On-Hand LF',
+      'On-Hand Asset Cost'
+    ]);
+    expect(table?.querySelectorAll('tbody tr:first-child td')).toHaveLength(9);
+    expect(headers).not.toContain('Cost Basis');
+    expect(headers).not.toContain('Found');
+    expect(headers).not.toContain('Owner Verified');
+    expect(headers).not.toContain('Notes');
+  });
+
   it('uses one forced live response for every printed row, total, filter, and timestamp', async () => {
     const printMock = vi.spyOn(window, 'print').mockImplementation(() => {
       expect(document.body.classList.contains('warehouse-asset-audit-printing')).toBe(true);
@@ -137,6 +162,41 @@ describe('WarehouseAssetAuditReport', () => {
     expect(screen.getByText('Page 1 of 2')).toBeTruthy();
     expect(screen.getByText('Total On-Hand LF')).toBeTruthy();
     expect(screen.getByText('5,500')).toBeTruthy();
+    expect(
+      screen.getByText('Known asset total excludes boxes with unavailable cost basis.')
+    ).toBeTruthy();
+  });
+
+  it('shows missing valuation in the asset-cost column and preserves the missing-cost total', () => {
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 1);
+    snapshot.rows[0] = {
+      ...snapshot.rows[0],
+      costBasis: 'MISSING',
+      onHandAssetCostCents: null
+    };
+    snapshot.totals.totalKnownOnHandAssetCostCents = '0';
+    snapshot.totals.boxesMissingCostBasis = 1;
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+
+    const { container } = render(<WarehouseAssetAuditReport />);
+    const screenTable = container.querySelector('.warehouse-asset-audit-screen-table table');
+
+    expect(
+      screenTable?.querySelector('tbody .warehouse-asset-audit-col-asset-cost')?.textContent
+    ).toBe('Missing');
+    expect(
+      Array.from(screenTable?.querySelectorAll('thead th') || [], (header) =>
+        header.textContent?.trim()
+      )
+    ).not.toContain('Cost Basis');
+    expect(screen.getByText('Boxes Missing Cost Basis')).toBeTruthy();
+    expect(screen.getByText('Known asset total excludes boxes with unavailable cost basis.')).toBeTruthy();
   });
 
   it('renders the server-resolved owner label and keeps owner filtering canonical', () => {
