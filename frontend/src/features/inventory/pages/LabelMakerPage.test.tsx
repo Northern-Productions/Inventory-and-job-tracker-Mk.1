@@ -87,6 +87,10 @@ function buildBox(overrides: Partial<Box> = {}): Box {
 }
 
 function renderPage(initialPath = '/labels?q=MO1') {
+  const appRoot = document.createElement('div');
+  appRoot.id = 'root';
+  document.body.appendChild(appRoot);
+
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[initialPath]}>
@@ -94,7 +98,8 @@ function renderPage(initialPath = '/labels?q=MO1') {
           <LabelMakerPage />
         </ToastProvider>
       </MemoryRouter>
-    </QueryClientProvider>
+    </QueryClientProvider>,
+    { container: appRoot }
   );
 }
 
@@ -223,6 +228,18 @@ describe('LabelMakerPage', () => {
     expect(within(row).getByText('IN_STOCK')).toBeTruthy();
     expect(within(row).getByText('92')).toBeTruthy();
     expect(within(row).getByText('Apr 29, 2026')).toBeTruthy();
+  });
+
+  it('renders browser print settings as advisory guidance', () => {
+    renderPage();
+
+    const guidance = screen.getByText(/Browser print settings are advisory:/);
+
+    expect(guidance.textContent).toContain('US Letter');
+    expect(guidance.textContent).toContain('Landscape');
+    expect(guidance.textContent).toContain('100% / Actual size');
+    expect(guidance.textContent).toContain('Margins None is preferred; Default is supported');
+    expect(guidance.textContent).toContain('Headers and footers Off');
   });
 
   it('shows derived physical on-hand feet in Matching Boxes and Label Balance', () => {
@@ -528,38 +545,40 @@ describe('LabelMakerPage', () => {
 
     const previewPanel = getPreviewPanel();
     const previewSheet = previewPanel.querySelector('.label-print-sheet-single');
-    const printRoot = getPrintOnlyRoot();
 
     expect(previewSheet).toBeTruthy();
     expect(within(previewPanel).getByLabelText('Printable Label A')).toBeTruthy();
     expect(within(previewPanel).queryByLabelText('Printable Label B')).toBeNull();
     expect(previewPanel.querySelector('.print-label-card-empty[data-slot="B"]')).toBeTruthy();
-    expect(printRoot).toBeTruthy();
-    expect(printRoot?.querySelector('.label-print-sheet-single')).toBeTruthy();
-    expect(printRoot?.querySelector('.print-label-card-empty[data-slot="B"]')).toBeTruthy();
-    expect(printRoot?.textContent).toContain('Llumar DR 15');
+    expect(getPrintOnlyRoot()).toBeNull();
     expect(previewSheet?.textContent).toContain('Llumar DR 15');
     await within(previewPanel).findByAltText('QR code for MO1-0028');
   });
 
-  it('renders exactly one printable sheet inside the print root', async () => {
+  it('mounts exactly one printable sheet for window.print and cleans it up afterward', async () => {
     renderPage();
 
     fireEvent.click(within(getRowForBox('MO1-0028')).getByRole('button', { name: 'Label A' }));
-
-    const previewPanel = getPreviewPanel();
-    const printRoots = Array.from(document.body.children).filter(
-      (element) =>
-        element instanceof HTMLElement &&
-        element.classList.contains('label-print-only-root') &&
-        element.classList.contains('print-root')
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Print Labels' }) as HTMLButtonElement).disabled).toBe(false)
     );
 
-    expect(previewPanel.querySelector('.label-print-root.print-root')).toBeNull();
-    expect(previewPanel.querySelectorAll('.label-print-sheet')).toHaveLength(1);
-    expect(printRoots).toHaveLength(1);
-    expect(printRoots[0].querySelectorAll('.label-print-sheet')).toHaveLength(1);
-    await within(previewPanel).findByAltText('QR code for MO1-0028');
+    vi.mocked(window.print).mockImplementation(() => {
+      const printRoot = getPrintOnlyRoot();
+
+      expect(document.body.classList.contains('label-printing')).toBe(true);
+      expect(printRoot).toBeTruthy();
+      expect(printRoot?.querySelectorAll('.label-print-sheet')).toHaveLength(1);
+      expect(printRoot?.querySelectorAll('[aria-label^="Printable Label"]')).toHaveLength(1);
+      expect(printRoot?.querySelector('[aria-label="Printable Label A"]')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print Labels' }));
+
+    expect(window.print).toHaveBeenCalledTimes(1);
+    expect(document.body.classList.contains('label-printing')).toBe(false);
+    expect(document.querySelector('#root')).toBeTruthy();
+    expect(getPrintOnlyRoot()).toBeNull();
   });
 
   it('renders a single Label B in the right physical position', async () => {
@@ -569,16 +588,12 @@ describe('LabelMakerPage', () => {
 
     const previewPanel = getPreviewPanel();
     const previewSheet = previewPanel.querySelector('.label-print-sheet-single');
-    const printRoot = getPrintOnlyRoot();
 
     expect(previewSheet).toBeTruthy();
     expect(previewPanel.querySelector('.print-label-card-empty[data-slot="A"]')).toBeTruthy();
     expect(within(previewPanel).queryByLabelText('Printable Label A')).toBeNull();
     expect(within(previewPanel).getByLabelText('Printable Label B')).toBeTruthy();
-    expect(printRoot).toBeTruthy();
-    expect(printRoot?.querySelector('.label-print-sheet-single')).toBeTruthy();
-    expect(printRoot?.querySelector('.print-label-card-empty[data-slot="A"]')).toBeTruthy();
-    expect(printRoot?.textContent).toContain('405G022');
+    expect(getPrintOnlyRoot()).toBeNull();
     expect(previewSheet?.textContent).toContain('405G022');
     await within(previewPanel).findByAltText('QR code for MO1-0029');
   });
@@ -592,15 +607,11 @@ describe('LabelMakerPage', () => {
 
     const previewPanel = getPreviewPanel();
     const previewSheet = previewPanel.querySelector('.label-print-sheet-double');
-    const printRoot = getPrintOnlyRoot();
 
     expect(previewSheet).toBeTruthy();
     expect(within(previewPanel).getByLabelText('Printable Label A')).toBeTruthy();
     expect(within(previewPanel).getByLabelText('Printable Label B')).toBeTruthy();
-    expect(printRoot).toBeTruthy();
-    expect(printRoot?.querySelector('.label-print-sheet-double')).toBeTruthy();
-    expect(printRoot?.textContent).toContain('Llumar DR 15');
-    expect(printRoot?.textContent).toContain('Manual B Film');
+    expect(getPrintOnlyRoot()).toBeNull();
     expect(previewSheet?.textContent).toContain('Manual B Film');
     expect((screen.getAllByLabelText('Film Name')[1] as HTMLInputElement).value).toBe('Manual B Film');
     await waitFor(() =>
@@ -714,6 +725,52 @@ describe('LabelMakerPage', () => {
 
     expect(window.print).toHaveBeenCalledTimes(1);
     expect(createBoxQrCodeDataUrlMock).toHaveBeenCalledWith('MO1-0028');
+    expect(document.body.classList.contains('label-printing')).toBe(false);
+    expect(getPrintOnlyRoot()).toBeNull();
+  });
+
+  it('keeps slot order deterministic and does not accumulate roots across consecutive prints', async () => {
+    renderPage();
+    fireEvent.click(within(getRowForBox('MO1-0029')).getByRole('button', { name: 'Label B' }));
+    fireEvent.click(within(getRowForBox('MO1-0028')).getByRole('button', { name: 'Label A' }));
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Print Labels' }) as HTMLButtonElement).disabled).toBe(false)
+    );
+
+    const printSnapshots: string[][] = [];
+    vi.mocked(window.print).mockImplementation(() => {
+      const roots = Array.from(document.body.children).filter(
+        (element) =>
+          element instanceof HTMLElement &&
+          element.classList.contains('label-print-only-root') &&
+          element.classList.contains('print-root')
+      );
+      const labels = Array.from(
+        roots[0]?.querySelectorAll<HTMLElement>('[aria-label^="Printable Label"]') || []
+      );
+
+      expect(document.body.classList.contains('label-printing')).toBe(true);
+      expect(roots).toHaveLength(1);
+      expect(labels).toHaveLength(2);
+      printSnapshots.push(labels.map((label) => label.getAttribute('aria-label') || ''));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print Labels' }));
+    expect(getPrintOnlyRoot()).toBeNull();
+    expect(document.body.classList.contains('label-printing')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Unlabeled' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print Labels' }));
+
+    expect(window.print).toHaveBeenCalledTimes(2);
+    expect(printSnapshots).toEqual([
+      ['Printable Label A', 'Printable Label B'],
+      ['Printable Label A', 'Printable Label B']
+    ]);
+    expect(getPrintOnlyRoot()).toBeNull();
+    expect(document.body.classList.contains('label-printing')).toBe(false);
+    expect(document.querySelector('#root')).toBeTruthy();
   });
 
   it('asks before marking printed labels as labeled and sends unique selected box IDs', async () => {
@@ -769,6 +826,8 @@ describe('LabelMakerPage', () => {
 
     expect(markLabelsPrinted).not.toHaveBeenCalled();
     expect(screen.queryByRole('heading', { name: 'Mark selected boxes as labeled?' })).toBeNull();
+    expect(document.body.classList.contains('label-printing')).toBe(false);
+    expect(getPrintOnlyRoot()).toBeNull();
   });
 
   it('shows stale inventory and QR failure states', async () => {

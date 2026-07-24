@@ -173,6 +173,16 @@ describe('PrintableLabelSheet', () => {
 
   it('includes print CSS that hides app controls and prints only the label root', () => {
     const styles = readFileSync('src/styles.css', 'utf8');
+    const labelBodyRule = styles.match(/body\.label-printing\s*\{([^}]*)\}/s)?.[1] || '';
+    const appRootRule = styles.match(/body\.label-printing #root\s*\{([^}]*)\}/s)?.[1] || '';
+    const printHostRule =
+      styles.match(
+        /body\.label-printing > \.label-print-only-root\.print-root\s*\{([^}]*)\}/s
+      )?.[1] || '';
+    const sheetBreakRule =
+      styles.match(
+        /body\.label-printing > \.label-print-only-root\.print-root > \.label-print-sheet:not\(:last-child\)\s*\{([^}]*)\}/s
+      )?.[1] || '';
 
     expect(styles).toContain('@media print');
     expect(styles).toContain('body.label-printing *');
@@ -183,9 +193,15 @@ describe('PrintableLabelSheet', () => {
     expect(styles).toContain('size: letter landscape');
     expect(styles).toContain('@page label-page');
     expect(styles).toContain('margin: 0');
-    expect(styles).toContain('position: fixed !important');
-    expect(styles).toContain('top: 0 !important');
-    expect(styles).toContain('left: 0 !important');
+    expect(labelBodyRule).toContain('page: label-page');
+    expect(labelBodyRule).toContain('height: auto !important');
+    expect(labelBodyRule).toContain('overflow: visible !important');
+    expect(appRootRule).toContain('display: none !important');
+    expect(printHostRule).toContain('position: static !important');
+    expect(printHostRule).toContain('height: auto !important');
+    expect(printHostRule).not.toContain('break-after');
+    expect(sheetBreakRule).toContain('break-after: page');
+    expect(sheetBreakRule).toContain('page-break-after: always');
     expect(styles).toContain('width: 11in !important');
     expect(styles).toContain('height: 8.5in !important');
     expect(styles).toContain('will-change: auto !important');
@@ -202,8 +218,6 @@ describe('PrintableLabelSheet', () => {
     expect(styles).toContain('border-bottom: 1px solid #000');
     expect(styles).toContain('white-space: nowrap');
     expect(styles).not.toContain('page-break-before');
-    expect(styles).not.toContain('page-break-after');
     expect(styles).not.toContain('break-before');
-    expect(styles).not.toContain('break-after');
   });
 });

@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
@@ -137,6 +137,7 @@ export default function LabelMakerPage() {
   const [draftsBySlot, setDraftsBySlot] = useState<SlotDraftState>(EMPTY_SLOT_DRAFTS);
   const [qrStateBySlot, setQrStateBySlot] = useState<SlotQrState>(EMPTY_SLOT_QR);
   const [pendingPrintedBoxIds, setPendingPrintedBoxIds] = useState<string[]>([]);
+  const [printLabels, setPrintLabels] = useState<PrintableLabel[] | null>(null);
   const warehouseRegistry = useWarehouseRegistry();
   const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
   const safeWarehouseFilter = warehouseScopeReady
@@ -427,9 +428,11 @@ export default function LabelMakerPage() {
 
     document.body.classList.add('label-printing');
     try {
+      flushSync(() => setPrintLabels(printableLabels));
       window.print();
     } finally {
       document.body.classList.remove('label-printing');
+      flushSync(() => setPrintLabels(null));
     }
     setPendingPrintedBoxIds(getUniqueSelectedBoxIds(selectedBoxesBySlot));
   }
@@ -469,10 +472,10 @@ export default function LabelMakerPage() {
   }
 
   const printOnlySheet =
-    typeof document !== 'undefined' && printableLabels.length > 0
+    typeof document !== 'undefined' && printLabels
       ? createPortal(
           <div className="label-print-only-root print-root" aria-hidden="true">
-            <PrintableLabelSheet labels={printableLabels} />
+            <PrintableLabelSheet labels={printLabels} />
           </div>,
           document.body
         )
@@ -554,7 +557,9 @@ export default function LabelMakerPage() {
             </div>
           </div>
           <p className="label-print-note">
-            Browser print settings: use landscape, 100% scale / actual size, and disable fit-to-page if your browser offers it.
+            Browser print settings are advisory: use US Letter, Landscape, 100% / Actual size,
+            and disable Fit to page. Margins None is preferred; Default is supported. Turn
+            Headers and footers Off for the cleanest labels.
           </p>
           {printDisabledReason ? (
             <p className="label-print-disabled-reason">{printDisabledReason}</p>
