@@ -12,7 +12,7 @@ import {
 const APPROVED_COLUMNS = [
   'Box ID',
   'Owner',
-  'Custody Warehouse',
+  'Warehouse',
   'Status',
   'Manufacturer',
   'Film',
@@ -203,14 +203,14 @@ describe('WarehouseAssetAuditWorksheet', () => {
     );
     expect(widths).toEqual([
       ['box-id', 10.5],
-      ['owner', 8.5],
-      ['custody', 11],
-      ['status', 10],
-      ['manufacturer', 12],
-      ['film', 23],
+      ['owner', 9.5],
+      ['custody', 9],
+      ['status', 8],
+      ['manufacturer', 11],
+      ['film', 24],
       ['width', 6],
-      ['on-hand-lf', 8],
-      ['asset-cost', 11]
+      ['on-hand-lf', 8.5],
+      ['asset-cost', 13.5]
     ]);
     expect(widths.reduce((total, [, width]) => total + width, 0)).toBe(100);
     expect(auditPrintCss).toMatch(
@@ -219,12 +219,18 @@ describe('WarehouseAssetAuditWorksheet', () => {
     expect(auditPrintCss).toMatch(
       /\.warehouse-asset-audit-table th,[^{]*\.warehouse-asset-audit-table td\s*\{[^}]*box-sizing:\s*border-box;[^}]*text-align:\s*center;[^}]*vertical-align:\s*middle;/s
     );
-    expect(auditPrintCss).toContain('font-size: 6.75pt');
-    expect(auditPrintCss).toContain('font-size: 6.5pt');
+    expect(auditPrintCss).toContain('font-size: 9pt');
+    expect(auditPrintCss).toContain('font-size: 9.5pt');
     expect(auditPrintCss).toContain('font-variant-numeric: tabular-nums');
     expect(auditPrintCss).toContain('display: table-header-group');
     expect(auditPrintCss).toContain('break-inside: avoid');
     expect(auditPrintCss).toContain('text-wrap: pretty');
+    expect(auditPrintCss).toMatch(
+      /\.warehouse-asset-audit-table th\s*\{[^}]*white-space:\s*nowrap;[^}]*font-size:\s*9\.5pt;/s
+    );
+    expect(auditPrintCss).toMatch(
+      /\.warehouse-asset-audit-table td\s*\{[^}]*text-wrap:\s*pretty;/s
+    );
     expect(auditPrintCss).not.toContain('overflow-wrap: anywhere');
     expect(auditPrintCss).not.toMatch(/(?:^|[;{])\s*(?:zoom|transform|scale)\s*:/m);
     expect(auditPrintCss).not.toContain('body.label-printing');

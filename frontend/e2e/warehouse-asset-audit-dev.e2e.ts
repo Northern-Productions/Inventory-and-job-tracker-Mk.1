@@ -129,6 +129,7 @@ test('prints one forced live warehouse asset audit response completely and exact
         ).filter((cell) => cell.tagName !== 'COL');
         let overflowCells = 0;
         let orphanCells = 0;
+        const renderedLineCounts = new Map<Element, number>();
 
         for (const cell of cells) {
           const cellRect = cell.getBoundingClientRect();
@@ -158,6 +159,7 @@ test('prints one forced live warehouse asset audit response completely and exact
             node = walker.nextNode();
           }
           const orderedLines = Array.from(lines.entries()).sort(([left], [right]) => left - right);
+          renderedLineCounts.set(cell, orderedLines.length);
           if (orderedLines.some(([, line]) => line.overflow)) {
             overflowCells += 1;
           }
@@ -177,10 +179,47 @@ test('prints one forced live warehouse asset audit response completely and exact
               '.warehouse-asset-audit-print-header dt',
               '.warehouse-asset-audit-print-header dd',
               '.warehouse-asset-audit-print-filters span',
-              '.warehouse-asset-audit-print-summary > div'
+              '.warehouse-asset-audit-print-summary > div',
+              '.warehouse-asset-audit-print-summary .warehouse-asset-audit-cost-note'
             ].join(',')
           ) || []
         );
+        const clippedHeaderLeaves = headerLeaves.filter(
+          (element) =>
+            element.scrollWidth > element.clientWidth + 1 ||
+            element.scrollHeight > element.clientHeight + 1
+        );
+        const describeHeaderLeaf = (element: Element) => {
+          if (element.matches('.warehouse-asset-audit-print-header h1')) return 'report-title';
+          if (element.matches('.warehouse-asset-audit-print-header > div > strong')) {
+            return 'organization-name';
+          }
+          if (element.matches('.warehouse-asset-audit-print-header dt')) {
+            const index = Array.from(
+              root?.querySelectorAll('.warehouse-asset-audit-print-header dt') || []
+            ).indexOf(element);
+            return index === 0 ? 'generated-at-label' : 'generated-by-label';
+          }
+          if (element.matches('.warehouse-asset-audit-print-header dd')) {
+            const index = Array.from(
+              root?.querySelectorAll('.warehouse-asset-audit-print-header dd') || []
+            ).indexOf(element);
+            return index === 0 ? 'generated-at-value' : 'generated-by-value';
+          }
+          if (element.matches('.warehouse-asset-audit-print-filters span')) {
+            const index = Array.from(
+              root?.querySelectorAll('.warehouse-asset-audit-print-filters span') || []
+            ).indexOf(element);
+            return `filter-${index + 1}`;
+          }
+          if (element.matches('.warehouse-asset-audit-print-summary > div')) {
+            const index = Array.from(
+              root?.querySelectorAll('.warehouse-asset-audit-print-summary > div') || []
+            ).indexOf(element);
+            return `summary-${index + 1}`;
+          }
+          return 'missing-cost-note';
+        };
         let headerCollisions = 0;
         for (let leftIndex = 0; leftIndex < headerLeaves.length; leftIndex += 1) {
           const left = headerLeaves[leftIndex].getBoundingClientRect();
@@ -207,6 +246,18 @@ test('prints one forced live warehouse asset audit response completely and exact
         document.body.dataset.auditPrintHeaders = headers
           .map((header) => header.textContent?.trim() || '')
           .join('|');
+        document.body.dataset.auditPrintHeaderLineCounts = headers
+          .map((header) => String(renderedLineCounts.get(header) || 0))
+          .join('|');
+        document.body.dataset.auditPrintHeaderFits = headers
+          .map((header) => String(header.scrollWidth <= header.clientWidth + 1))
+          .join('|');
+        document.body.dataset.auditPrintBodyFontSize = bodyCells[0]
+          ? getComputedStyle(bodyCells[0]).fontSize
+          : '';
+        document.body.dataset.auditPrintHeaderFontSize = headers[0]
+          ? getComputedStyle(headers[0]).fontSize
+          : '';
         document.body.dataset.auditPrintCenteredCells = String(
           cells.filter((cell) => getComputedStyle(cell).textAlign === 'center').length
         );
@@ -233,6 +284,19 @@ test('prints one forced live warehouse asset audit response completely and exact
         document.body.dataset.auditPrintWorksheetBackground = worksheetStyle?.backgroundColor || '';
         document.body.dataset.auditPrintOverflowCells = String(overflowCells);
         document.body.dataset.auditPrintOrphanCells = String(orphanCells);
+        document.body.dataset.auditPrintHeaderClippedElements = String(clippedHeaderLeaves.length);
+        document.body.dataset.auditPrintHeaderClippedRoles = clippedHeaderLeaves
+          .map(describeHeaderLeaf)
+          .join('|');
+        document.body.dataset.auditPrintHeaderClippedMetrics = clippedHeaderLeaves
+          .map((element) => [
+            describeHeaderLeaf(element),
+            element.scrollWidth,
+            element.clientWidth,
+            element.scrollHeight,
+            element.clientHeight
+          ].join(':'))
+          .join('|');
         document.body.dataset.auditPrintHeaderCollisions = String(headerCollisions);
         document.body.dataset.auditPrintTableLayout = table ? getComputedStyle(table).tableLayout : '';
         document.body.dataset.auditPrintTableWidth = String(tableRect?.width || 0);
@@ -291,7 +355,7 @@ test('prints one forced live warehouse asset audit response completely and exact
   ).toHaveText([
     'Box ID',
     'Owner',
-    'Custody Warehouse',
+    'Warehouse',
     'Status',
     'Manufacturer',
     'Film',
@@ -507,6 +571,14 @@ test('prints one forced live warehouse asset audit response completely and exact
     expectedRows: Number(body.dataset.auditPrintExpectedRows || 0),
     totals: Number(body.dataset.auditPrintTotals || 0),
     headers: body.dataset.auditPrintHeaders || '',
+    headerLineCounts: (body.dataset.auditPrintHeaderLineCounts || '')
+      .split('|')
+      .map((value) => Number(value)),
+    headerFits: (body.dataset.auditPrintHeaderFits || '')
+      .split('|')
+      .map((value) => value === 'true'),
+    bodyFontSize: Number.parseFloat(body.dataset.auditPrintBodyFontSize || '0'),
+    headerFontSize: Number.parseFloat(body.dataset.auditPrintHeaderFontSize || '0'),
     centeredCells: Number(body.dataset.auditPrintCenteredCells || 0),
     middleCells: Number(body.dataset.auditPrintMiddleCells || 0),
     cellCount: Number(body.dataset.auditPrintCellCount || 0),
@@ -519,6 +591,9 @@ test('prints one forced live warehouse asset audit response completely and exact
     worksheetBackground: body.dataset.auditPrintWorksheetBackground || '',
     overflowCells: Number(body.dataset.auditPrintOverflowCells || 0),
     orphanCells: Number(body.dataset.auditPrintOrphanCells || 0),
+    headerClippedElements: Number(body.dataset.auditPrintHeaderClippedElements || 0),
+    headerClippedRoles: body.dataset.auditPrintHeaderClippedRoles || '',
+    headerClippedMetrics: body.dataset.auditPrintHeaderClippedMetrics || '',
     headerCollisions: Number(body.dataset.auditPrintHeaderCollisions || 0),
     tableLayout: body.dataset.auditPrintTableLayout || '',
     tableWidth: Number(body.dataset.auditPrintTableWidth || 0),
@@ -532,7 +607,7 @@ test('prints one forced live warehouse asset audit response completely and exact
   expect(printMetrics.headers.split('|')).toEqual([
     'Box ID',
     'Owner',
-    'Custody Warehouse',
+    'Warehouse',
     'Status',
     'Manufacturer',
     'Film',
@@ -540,6 +615,10 @@ test('prints one forced live warehouse asset audit response completely and exact
     'On-Hand LF',
     'On-Hand Asset Cost'
   ]);
+  expect(printMetrics.headerLineCounts).toEqual(new Array(9).fill(1));
+  expect(printMetrics.headerFits).toEqual(new Array(9).fill(true));
+  expect(printMetrics.bodyFontSize).toBeCloseTo(12, 2);
+  expect(printMetrics.headerFontSize).toBeCloseTo(12.6667, 2);
   expect(printMetrics.centeredCells).toBe(printMetrics.cellCount);
   expect(printMetrics.middleCells).toBe(printMetrics.cellCount);
   expect(printMetrics.tabularCells).toBe(printMetrics.numericCells);
@@ -549,6 +628,9 @@ test('prints one forced live warehouse asset audit response completely and exact
   expect(printMetrics.worksheetBackground).toBe('rgb(255, 255, 255)');
   expect(printMetrics.overflowCells).toBe(0);
   expect(printMetrics.orphanCells).toBe(0);
+  expect(printMetrics.headerClippedMetrics).toBe('');
+  expect(printMetrics.headerClippedRoles).toBe('');
+  expect(printMetrics.headerClippedElements).toBe(0);
   expect(printMetrics.headerCollisions).toBe(0);
   expect(printMetrics.tableLayout).toBe('fixed');
   expect(printMetrics.tableWidth).toBeGreaterThanOrEqual(994);

@@ -73,7 +73,7 @@ export function WarehouseAssetAuditTable({ rows }: { rows: WarehouseAssetAuditRo
             Owner
           </th>
           <th className="warehouse-asset-audit-col-custody" scope="col">
-            Custody Warehouse
+            Warehouse
           </th>
           <th className="warehouse-asset-audit-col-status" scope="col">
             Status

@@ -119,7 +119,7 @@ describe('WarehouseAssetAuditReport', () => {
     expect(headers).toEqual([
       'Box ID',
       'Owner',
-      'Custody Warehouse',
+      'Warehouse',
       'Status',
       'Manufacturer',
       'Film',
