@@ -86,6 +86,7 @@ interface RequestOptions {
   body?: unknown;
   timeoutMs?: number;
   cache?: RequestCache;
+  signal?: AbortSignal;
 }
 
 function buildRequestHeaders(method: 'GET' | 'POST', authToken: string): Record<string, string> | undefined {
@@ -138,21 +139,59 @@ function buildUrl(path: string, query?: RequestOptions['query']): URL {
   return url;
 }
 
-async function fetchWithTimeout_(input: URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+function createAbortError_() {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function isAbortError_(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+async function fetchWithTimeout_<T>(
+  input: URL,
+  init: RequestInit,
+  timeoutMs: number,
+  externalSignal: AbortSignal | undefined,
+  consume: (response: Response) => Promise<T>
+): Promise<T> {
   const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  let abortSource: 'external' | 'timeout' | null = null;
+  const abortFromExternal = () => {
+    if (abortSource) {
+      return;
+    }
+    abortSource = 'external';
+    controller.abort();
+  };
+  if (externalSignal?.aborted) {
+    abortFromExternal();
+  } else {
+    externalSignal?.addEventListener('abort', abortFromExternal, { once: true });
+  }
+  const timeoutId = globalThis.setTimeout(() => {
+    if (abortSource) {
+      return;
+    }
+    abortSource = 'timeout';
+    controller.abort();
+  }, timeoutMs);
   try {
-    return await fetch(input, {
+    const response = await fetch(input, {
       ...init,
       signal: controller.signal
     });
+    return await consume(response);
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
+    if (abortSource === 'timeout') {
       throw new APIError('The API timed out while waiting for a response.');
+    }
+    if (abortSource === 'external') {
+      throw isAbortError_(error) ? error : createAbortError_();
     }
     throw error;
   } finally {
     globalThis.clearTimeout(timeoutId);
+    externalSignal?.removeEventListener('abort', abortFromExternal);
   }
 }
 
@@ -205,7 +244,14 @@ export async function request<T>(
   options: RequestOptions = {}
 ): Promise<{ data: T; warnings: string[] }> {
   let response: Response;
+  let envelope: ApiEnvelope<T>;
+  if (options.signal?.aborted) {
+    throw createAbortError_();
+  }
   const authContext = await resolveAuthContext_();
+  if (options.signal?.aborted) {
+    throw createAbortError_();
+  }
   const timeoutMs = options.timeoutMs ?? (path === '/auth/context' ? AUTH_CONTEXT_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS);
 
   try {
@@ -219,7 +265,7 @@ export async function request<T>(
           }
         : options.body;
 
-    response = await fetchWithTimeout_(
+    ({ response, envelope } = await fetchWithTimeout_(
       buildUrl(path, options.query),
       {
         method,
@@ -227,9 +273,17 @@ export async function request<T>(
         cache: options.cache,
         body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined
       },
-      timeoutMs
-    );
+      timeoutMs,
+      options.signal,
+      async (nextResponse) => ({
+        response: nextResponse,
+        envelope: await parseEnvelope<T>(nextResponse)
+      })
+    ));
   } catch (error) {
+    if (isAbortError_(error) && options.signal?.aborted) {
+      throw error;
+    }
     if (error instanceof APIError) {
       throw error;
     }
@@ -238,7 +292,6 @@ export async function request<T>(
     );
   }
 
-  const envelope = await parseEnvelope<T>(response);
   const fallbackErrorMessage = extractEnvelopeMessage_(envelope);
   if (!response.ok || !envelope.ok || envelope.data === undefined) {
     throw new APIError(

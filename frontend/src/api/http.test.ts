@@ -289,6 +289,110 @@ describe('http request envelope parsing', () => {
     expect(getSessionMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('preserves external cancellation as an AbortError instead of reporting a timeout', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(new DOMException('aborted', 'AbortError'));
+            return;
+          }
+          signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true }
+          );
+        })
+    );
+    const controller = new AbortController();
+    const pending = request('GET', '/reports/warehouse-asset-audit', {
+      signal: controller.signal,
+      timeoutMs: 10_000
+    });
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({
+      name: 'AbortError'
+    });
+  });
+
+  it('keeps external cancellation active while the response body is being parsed', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      const signal = init?.signal;
+      return {
+        ok: true,
+        clone: () => ({
+          json: () =>
+            new Promise((_resolve, reject) => {
+              signal?.addEventListener(
+                'abort',
+                () => reject(new DOMException('aborted', 'AbortError')),
+                { once: true }
+              );
+            })
+        }),
+        text: async () => ''
+      } as unknown as Response;
+    });
+    const controller = new AbortController();
+    const pending = request('GET', '/reports/warehouse-asset-audit', {
+      signal: controller.signal,
+      timeoutMs: 10_000
+    });
+
+    await Promise.resolve();
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({
+      name: 'AbortError'
+    });
+  });
+
+  it('continues to report a genuine request timeout as an API timeout', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true }
+          );
+        })
+    );
+
+    await expect(
+      request('GET', '/reports/warehouse-asset-audit', { timeoutMs: 5 })
+    ).rejects.toMatchObject({
+      name: 'APIError',
+      message: 'The API timed out while waiting for a response.'
+    });
+  });
+
+  it('removes the external abort listener after a completed request', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, data: { value: 42 }, warnings: [] }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+    );
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, 'addEventListener');
+    const removeListener = vi.spyOn(controller.signal, 'removeEventListener');
+
+    await request<{ value: number }>('GET', '/reports/warehouse-asset-audit', {
+      signal: controller.signal
+    });
+
+    expect(addListener).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledTimes(1);
+    expect(removeListener.mock.calls[0][0]).toBe('abort');
+    expect(removeListener.mock.calls[0][1]).toBe(addListener.mock.calls[0][1]);
+  });
 });
 
 describe('resolveApiBaseUrlFromConfig', () => {

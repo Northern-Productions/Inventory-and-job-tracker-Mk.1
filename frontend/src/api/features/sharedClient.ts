@@ -507,11 +507,15 @@ export async function requestReadWithFallback<T>(
   path: string,
   _body: Record<string, unknown>,
   query: Record<string, string | number | boolean | string[] | readonly string[] | undefined>,
-  options: { cache?: RequestCache } = {}
+  options: { cache?: RequestCache; signal?: AbortSignal } = {}
 ): Promise<T> {
   if (!isReadRoute(path)) {
     throw new APIError(`Route is not configured as a read route: ${path}`);
   }
-  const { data } = await request<T>('GET', path, { query, cache: options.cache });
+  const { data } = await request<T>('GET', path, {
+    query,
+    cache: options.cache,
+    signal: options.signal
+  });
   return data;
 }

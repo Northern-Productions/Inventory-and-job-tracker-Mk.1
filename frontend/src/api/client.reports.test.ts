@@ -192,15 +192,19 @@ describe('reports API client', () => {
       warnings: []
     });
 
-    const result = await getWarehouseAssetAuditReport({
-      warehouse: 'IL1',
-      ownerCompanyId: '',
-      manufacturer: '',
-      filmName: '',
-      width: '',
-      statuses: ['IN_STOCK'],
-      q: ''
-    });
+    const controller = new AbortController();
+    const result = await getWarehouseAssetAuditReport(
+      {
+        warehouse: 'IL1',
+        ownerCompanyId: '',
+        manufacturer: '',
+        filmName: '',
+        width: '',
+        statuses: ['IN_STOCK'],
+        q: ''
+      },
+      { signal: controller.signal }
+    );
 
     expect(result.totals.matchingBoxes).toBe(0);
     expect(requestMock).toHaveBeenCalledWith('GET', '/reports/warehouse-asset-audit', {
@@ -213,7 +217,8 @@ describe('reports API client', () => {
         statuses: ['IN_STOCK'],
         q: ''
       },
-      cache: 'no-store'
+      cache: 'no-store',
+      signal: controller.signal
     });
   });
 

@@ -1,19 +1,23 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WarehouseAssetAuditResponse } from '../../../../domain';
 import { WarehouseAssetAuditReport } from './WarehouseAssetAuditReport';
 
 const getLiveReportMock = vi.fn();
 const useAuditQueryMock = vi.fn();
+const authState = vi.hoisted(() => ({
+  accessContext: { orgId: 'org-1' },
+  session: { user: { sub: 'user-1' } }
+}));
 
 vi.mock('../../../../api/features/reportsClient', () => ({
   getWarehouseAssetAuditReport: (...args: unknown[]) => getLiveReportMock(...args)
 }));
 
 vi.mock('../../../auth/AuthContext', () => ({
-  useAuth: () => ({ accessContext: { orgId: 'org-1' } })
+  useAuth: () => authState
 }));
 
 vi.mock('../../hooks/useDefaultWarehouse', () => ({
@@ -87,6 +91,8 @@ function buildSnapshot(generatedAt: string, rowCount: number): WarehouseAssetAud
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authState.accessContext.orgId = 'org-1';
+  authState.session.user.sub = 'user-1';
   Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
   window.requestAnimationFrame = (callback: FrameRequestCallback) => {
     callback(0);
@@ -105,6 +111,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   document.body.classList.remove('warehouse-asset-audit-printing');
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -226,6 +233,17 @@ describe('WarehouseAssetAuditReport', () => {
     expect(Array.from(ownerSelect.options).map((option) => option.textContent)).toContain(
       'ALP - Alpha Holdings'
     );
+    const assignedOwnerOption = Array.from(ownerSelect.options).find(
+      (option) => option.textContent === 'ALP - Alpha Holdings'
+    );
+    fireEvent.change(ownerSelect, { target: { value: assignedOwnerOption?.value } });
+    expect(useAuditQueryMock).toHaveBeenLastCalledWith(
+      'user-1',
+      'org-1',
+      expect.objectContaining({ ownerCompanyId: 'owner-alpha' }),
+      { enabled: true }
+    );
+    expect(ownerSelect.value).not.toBe('owner-alpha');
     expect(screen.getByText('Total On-Hand LF')).toBeTruthy();
     expect(screen.getByText('200')).toBeTruthy();
     expect(screen.getAllByText('$200.00')).toHaveLength(1);
@@ -253,5 +271,316 @@ describe('WarehouseAssetAuditReport', () => {
     render(<WarehouseAssetAuditReport />);
     expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/Connect to the internet/)).toBeTruthy();
+  });
+
+  it('passes the authenticated user, organization, and canonical filters to the query hook', () => {
+    render(<WarehouseAssetAuditReport />);
+
+    expect(useAuditQueryMock).toHaveBeenLastCalledWith(
+      'user-1',
+      'org-1',
+      {
+        warehouse: 'IL1',
+        ownerCompanyId: '',
+        manufacturer: '',
+        filmName: '',
+        width: '',
+        statuses: ['IN_STOCK', 'CHECKED_OUT', 'TRANSFER'],
+        q: ''
+      },
+      { enabled: true }
+    );
+  });
+
+  it('keeps rows, totals, options, and controls available during an automatic update', () => {
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 55);
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: true,
+      isPlaceholderData: true,
+      refetch: vi.fn()
+    });
+
+    render(<WarehouseAssetAuditReport />);
+
+    expect(screen.getByRole('status').textContent).toBe('Updating results...');
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
+    expect((screen.getByLabelText('Warehouse') as HTMLSelectElement).disabled).toBe(false);
+    expect(document.querySelectorAll('.warehouse-asset-audit-screen-table [data-audit-row-id]')).toHaveLength(50);
+    expect(screen.getByText('5,500')).toBeTruthy();
+    expect(Array.from((screen.getByLabelText('Owner') as HTMLSelectElement).options).map((option) => option.textContent))
+      .toContain('Unassigned');
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('retains explicitly labeled previous results and options after a replacement query fails', () => {
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 55);
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+    const view = render(<WarehouseAssetAuditReport />);
+
+    useAuditQueryMock.mockReturnValue({
+      data: undefined,
+      error: new Error('The live report request failed.'),
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+    view.rerender(<WarehouseAssetAuditReport />);
+
+    expect(screen.getByText(/Previous results from/)).toBeTruthy();
+    expect(screen.getByText('Previous results are shown and may not match the selected filters.')).toBeTruthy();
+    expect(screen.getByText('The live report request failed.')).toBeTruthy();
+    expect(document.querySelectorAll('.warehouse-asset-audit-screen-table [data-audit-row-id]')).toHaveLength(50);
+    expect(Array.from((screen.getByLabelText('Owner') as HTMLSelectElement).options).map((option) => option.textContent))
+      .toContain('Unassigned');
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('tracks manual Refresh independently while preserving rows and filter controls', async () => {
+    let finishRefresh!: () => void;
+    const refetch = vi.fn(() => new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    }));
+    useAuditQueryMock.mockReturnValue({
+      data: buildSnapshot('2026-07-21T10:00:00.000Z', 55),
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch
+    });
+    render(<WarehouseAssetAuditReport />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    expect(screen.getByRole('button', { name: 'Refreshing...' })).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toBe('Refreshing current results...');
+    expect((screen.getByLabelText('Search') as HTMLInputElement).disabled).toBe(false);
+    expect(document.querySelectorAll('.warehouse-asset-audit-screen-table [data-audit-row-id]')).toHaveLength(50);
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => finishRefresh());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy());
+    expect(refetch).toHaveBeenCalledWith({ cancelRefetch: true });
+  });
+
+  it('debounces and whitespace-normalizes rapid search input into one final request filter', () => {
+    vi.useFakeTimers();
+    render(<WarehouseAssetAuditReport />);
+    useAuditQueryMock.mockClear();
+    const search = screen.getByLabelText('Search');
+
+    fireEvent.change(search, { target: { value: ' m' } });
+    fireEvent.change(search, { target: { value: ' matte' } });
+    fireEvent.change(search, { target: { value: ' matte   deep ' } });
+
+    expect(useAuditQueryMock.mock.calls.some((call) => call[2]?.q)).toBe(false);
+    act(() => vi.advanceTimersByTime(199));
+    expect(useAuditQueryMock.mock.calls.some((call) => call[2]?.q)).toBe(false);
+    act(() => vi.advanceTimersByTime(1));
+
+    const completedSearchCalls = useAuditQueryMock.mock.calls.filter((call) => call[2]?.q);
+    expect(completedSearchCalls).toHaveLength(1);
+    expect(completedSearchCalls[0][2]).toMatchObject({ q: 'matte deep' });
+  });
+
+  it('waits until IME composition finishes before starting the search debounce', () => {
+    vi.useFakeTimers();
+    render(<WarehouseAssetAuditReport />);
+    useAuditQueryMock.mockClear();
+    const search = screen.getByLabelText('Search');
+
+    fireEvent.compositionStart(search);
+    fireEvent.change(search, { target: { value: 'matte' } });
+    act(() => vi.advanceTimersByTime(500));
+    expect(useAuditQueryMock.mock.calls.some((call) => call[2]?.q)).toBe(false);
+
+    fireEvent.compositionEnd(search, { currentTarget: { value: 'matte' } });
+    act(() => vi.advanceTimersByTime(199));
+    expect(useAuditQueryMock.mock.calls.some((call) => call[2]?.q)).toBe(false);
+    act(() => vi.advanceTimersByTime(1));
+    expect(useAuditQueryMock.mock.calls.filter((call) => call[2]?.q)).toHaveLength(1);
+  });
+
+  it('never places a canonical owner identity in rendered report or option markup', () => {
+    const ownerIdentity = '339b332c-2e62-4504-ae42-7d0cff5f4541';
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 1);
+    snapshot.rows[0] = {
+      ...snapshot.rows[0],
+      ownerCompanyId: ownerIdentity,
+      ownerCompanyLabel: 'EDH - East Division Holdings',
+      ownerCategory: 'ASSIGNED'
+    };
+    snapshot.filterOptions.owners = [
+      { value: ownerIdentity, label: 'EDH - East Division Holdings' }
+    ];
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+
+    const { container } = render(<WarehouseAssetAuditReport />);
+    const ownerSelect = screen.getByLabelText('Owner') as HTMLSelectElement;
+
+    expect(container.innerHTML).not.toContain(ownerIdentity);
+    expect(Array.from(ownerSelect.options).map((option) => option.value)).not.toContain(ownerIdentity);
+    expect(screen.getAllByText('EDH - East Division Holdings').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('fails owner presentation closed without rendering an unsafe owner identity', () => {
+    const ownerIdentity = '339b332c-2e62-4504-ae42-7d0cff5f4541';
+    const unresolvedIdentity = 'a770d91e-097d-4a21-963d-fb3f224cbf66';
+    const safeSnapshot = buildSnapshot('2026-07-21T09:00:00.000Z', 1);
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 1);
+    snapshot.rows[0] = {
+      ...snapshot.rows[0],
+      ownerCompanyId: ownerIdentity,
+      ownerCompanyLabel: unresolvedIdentity,
+      ownerCategory: 'ASSIGNED'
+    };
+    snapshot.filterOptions.owners = [{ value: ownerIdentity, label: unresolvedIdentity }];
+    useAuditQueryMock.mockReturnValue({
+      data: safeSnapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+    const view = render(<WarehouseAssetAuditReport />);
+
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+
+    view.rerender(<WarehouseAssetAuditReport />);
+
+    expect(view.container.innerHTML).not.toContain(ownerIdentity);
+    expect(view.container.innerHTML).not.toContain(unresolvedIdentity);
+    expect(screen.getAllByText('Warehouse asset audit owner labels could not be resolved safely.').length)
+      .toBeGreaterThanOrEqual(1);
+    expect(document.querySelectorAll('[data-audit-row-id]')).toHaveLength(0);
+    expect(screen.queryByText('Total Known On-Hand Asset Cost')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('fails closed when applied owner metadata contains an unresolved identity', () => {
+    const unresolvedIdentity = 'a770d91e-097d-4a21-963d-fb3f224cbf66';
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 1);
+    snapshot.appliedFilterLabels.owner = unresolvedIdentity;
+    useAuditQueryMock.mockReturnValue({
+      data: snapshot,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+
+    const { container } = render(<WarehouseAssetAuditReport />);
+
+    expect(container.innerHTML).not.toContain(unresolvedIdentity);
+    expect(document.querySelectorAll('[data-audit-row-id]')).toHaveLength(0);
+    expect(screen.queryByText('Total Known On-Hand Asset Cost')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('aborts and discards an in-flight print when the authenticated scope changes', async () => {
+    const snapshot = buildSnapshot('2026-07-21T10:00:00.000Z', 1);
+    useAuditQueryMock.mockImplementation((userId: string) => (
+      userId === 'user-1'
+        ? {
+            data: snapshot,
+            error: null,
+            isLoading: false,
+            isFetching: false,
+            isPlaceholderData: false,
+            refetch: vi.fn()
+          }
+        : {
+            data: undefined,
+            error: null,
+            isLoading: true,
+            isFetching: true,
+            isPlaceholderData: false,
+            refetch: vi.fn()
+          }
+    ));
+    let printSignal: AbortSignal | undefined;
+    getLiveReportMock.mockImplementation(
+      (_filters: unknown, options: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          printSignal = options.signal;
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true }
+          );
+        })
+    );
+    const printMock = vi.spyOn(window, 'print').mockImplementation(() => {});
+    const view = render(<WarehouseAssetAuditReport />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print Audit' }));
+    await waitFor(() => expect(getLiveReportMock).toHaveBeenCalledTimes(1));
+
+    authState.session.user.sub = 'user-2';
+    view.rerender(<WarehouseAssetAuditReport />);
+
+    await waitFor(() => expect(printSignal?.aborted).toBe(true));
+    expect(printMock).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.classList.contains('warehouse-asset-audit-printing')).toBe(false);
+  });
+
+  it('aborts and discards an in-flight print if its frozen filters change', async () => {
+    let printSignal: AbortSignal | undefined;
+    getLiveReportMock.mockImplementation(
+      (_filters: unknown, options: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          printSignal = options.signal;
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('aborted', 'AbortError')),
+            { once: true }
+          );
+        })
+    );
+    const printMock = vi.spyOn(window, 'print').mockImplementation(() => {});
+    render(<WarehouseAssetAuditReport />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print Audit' }));
+    await waitFor(() => expect(getLiveReportMock).toHaveBeenCalledTimes(1));
+
+    const search = screen.getByLabelText('Search') as HTMLInputElement;
+    search.disabled = false;
+    fireEvent.change(search, { target: { value: 'changed filters' } });
+
+    await waitFor(() => expect(printSignal?.aborted).toBe(true));
+    expect(printMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled)
+        .toBe(true)
+    );
+    expect(document.body.classList.contains('warehouse-asset-audit-printing')).toBe(false);
   });
 });

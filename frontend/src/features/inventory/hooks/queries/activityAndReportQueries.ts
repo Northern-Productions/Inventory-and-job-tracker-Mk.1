@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { listAudit } from '../../../../api/features/auditClient';
 import {
   getOwnerAssetTotalCostReport,
@@ -9,6 +10,10 @@ import type {
   ReportsSummaryFilters,
   WarehouseAssetAuditFilters
 } from '../../../../domain';
+import {
+  normalizeWarehouseAssetAuditFilters,
+  toWarehouseAssetAuditRequestFilters
+} from '../../utils/warehouseAssetAuditFilters';
 import { inventoryKeys } from '../inventoryQueryKeys';
 import { useInventoryReadQuery } from './shared';
 
@@ -42,13 +47,37 @@ export function useOwnerAssetTotalCostReport(
 }
 
 export function useWarehouseAssetAuditReport(
+  userId: string,
   orgId: string,
   filters: WarehouseAssetAuditFilters,
   options: { enabled?: boolean } = {}
 ) {
-  return useInventoryReadQuery({
-    queryKey: inventoryKeys.warehouseAssetAudit(orgId, filters),
-    queryFn: () => getWarehouseAssetAuditReport(filters),
-    enabled: Boolean(orgId) && (options.enabled ?? true)
+  const normalizedUserId = userId.trim();
+  const normalizedOrgId = orgId.trim();
+  const normalizedFilters = normalizeWarehouseAssetAuditFilters(filters);
+  return useQuery({
+    queryKey: inventoryKeys.warehouseAssetAudit(
+      normalizedUserId,
+      normalizedOrgId,
+      normalizedFilters
+    ),
+    queryFn: ({ signal }) =>
+      getWarehouseAssetAuditReport(
+        toWarehouseAssetAuditRequestFilters(normalizedFilters),
+        { signal }
+      ),
+    enabled:
+      Boolean(normalizedUserId) &&
+      Boolean(normalizedOrgId) &&
+      (options.enabled ?? true),
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey;
+      return (
+        previousKey?.[3] === normalizedUserId &&
+        previousKey?.[4] === normalizedOrgId
+      )
+        ? previousData
+        : undefined;
+    }
   });
 }

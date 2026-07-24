@@ -64,7 +64,8 @@ export async function getOwnerAssetTotalCostReport(
 }
 
 export async function getWarehouseAssetAuditReport(
-  filters: WarehouseAssetAuditFilters
+  filters: WarehouseAssetAuditFilters,
+  options: { signal?: AbortSignal } = {}
 ): Promise<WarehouseAssetAuditResponse> {
   assertFeatureAccess('reports', 'read');
   const params = {
@@ -80,6 +81,9 @@ export async function getWarehouseAssetAuditReport(
     '/reports/warehouse-asset-audit',
     params,
     params,
-    { cache: 'no-store' }
+    {
+      cache: 'no-store',
+      ...(options.signal ? { signal: options.signal } : {})
+    }
   );
 }
