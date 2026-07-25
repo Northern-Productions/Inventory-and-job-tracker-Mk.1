@@ -1,15 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
 import { AccountMenuTrigger } from '../features/auth/AccountControl';
 import { useDefaultWarehouseLabel } from '../features/inventory/hooks/useDefaultWarehouse';
+import {
+  NavigationCoordinatorProvider,
+  useNavigationCoordinator
+} from '../features/navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../features/navigation/navigationSession';
 import { DesktopNavigation } from './app-layout/DesktopNavigation';
 import { MobileNavigation } from './app-layout/MobileNavigation';
 import { useAppLayoutNavigation } from './app-layout/useAppLayoutNavigation';
 import { ShareCurrentPageButton } from './ShareCurrentPageButton';
 
 export function AppLayout() {
+  return (
+    <NavigationCoordinatorProvider>
+      <AppLayoutShell />
+    </NavigationCoordinatorProvider>
+  );
+}
+
+function AppLayoutShell() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const navigationCoordinator = useNavigationCoordinator();
   const isPhoneLayout = useIsPhoneLayout();
   const {
     appShellTheme,
@@ -36,6 +51,17 @@ export function AppLayout() {
     []
   );
   const closeDesktopMoreMenu = useCallback(() => setIsDesktopMoreOpen(false), []);
+  const handleMainDefault = useCallback(
+    (path: '/' | '/allocations') => {
+      navigationCoordinator?.requestMainDefaultReset(
+        path === '/' ? LIST_ROUTE_KINDS.INVENTORY : LIST_ROUTE_KINDS.JOBS_CALENDAR
+      );
+      navigate(path, {
+        replace: location.pathname === path
+      });
+    },
+    [location.pathname, navigate, navigationCoordinator]
+  );
 
   useEffect(() => {
     closeMobileMoreSheet();
@@ -110,12 +136,13 @@ export function AppLayout() {
             moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
             onToggleMore={toggleDesktopMoreMenu}
             onCloseMore={closeDesktopMoreMenu}
+            onMainDefault={handleMainDefault}
           />
         </div>
       ) : null}
       <main className={`app-main ${isPhoneLayout ? 'app-main-phone' : ''}`.trim()}>
         <div
-          key={location.pathname}
+          key={`${location.pathname}:${navigationCoordinator?.resetEpoch || 0}`}
           className={`route-content ${hasMountedRef.current ? 'route-content-animate' : ''}`.trim()}
         >
           <Outlet />
@@ -133,6 +160,7 @@ export function AppLayout() {
           moreAttentionAriaLabel={mobileMoreAttentionAriaLabel}
           onToggleMore={toggleMobileMoreSheet}
           onCloseMore={closeMobileMoreSheet}
+          onMainDefault={handleMainDefault}
         />
       ) : null}
     </div>

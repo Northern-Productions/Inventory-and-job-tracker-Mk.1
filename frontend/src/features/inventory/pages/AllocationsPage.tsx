@@ -1,9 +1,13 @@
+import { useMemo } from 'react';
 import { JobEditorDialog } from '../components/JobEditorDialog';
 import { LaborOnlyJobConfirmDialog } from '../components/LaborOnlyJobConfirmDialog';
 import { DuplicateJobCreationDialog } from '../components/DuplicateJobCreationDialog';
 import { JobsHeroSection } from './allocations-page/JobsHeroSection';
 import { JobsResultsSection } from './allocations-page/JobsResultsSection';
 import { useAllocationsPageModel } from './allocations-page/useAllocationsPageModel';
+import { getJobNavigationIdentity } from '../utils/jobRoutes';
+import { useManagedListScroll } from '../../navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../../navigation/navigationSession';
 
 type AllocationsPageProps = {
   initialWorkflowView?: 'active' | 'completed';
@@ -46,11 +50,31 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
     isPhoneLayout,
     calendarGranularity,
     calendarAnchorDate,
+    routeParsed,
+    warehouseAuthorizationResolved,
+    listLayoutDataReady,
+    calendarLayoutDataReady,
     setJobsWorkflowView,
     handleJobSearchInputChange,
     handlePrefetchJob,
     handleOpenJob
   } = useAllocationsPageModel(props);
+  const navigationJobs = isCalendarView ? calendarWorkflow.calendarJobs : listJobs;
+  const expectedAnchorCount = useMemo(
+    () =>
+      new Set(navigationJobs.map((entry) => getJobNavigationIdentity(entry))).size,
+    [navigationJobs]
+  );
+  const jobsScroll = useManagedListScroll({
+    kind: isCalendarView
+      ? LIST_ROUTE_KINDS.JOBS_CALENDAR
+      : LIST_ROUTE_KINDS.JOBS_LIST,
+    routeParsed,
+    authorizationResolved: warehouseAuthorizationResolved,
+    dataReady: isCalendarView ? calendarLayoutDataReady : listLayoutDataReady,
+    layoutReady: true,
+    expectedAnchorCount
+  });
 
   return (
     <>
@@ -106,6 +130,8 @@ export default function AllocationsPage(props: AllocationsPageProps = {}) {
         onPrefetchJob={handlePrefetchJob}
         onViewChange={calendarWorkflow.requestCalendarGranularity}
         onAnchorDateChange={calendarWorkflow.requestCalendarAnchorDate}
+        useManagedDetailLinks
+        getAnchorRef={jobsScroll.getAnchorRef}
       />
 
       <JobEditorDialog

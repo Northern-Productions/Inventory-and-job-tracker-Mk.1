@@ -14,6 +14,7 @@ interface MobileNavigationProps {
   moreAttentionAriaLabel?: string;
   onToggleMore: () => void;
   onCloseMore: () => void;
+  onMainDefault: (path: '/' | '/allocations') => void;
 }
 
 export function MobileNavigation({
@@ -26,7 +27,8 @@ export function MobileNavigation({
   moreHasAttention,
   moreAttentionAriaLabel,
   onToggleMore,
-  onCloseMore
+  onCloseMore,
+  onMainDefault
 }: MobileNavigationProps) {
   return (
     <>
@@ -38,6 +40,7 @@ export function MobileNavigation({
         moreButtonRef={moreButtonRef}
         moreHasAttentionDot={moreHasAttention}
         moreAttentionAriaLabel={moreAttentionAriaLabel}
+        onMainDefault={onMainDefault}
       />
       <MobileMoreSheet
         open={isMoreOpen}

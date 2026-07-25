@@ -12,6 +12,7 @@ import {
   setClientAccessContext
 } from '../../api/features/authClient';
 import { clearTenantPersistentBrowserCaches } from '../../lib/browserTenantCaches';
+import { clearNavigationSessionRecords } from '../navigation/navigationSession';
 import { getStoredAuthSession, setStoredAuthSession } from '../../lib/storage';
 import { getSupabaseClient, isSupabaseAuthConfigured } from '../../lib/supabase';
 import { isPasswordRecoveryUrl } from './authRecovery';
@@ -90,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void queryClient.cancelQueries();
     queryClient.clear();
     void clearTenantPersistentBrowserCaches();
+    clearNavigationSessionRecords();
   }, [queryClient]);
 
   const applyAccessContext = useCallback((nextContext: EffectiveAccessContext | null) => {

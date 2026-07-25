@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, RefCallback } from 'react';
 import { useMemo } from 'react';
 import { Button } from '../../../components/Button';
 import {
@@ -13,13 +13,22 @@ import type { Box } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { formatBoxIdWithWarehousePrefix, isLowStockBox } from '../utils/boxHelpers';
+import { ManagedDetailLink } from '../../navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../../navigation/navigationSession';
 
 interface InventoryTableProps {
   boxes: Box[];
-  onSelect: (boxId: string) => void;
+  onSelect?: (boxId: string) => void;
+  buildDetailRoute?: (boxId: string) => string;
+  getAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
 }
 
-export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
+export function InventoryTable({
+  boxes,
+  onSelect,
+  buildDetailRoute,
+  getAnchorRef
+}: InventoryTableProps) {
   const isPhoneLayout = useIsPhoneLayout();
   const displayBoxIds = useMemo(
     () => boxes.map((box) => formatBoxIdWithWarehousePrefix(box.boxId, box.warehouse)),
@@ -53,12 +62,27 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
           ) : null;
 
           return (
-            <MobileRecordCard key={box.boxId}>
+            <MobileRecordCard
+              key={box.boxId}
+              recordRef={getAnchorRef?.(box.boxId)}
+            >
               <MobileRecordHeader
                 title={displayBoxId}
                 subtitle={`${box.manufacturer} ${box.filmName}`}
                 badge={<span className={`badge badge-${box.status}`}>{box.status}</span>}
-                onTitleClick={() => onSelect(displayBoxId)}
+                onTitleClick={onSelect ? () => onSelect(displayBoxId) : undefined}
+                titleLink={
+                  buildDetailRoute ? (
+                    <ManagedDetailLink
+                      to={buildDetailRoute(displayBoxId)}
+                      originKind={LIST_ROUTE_KINDS.INVENTORY}
+                      anchorIdentity={box.boxId}
+                      className="mobile-record-title-button"
+                    >
+                      {displayBoxId}
+                    </ManagedDetailLink>
+                  ) : undefined
+                }
               />
               <MobileFieldList>
                 <MobileField label="Warehouse" value={box.warehouse} />
@@ -80,9 +104,20 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
                 <MobileField label="Dealer" value={box.dealer || '--'} />
               </MobileFieldList>
               <MobileActionStack>
-                <Button type="button" variant="ghost" onClick={() => onSelect(displayBoxId)}>
-                  Open Box
-                </Button>
+                {buildDetailRoute ? (
+                  <ManagedDetailLink
+                    to={buildDetailRoute(displayBoxId)}
+                    originKind={LIST_ROUTE_KINDS.INVENTORY}
+                    anchorIdentity={box.boxId}
+                    className="button button-ghost button-size-md"
+                  >
+                    Open Box
+                  </ManagedDetailLink>
+                ) : (
+                  <Button type="button" variant="ghost" onClick={() => onSelect?.(displayBoxId)}>
+                    Open Box
+                  </Button>
+                )}
               </MobileActionStack>
             </MobileRecordCard>
           );
@@ -121,11 +156,26 @@ export function InventoryTable({ boxes, onSelect }: InventoryTableProps) {
             ) : null;
 
             return (
-              <tr key={box.boxId}>
+              <tr key={box.boxId} ref={getAnchorRef?.(box.boxId)}>
                 <td className="col-box-id">
-                  <button className="row-button" type="button" onClick={() => onSelect(displayBoxId)}>
-                    {displayBoxId}
-                  </button>
+                  {buildDetailRoute ? (
+                    <ManagedDetailLink
+                      to={buildDetailRoute(displayBoxId)}
+                      originKind={LIST_ROUTE_KINDS.INVENTORY}
+                      anchorIdentity={box.boxId}
+                      className="row-button"
+                    >
+                      {displayBoxId}
+                    </ManagedDetailLink>
+                  ) : (
+                    <button
+                      className="row-button"
+                      type="button"
+                      onClick={() => onSelect?.(displayBoxId)}
+                    >
+                      {displayBoxId}
+                    </button>
+                  )}
                 </td>
                 <td>{box.manufacturer}</td>
                 <td>{box.filmName}</td>

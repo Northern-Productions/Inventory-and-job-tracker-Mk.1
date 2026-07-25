@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { PropsWithChildren } from 'react';
+import { useState, type PropsWithChildren } from 'react';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import AllocationsPage from './AllocationsPage';
 import type { JobSortOption } from '../utils/jobSorts';
@@ -18,12 +18,27 @@ const useFilmCatalogMock = vi.fn();
 const useCaulkProductsMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
-  Link: ({ to, children, ...props }: PropsWithChildren<{ to: string }>) => (
+  Link: ({ to, children, state: _state, ...props }: PropsWithChildren<{ to: string; state?: unknown }>) => (
     <a href={to} {...props}>
       {children}
     </a>
   ),
-  useNavigate: () => navigateMock
+  useLocation: () => ({
+    pathname: '/allocations',
+    search: '',
+    hash: '',
+    state: null,
+    key: 'jobs-list-test'
+  }),
+  useNavigate: () => navigateMock,
+  useNavigationType: () => 'POP',
+  useSearchParams: () => {
+    const [params, setParams] = useState(() => new URLSearchParams());
+    return [
+      params,
+      (next: URLSearchParams) => setParams(new URLSearchParams(next))
+    ] as const;
+  }
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({
@@ -141,7 +156,7 @@ function renderPage(props: {
 }
 
 function findRenderedJobButtonIndex(html: string, jobNumber: string) {
-  return html.indexOf(`>${formatJobDisplayLabel({ jobNumber, warehouse: 'IL1', sections: '260' })}</button>`);
+  return html.indexOf(`>${formatJobDisplayLabel({ jobNumber, warehouse: 'IL1', sections: '260' })}</a>`);
 }
 
 describe('AllocationsPage', () => {

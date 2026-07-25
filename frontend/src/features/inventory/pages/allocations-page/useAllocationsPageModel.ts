@@ -1,6 +1,6 @@
-import { useEffect, useDeferredValue, useMemo, useState } from 'react';
+import { useCallback, useEffect, useDeferredValue, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import { type JobLifecycleFilter } from '../../../../api/features/jobsClient';
 import { useIsPhoneLayout } from '../../../../hooks/useIsPhoneLayout';
@@ -22,7 +22,12 @@ import {
 } from '../../utils/jobCalendar';
 import { sortSearchedJobs, sortJobs, type JobSortOption } from '../../utils/jobSorts';
 import { buildAllocationJobRoute } from '../../utils/jobRoutes';
-import { getSafeWarehouseFilterValue } from '../../utils/warehouseOptions';
+import {
+  patchJobsRouteState,
+  readJobsRouteState,
+  writeJobsRouteState,
+  type JobsRouteState
+} from '../../utils/jobsRouteState';
 import { useJobCreationWorkflow } from './useJobCreationWorkflow';
 import { useJobsCalendarWorkflow } from './useJobsCalendarWorkflow';
 
@@ -46,29 +51,107 @@ export function useAllocationsPageModel({
   initialCalendarMonth
 }: AllocationsPageProps = {}) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
   const auth = useAuth();
   const defaultWarehouse = useDefaultWarehouse();
   const warehouseRegistry = useWarehouseRegistry();
-  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
-  const [jobsWorkflowView, setJobsWorkflowView] = useState<'active' | 'completed'>(
-    initialWorkflowView
+  const warehouseRegistrySettled =
+    warehouseRegistry.scopeReady === true && warehouseRegistry.isSuccess;
+  const routeDefaults = useMemo<Partial<JobsRouteState>>(
+    () => ({
+      view: initialJobsViewMode,
+      workflow: initialWorkflowView,
+      search: initialJobSearchInput,
+      sort: initialJobSort,
+      calendarView: initialCalendarGranularity,
+      calendarDate: initialCalendarMonth
+        ? `${initialCalendarMonth}-01`
+        : initialCalendarAnchorDate
+    }),
+    [
+      initialCalendarAnchorDate,
+      initialCalendarGranularity,
+      initialCalendarMonth,
+      initialJobSearchInput,
+      initialJobSort,
+      initialJobsViewMode,
+      initialWorkflowView
+    ]
   );
-  const [warehouseFilter, setWarehouseFilter] = useState(defaultWarehouse);
-  const safeWarehouseFilter = warehouseScopeReady
-    ? getSafeWarehouseFilterValue(warehouseRegistry.entries, warehouseFilter)
-    : '';
-  const [jobsViewMode, setJobsViewMode] = useState<'list' | 'calendar'>(initialJobsViewMode);
-  const [calendarGranularity, setCalendarGranularity] = useState<'week' | 'month'>(
-    initialCalendarGranularity
+  const routeOptions = useMemo(
+    () => ({
+      defaultWarehouse,
+      warehouseEntries: warehouseRegistry.entries,
+      warehouseRegistrySettled,
+      defaults: routeDefaults
+    }),
+    [
+      defaultWarehouse,
+      routeDefaults,
+      warehouseRegistry.entries,
+      warehouseRegistrySettled
+    ]
   );
-  const [calendarAnchorDate, setCalendarAnchorDate] = useState(
-    initialCalendarMonth ? `${initialCalendarMonth}-01` : initialCalendarAnchorDate
+  const routeState = useMemo(
+    () => readJobsRouteState(searchParams, routeOptions),
+    [routeOptions, searchParams]
   );
-  const [jobSearchInput, setJobSearchInput] = useState(initialJobSearchInput);
-  const [jobSort, setJobSort] = useState<JobSortOption>(initialJobSort);
+  const canonicalSearchParams = useMemo(
+    () => writeJobsRouteState(routeState, routeOptions),
+    [routeOptions, routeState]
+  );
+  const routeParsed = canonicalSearchParams.toString() === searchParams.toString();
+  const jobsWorkflowView = routeState.workflow;
+  const jobsViewMode = routeState.view;
+  const warehouseFilter = routeState.warehouse;
+  const safeWarehouseFilter = warehouseFilter;
+  const calendarGranularity = routeState.calendarView;
+  const calendarAnchorDate = routeState.calendarDate;
+  const jobSearchInput = routeState.search;
+  const jobSort = routeState.sort;
+
+  useEffect(() => {
+    if (!routeParsed) {
+      setSearchParams(canonicalSearchParams, { replace: true });
+    }
+  }, [canonicalSearchParams, routeParsed, setSearchParams]);
+
+  const patchRoute = useCallback(
+    (patch: Partial<JobsRouteState>) => {
+      setSearchParams(
+        writeJobsRouteState(patchJobsRouteState(routeState, patch), routeOptions),
+        { replace: true }
+      );
+    },
+    [routeOptions, routeState, setSearchParams]
+  );
+  const setJobsWorkflowView = useCallback(
+    (workflow: 'active' | 'completed') => patchRoute({ workflow }),
+    [patchRoute]
+  );
+  const setJobsViewMode = useCallback(
+    (view: 'list' | 'calendar') => patchRoute({ view }),
+    [patchRoute]
+  );
+  const setWarehouseFilter = useCallback(
+    (warehouse: string) => patchRoute({ warehouse }),
+    [patchRoute]
+  );
+  const setCalendarGranularity = useCallback(
+    (calendarView: 'week' | 'month') => patchRoute({ calendarView }),
+    [patchRoute]
+  );
+  const setCalendarAnchorDate = useCallback(
+    (calendarDate: string) => patchRoute({ calendarDate }),
+    [patchRoute]
+  );
+  const setJobSort = useCallback(
+    (sort: JobSortOption) => patchRoute({ sort }),
+    [patchRoute]
+  );
 
   const selectedLifecycleStatus: JobLifecycleFilter =
     jobsWorkflowView === 'completed' ? 'COMPLETED' : 'ACTIVE';
@@ -79,12 +162,12 @@ export function useAllocationsPageModel({
   const isSearchingListJobs = Boolean(listSearchQuery.trim());
 
   const jobsQuery = useJobsList(0, {
-    enabled: !isCalendarView,
+    enabled: warehouseRegistrySettled && !isCalendarView,
     lifecycleStatus: selectedLifecycleStatus,
     warehouse: safeWarehouseFilter
   });
   const jobsCalendarQuery = useJobsCalendarEntries(calendarAnchorDate, {
-    enabled: isCalendarView,
+    enabled: warehouseRegistrySettled && isCalendarView,
     view: calendarGranularity,
     lifecycleStatus: selectedLifecycleStatus,
     warehouse: safeWarehouseFilter
@@ -113,13 +196,6 @@ export function useAllocationsPageModel({
     onCalendarAnchorDateChange: setCalendarAnchorDate,
     onCalendarGranularityChange: setCalendarGranularity
   });
-
-  useEffect(() => {
-    if (!warehouseScopeReady || !warehouseFilter || warehouseFilter === safeWarehouseFilter) {
-      return;
-    }
-    setWarehouseFilter(safeWarehouseFilter);
-  }, [safeWarehouseFilter, warehouseFilter, warehouseScopeReady]);
 
   const listJobsSource = isCalendarView ? [] : jobsQuery.data || [];
   const listJobs = useMemo(() => {
@@ -173,7 +249,7 @@ export function useAllocationsPageModel({
 
   function handleJobSearchInputChange(rawValue: string) {
     const nextValue = rawValue.replace(/[^0-9]/g, '');
-    setJobSearchInput(nextValue);
+    patchRoute({ search: nextValue });
   }
 
   function handlePrefetchJob(jobNumber: string, jobId?: string) {
@@ -220,6 +296,15 @@ export function useAllocationsPageModel({
     isPhoneLayout,
     calendarGranularity,
     calendarAnchorDate,
+    routeParsed,
+    warehouseAuthorizationResolved: warehouseRegistrySettled,
+    listLayoutDataReady:
+      !isCalendarView && !jobsQuery.isLoading && !jobsQuery.isError,
+    calendarLayoutDataReady:
+      isCalendarView &&
+      !calendarWorkflow.calendarLoading &&
+      !calendarWorkflow.calendarError &&
+      !calendarWorkflow.calendarNavigationStatus,
     setJobsWorkflowView,
     handleJobSearchInputChange,
     handlePrefetchJob,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import type {
   CaulkJobCheckoutEntry,
@@ -79,9 +79,12 @@ import {
   findStaleManualFilmOrdersAfterCoverageTransition,
   type FilmOrderCoverageSnapshot
 } from './filmOrderCoveragePrompt';
+import { useSafeListBack } from '../../../navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../../../navigation/navigationSession';
 
 export function useAllocationJobPageModel() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const isPhoneLayout = useIsPhoneLayout();
   const toast = useToast();
@@ -138,6 +141,10 @@ export function useAllocationJobPageModel() {
     Set<string>
   >(() => new Set());
   const didHandleScanCheckinKey = useRef('');
+  const goBackToAllocations = useSafeListBack(
+    [LIST_ROUTE_KINDS.JOBS_LIST, LIST_ROUTE_KINDS.JOBS_CALENDAR],
+    '/allocations'
+  );
 
   const rawDetail = jobQuery.data;
   const detail = useMemo(
@@ -203,9 +210,11 @@ export function useAllocationJobPageModel() {
         jobId: summary.jobId,
         jobNumber: summary.jobNumber
       }),
-      { replace: true }
+      location.state === null
+        ? { replace: true }
+        : { replace: true, state: location.state }
     );
-  }, [navigate, routeJobId, summary?.jobId, summary?.jobNumber]);
+  }, [location.state, navigate, routeJobId, summary?.jobId, summary?.jobNumber]);
   const canMarkStagedPickup = useMemo(
     () => canMarkJobStagedForPickup(detail),
     [detail]
@@ -1429,7 +1438,7 @@ export function useAllocationJobPageModel() {
         navigate(routeTarget);
       }
     },
-    goBackToAllocations: () => navigate('/allocations'),
+    goBackToAllocations,
     openInventoryBox: (boxId: string) => navigate(`/inventory/${encodeURIComponent(boxId)}`),
     openOrderFilm: (order: Parameters<typeof buildAddBoxTarget>[0]) => navigate(buildAddBoxTarget(order))
   };

@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
+import { isUnmodifiedPrimaryClick } from '../features/navigation/NavigationCoordinator';
 
 export interface MobileNavItem {
   label: string;
@@ -17,6 +18,7 @@ interface MobileBottomNavProps {
   moreButtonRef: RefObject<HTMLButtonElement>;
   moreHasAttentionDot?: boolean;
   moreAttentionAriaLabel?: string;
+  onMainDefault: (path: '/' | '/allocations') => void;
 }
 
 export function MobileBottomNav({
@@ -26,18 +28,26 @@ export function MobileBottomNav({
   onOpenMore,
   moreButtonRef,
   moreHasAttentionDot = false,
-  moreAttentionAriaLabel
+  moreAttentionAriaLabel,
+  onMainDefault
 }: MobileBottomNavProps) {
-  const navigate = useNavigate();
-
   return (
     <nav className="mobile-bottom-nav" aria-label="Primary">
       {items.map((item) => (
-        <button
+        <NavLink
           key={item.to}
-          type="button"
+          to={item.to}
+          end={item.to === '/'}
           className={`mobile-nav-link ${item.active ? 'mobile-nav-link-active' : ''}`.trim()}
-          onClick={() => navigate(item.to)}
+          onClick={(event) => {
+            if (
+              (item.to === '/' || item.to === '/allocations') &&
+              isUnmodifiedPrimaryClick(event)
+            ) {
+              event.preventDefault();
+              onMainDefault(item.to);
+            }
+          }}
           aria-current={item.active ? 'page' : undefined}
           aria-label={item.showAttentionDot ? item.attentionAriaLabel || `${item.label} (needs attention)` : undefined}
         >
@@ -45,7 +55,7 @@ export function MobileBottomNav({
             {item.label}
             {item.showAttentionDot ? <span className="nav-attention-dot" aria-hidden="true" /> : null}
           </span>
-        </button>
+        </NavLink>
       ))}
       <button
         ref={moreButtonRef}

@@ -68,7 +68,9 @@ describe('WarehouseSelectField', () => {
       entries: [
         { code: 'IL1', name: 'Wauconda IL1', boxIdPrefix: 'IL1' },
         { code: 'MS1', name: 'Ridgeland MS1', boxIdPrefix: 'MS1' }
-      ]
+      ],
+      scopeReady: true,
+      isSuccess: true
     });
   });
 
@@ -107,7 +109,9 @@ describe('WarehouseSelectField', () => {
   it('renders only MI1 when the current org warehouse list contains only MI1', () => {
     useAuthMock.mockReturnValue({ isOwner: false });
     useWarehouseRegistryMock.mockReturnValue({
-      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }]
+      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }],
+      scopeReady: true,
+      isSuccess: true
     });
 
     const html = renderWarehouseField({
@@ -122,7 +126,9 @@ describe('WarehouseSelectField', () => {
   it('keeps filter dropdowns scoped to All plus the current org warehouses', () => {
     useAuthMock.mockReturnValue({ isOwner: false });
     useWarehouseRegistryMock.mockReturnValue({
-      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }]
+      entries: [{ code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' }],
+      scopeReady: true,
+      isSuccess: true
     });
 
     const html = renderWarehouseField({
@@ -151,10 +157,28 @@ describe('WarehouseSelectField', () => {
     expect(html).not.toContain('MI1');
   });
 
+  it('retains a syntactically valid selected warehouse while the registry is pending', () => {
+    useAuthMock.mockReturnValue({ isOwner: false });
+    useWarehouseRegistryMock.mockReturnValue({
+      entries: [],
+      scopeReady: false,
+      isSuccess: false
+    });
+
+    const html = renderWarehouseField({
+      value: 'MI1',
+      allowAll: true
+    });
+
+    expect(optionLabels(html)).toEqual(['All Warehouses', 'MI1']);
+  });
+
   it('allows owners to add a first warehouse without showing internal defaults', () => {
     useAuthMock.mockReturnValue({ isOwner: true });
     useWarehouseRegistryMock.mockReturnValue({
-      entries: []
+      entries: [],
+      scopeReady: true,
+      isSuccess: true
     });
 
     const html = renderWarehouseField({
@@ -171,7 +195,9 @@ describe('WarehouseSelectField', () => {
   it('lets owners add warehouses with city/state instead of manual code and prefix fields', async () => {
     useAuthMock.mockReturnValue({ isOwner: true });
     useWarehouseRegistryMock.mockReturnValue({
-      entries: []
+      entries: [],
+      scopeReady: true,
+      isSuccess: true
     });
     addWarehouseMock.mockResolvedValueOnce({
       code: 'MI1',
@@ -215,7 +241,9 @@ describe('WarehouseSelectField', () => {
       entries: [
         { code: 'MI1', name: 'Auburn Hills', boxIdPrefix: 'MI1' },
         { code: 'MI2', name: 'Auburn Hills MI2', boxIdPrefix: 'MI2' }
-      ]
+      ],
+      scopeReady: true,
+      isSuccess: true
     });
     addWarehouseMock.mockResolvedValueOnce({
       code: 'MI3',
@@ -264,7 +292,9 @@ describe('WarehouseSelectField', () => {
   it('shows a safe empty warehouse state instead of injecting IL1/MS1', () => {
     useAuthMock.mockReturnValue({ isOwner: false });
     useWarehouseRegistryMock.mockReturnValue({
-      entries: []
+      entries: [],
+      scopeReady: true,
+      isSuccess: true
     });
 
     const html = renderWarehouseField({

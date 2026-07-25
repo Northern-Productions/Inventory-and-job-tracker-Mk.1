@@ -1,12 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type RefCallback
+} from 'react';
 import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
 import type { JobListEntry } from '../../../domain';
 import { useIsPhoneLayout } from '../../../hooks/useIsPhoneLayout';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
-import { buildAllocationJobRoute } from '../utils/jobRoutes';
+import {
+  buildAllocationJobRoute,
+  getJobNavigationIdentity
+} from '../utils/jobRoutes';
+import {
+  isUnmodifiedPrimaryClick,
+  ManagedDetailLink
+} from '../../navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../../navigation/navigationSession';
 import {
   buildCalendarPeriod,
   getCalendarJobStatusClass,
@@ -17,22 +31,6 @@ import {
   type JobCalendarEventSegment,
   type JobCalendarView
 } from '../utils/jobCalendar';
-
-function getCalendarJobKey(job: JobListEntry) {
-  const jobId = String(job.jobId || '').trim();
-  const phaseId = String(job.phaseId || '').trim();
-  if (jobId) {
-    return phaseId ? `job:${jobId}:phase:${phaseId}` : `job:${jobId}`;
-  }
-
-  return [
-    'legacy-job',
-    job.jobNumber,
-    phaseId,
-    job.workScopeKey || job.workScope || job.sections || '',
-    job.warehouse || ''
-  ].join(':');
-}
 
 function shouldShowCalendarStagedMark(job: JobListEntry) {
   return (
@@ -67,6 +65,7 @@ interface JobsCalendarViewProps {
   maxVisibleJobsPerDay?: number;
   isPhoneLayoutOverride?: boolean;
   initialSelectedDayDate?: string;
+  getNavigationAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
 }
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -113,22 +112,30 @@ function renderJobLink(
     onNavigate?: () => void;
     onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
     registerRef?: (job: JobListEntry, node: HTMLAnchorElement | null) => void;
+    getNavigationAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
   }
 ) {
   const isHighlighted = options.highlightJobNumbers.has(job.jobNumber);
   const displayJobLabel = formatJobDisplayLabel(job);
   const showStagedMark = shouldShowCalendarStagedMark(job);
   const handlePrefetch = () => options.onPrefetchJob?.(job.jobNumber, job.jobId);
-  const handleClick = () => {
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     handlePrefetch();
-    options.onNavigate?.();
+    if (isUnmodifiedPrimaryClick(event)) {
+      options.onNavigate?.();
+    }
   };
 
   return (
-    <Link
-      key={getCalendarJobKey(job)}
-      ref={(node) => options.registerRef?.(job, node)}
+    <ManagedDetailLink
+      key={getJobNavigationIdentity(job)}
+      ref={(node) => {
+        options.registerRef?.(job, node);
+        options.getNavigationAnchorRef?.(getJobNavigationIdentity(job))(node);
+      }}
       to={buildAllocationJobRoute(job, { includePhaseTarget: true })}
+      originKind={LIST_ROUTE_KINDS.JOBS_CALENDAR}
+      anchorIdentity={getJobNavigationIdentity(job)}
       className={[
         'job-calendar-job-link',
         options.compact ? 'job-calendar-job-link-compact' : '',
@@ -148,7 +155,7 @@ function renderJobLink(
           {'\u2713'}
         </span>
       ) : null}
-    </Link>
+    </ManagedDetailLink>
   );
 }
 
@@ -158,6 +165,7 @@ function renderCalendarEventSegment(
     highlightJobNumbers: Set<string>;
     onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
     registerRef?: (job: JobListEntry, node: HTMLAnchorElement | null) => void;
+    getNavigationAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
   }
 ) {
   const job = segment.job;
@@ -168,10 +176,15 @@ function renderCalendarEventSegment(
   const handleClick = () => handlePrefetch();
 
   return (
-    <Link
-      key={`${getCalendarJobKey(job)}:${segment.startDate}:${segment.endDate}`}
-      ref={(node) => options.registerRef?.(job, node)}
+    <ManagedDetailLink
+      key={`${getJobNavigationIdentity(job)}:${segment.startDate}:${segment.endDate}`}
+      ref={(node) => {
+        options.registerRef?.(job, node);
+        options.getNavigationAnchorRef?.(getJobNavigationIdentity(job))(node);
+      }}
       to={buildAllocationJobRoute(job, { includePhaseTarget: true })}
+      originKind={LIST_ROUTE_KINDS.JOBS_CALENDAR}
+      anchorIdentity={getJobNavigationIdentity(job)}
       className={[
         'job-calendar-event-bar',
         segment.isMultiDay ? 'job-calendar-event-bar-multi-day' : 'job-calendar-event-bar-single-day',
@@ -195,7 +208,7 @@ function renderCalendarEventSegment(
           {'\u2713'}
         </span>
       ) : null}
-    </Link>
+    </ManagedDetailLink>
   );
 }
 
@@ -216,7 +229,8 @@ export function JobsCalendarView({
   onPrefetchJob,
   maxVisibleJobsPerDay = 3,
   isPhoneLayoutOverride,
-  initialSelectedDayDate = ''
+  initialSelectedDayDate = '',
+  getNavigationAnchorRef
 }: JobsCalendarViewProps) {
   const detectedPhoneLayout = useIsPhoneLayout(768);
   const isPhoneLayout = isPhoneLayoutOverride ?? detectedPhoneLayout;
@@ -252,7 +266,9 @@ export function JobsCalendarView({
         const installDate = String(job.installDate || '').trim().slice(0, 10);
         return job.jobNumber === targetJobNumber && (!targetInstallDate || installDate === targetInstallDate);
       }) || targetDay?.jobs.find((job) => job.jobNumber === targetJobNumber);
-      const targetLink = targetJob ? jobLinkRefs.current.get(getCalendarJobKey(targetJob)) : null;
+      const targetLink = targetJob
+        ? jobLinkRefs.current.get(getJobNavigationIdentity(targetJob))
+        : null;
       if (targetLink) {
         targetLink.scrollIntoView({ block: 'center', behavior: 'smooth' });
         return;
@@ -282,7 +298,7 @@ export function JobsCalendarView({
   }
 
   function registerJobLinkRef(job: JobListEntry, node: HTMLAnchorElement | null) {
-    const key = getCalendarJobKey(job);
+    const key = getJobNavigationIdentity(job);
     if (!node) {
       jobLinkRefs.current.delete(key);
       return;
@@ -340,7 +356,8 @@ export function JobsCalendarView({
                   compact: true,
                   highlightJobNumbers: highlightSet,
                   onPrefetchJob,
-                  registerRef: registerJobLinkRef
+                  registerRef: registerJobLinkRef,
+                  getNavigationAnchorRef
                 })
               )}
               {hiddenJobCount > 0 ? (
@@ -406,7 +423,8 @@ export function JobsCalendarView({
                 compact: true,
                 highlightJobNumbers: highlightSet,
                 onPrefetchJob,
-                registerRef: registerJobLinkRef
+                registerRef: registerJobLinkRef,
+                getNavigationAnchorRef
               })
             )}
             {hiddenJobCount > 0 ? (
@@ -552,7 +570,8 @@ export function JobsCalendarView({
                             renderCalendarEventSegment(segment, {
                               highlightJobNumbers: highlightSet,
                               onPrefetchJob,
-                              registerRef: registerJobLinkRef
+                              registerRef: registerJobLinkRef,
+                              getNavigationAnchorRef
                             })
                           )}
                         </div>
@@ -583,7 +602,8 @@ export function JobsCalendarView({
                   renderJobLink(job, {
                     highlightJobNumbers: highlightSet,
                     onPrefetchJob,
-                    registerRef: registerJobLinkRef
+                    registerRef: registerJobLinkRef,
+                    getNavigationAnchorRef
                   })
                 )}
               </div>
@@ -634,7 +654,8 @@ export function JobsCalendarView({
                     highlightJobNumbers: highlightSet,
                     onPrefetchJob,
                     onNavigate: closeDayDialog,
-                    registerRef: registerJobLinkRef
+                    registerRef: registerJobLinkRef,
+                    getNavigationAnchorRef
                   })
                 )}
               </div>

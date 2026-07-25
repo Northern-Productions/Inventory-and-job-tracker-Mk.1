@@ -43,15 +43,20 @@ export function WarehouseSelectField({
   const auth = useAuth();
   const queryClient = useQueryClient();
   const warehouseRegistry = useWarehouseRegistry();
+  const warehouseRegistrySettled =
+    warehouseRegistry.scopeReady === true && warehouseRegistry.isSuccess;
   const canAddWarehouse = auth.isOwner && includeAddOption;
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [cityDraft, setCityDraft] = useState('');
   const [stateDraft, setStateDraft] = useState('');
   const [formError, setFormError] = useState('');
-  const safeSpecificValue = getSafeSpecificWarehouseValue(warehouseRegistry.entries, value);
+  const normalizedValue = normalizeWarehouseCode(value);
+  const safeSpecificValue =
+    getSafeSpecificWarehouseValue(warehouseRegistry.entries, normalizedValue) ||
+    (!warehouseRegistrySettled ? normalizedValue : '');
   const selectValue = allowAll ? toWarehouseFilterOptionValue(safeSpecificValue) : safeSpecificValue;
   const hasConfiguredWarehouses = warehouseRegistry.entries.length > 0;
-  const emptyWarehouseHint = hasConfiguredWarehouses
+  const emptyWarehouseHint = !warehouseRegistrySettled || hasConfiguredWarehouses
     ? undefined
     : canAddWarehouse
       ? 'No warehouses are configured for this organization yet. Add a warehouse to continue.'
@@ -64,6 +69,12 @@ export function WarehouseSelectField({
     const base = allowAll
       ? toWarehouseFilterSelectOptions(warehouseRegistry.entries)
       : toWarehouseSelectOptions(warehouseRegistry.entries);
+    if (
+      safeSpecificValue &&
+      !isWarehouseInRegistry(warehouseRegistry.entries, safeSpecificValue)
+    ) {
+      base.push({ label: safeSpecificValue, value: safeSpecificValue });
+    }
     if (!allowAll && base.length === 0) {
       base.push({ label: 'No warehouses configured', value: '' });
     }
@@ -73,7 +84,12 @@ export function WarehouseSelectField({
     }
 
     return base;
-  }, [allowAll, canAddWarehouse, warehouseRegistry.entries]);
+  }, [
+    allowAll,
+    canAddWarehouse,
+    safeSpecificValue,
+    warehouseRegistry.entries
+  ]);
 
   const generatedWarehouse = useMemo(
     () => buildWarehouseCreateDraft(warehouseRegistry.entries, cityDraft, stateDraft),

@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { normalizeManufacturerLookupKey } from '../../../lib/manufacturerCanonicalization';
@@ -17,58 +17,46 @@ import {
   getManufacturerOptionsWithCatalog
 } from '../utils/boxHelpers';
 import { getInventorySearchSuggestions } from '../utils/inventorySearchSuggestions';
+import { getActiveCustomWidth } from '../utils/widthFilters';
 import {
-  getActiveCustomWidth,
-  normalizeSelectedWidths,
-  readSelectedWidths,
-  writeSelectedWidths
-} from '../utils/widthFilters';
-import {
-  getSafeWarehouseFilterValue,
-  parseWarehouseFilterValue,
-  toWarehouseFilterOptionValue
-} from '../utils/warehouseOptions';
-
-type InventoryView = 'film' | 'caulk';
-
-function readFilters(searchParams: URLSearchParams, defaultWarehouse = ''): InventoryFilterValues {
-  const hasWarehouseParam = searchParams.has('warehouse');
-  return {
-    warehouse: hasWarehouseParam
-      ? parseWarehouseFilterValue(searchParams.get('warehouse'))
-      : parseWarehouseFilterValue(defaultWarehouse),
-    manufacturer: canonicalizeManufacturerLabel(searchParams.get('manufacturer') || ''),
-    q: searchParams.get('q') || '',
-    status: (searchParams.get('status') || '') as InventoryFilterValues['status'],
-    film: '',
-    widths: readSelectedWidths(searchParams),
-    showRetired: false
-  };
-}
+  patchInventoryRouteState,
+  readInventoryRouteState,
+  writeInventoryRouteState,
+  type InventoryView
+} from '../utils/inventoryRouteState';
+import { LIST_ROUTE_KINDS } from '../../navigation/navigationSession';
+import { useManagedListScroll } from '../../navigation/NavigationCoordinator';
 
 export default function InventoryHomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const hasMountedRef = useRef(false);
   const defaultWarehouse = useDefaultWarehouse();
   const warehouseRegistry = useWarehouseRegistry();
-  const warehouseScopeReady = warehouseRegistry.scopeReady !== false;
-  const rawFilters = readFilters(searchParams, defaultWarehouse);
-  const filters = useMemo(
-    () => ({
-      ...rawFilters,
-      warehouse: warehouseScopeReady
-        ? getSafeWarehouseFilterValue(warehouseRegistry.entries, rawFilters.warehouse)
-        : ''
-    }),
-    [rawFilters, warehouseRegistry.entries, warehouseScopeReady]
+  const warehouseRegistrySettled =
+    warehouseRegistry.scopeReady === true && warehouseRegistry.isSuccess;
+  const routeState = useMemo(
+    () =>
+      readInventoryRouteState(searchParams, {
+        defaultWarehouse,
+        warehouseEntries: warehouseRegistry.entries,
+        warehouseRegistrySettled
+      }),
+    [
+      defaultWarehouse,
+      searchParams,
+      warehouseRegistry.entries,
+      warehouseRegistrySettled
+    ]
   );
+  const filters = routeState.filters;
   const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
     getActiveCustomWidth(filters.widths)
   );
-  const inventoryView = readInventoryView(searchParams.get('inventoryView'));
+  const inventoryView = routeState.inventoryView;
   const deferredFilters = useDeferredValue(filters);
-  const boxesQuery = useOfflineInventorySearch(filters.warehouse);
+  const boxesQuery = useOfflineInventorySearch(filters.warehouse, {
+    enabled: warehouseRegistrySettled
+  });
   const filteredBoxes = useMemo(
     () => filterOfflineBoxes(boxesQuery.snapshotBoxes, deferredFilters),
     [boxesQuery.snapshotBoxes, deferredFilters]
@@ -109,83 +97,50 @@ export default function InventoryHomePage() {
     boxesQuery.hasSnapshot,
     boxesQuery.lastSyncedAt
   );
+  const canonicalSearchParams = useMemo(
+    () => writeInventoryRouteState(routeState, { defaultWarehouse }),
+    [defaultWarehouse, routeState]
+  );
+  const routeParsed = canonicalSearchParams.toString() === searchParams.toString();
+  const inventoryScroll = useManagedListScroll({
+    kind: LIST_ROUTE_KINDS.INVENTORY,
+    routeParsed,
+    authorizationResolved: warehouseRegistrySettled,
+    dataReady:
+      inventoryView === 'film' && !boxesQuery.isLoading && !boxesQuery.isError,
+    layoutReady: inventoryView === 'film',
+    expectedAnchorCount: inventoryView === 'film' ? filteredBoxes.length : 0
+  });
 
   useEffect(() => {
-    if (!warehouseScopeReady) {
+    if (routeParsed) {
       return;
     }
-
-    const nextParams = new URLSearchParams(searchParams);
-    const rawWarehouse = searchParams.has('warehouse')
-      ? parseWarehouseFilterValue(searchParams.get('warehouse'))
-      : parseWarehouseFilterValue(defaultWarehouse);
-    const safeWarehouse = getSafeWarehouseFilterValue(warehouseRegistry.entries, rawWarehouse);
-    const nextWarehouseValue = toWarehouseFilterOptionValue(safeWarehouse);
-
-    if (searchParams.get('warehouse') === nextWarehouseValue) {
-      return;
-    }
-
-    nextParams.set('warehouse', nextWarehouseValue);
-    setSearchParams(nextParams, { replace: true });
-  }, [
-    defaultWarehouse,
-    searchParams,
-    setSearchParams,
-    warehouseRegistry.entries,
-    warehouseScopeReady
-  ]);
-
-  useEffect(() => {
-    const rawInventoryView = searchParams.get('inventoryView');
-    if (!rawInventoryView || rawInventoryView === 'film' || rawInventoryView === 'caulk') {
-      return;
-    }
-
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete('inventoryView');
-    setSearchParams(nextParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+    setSearchParams(canonicalSearchParams, { replace: true });
+  }, [canonicalSearchParams, routeParsed, setSearchParams]);
 
   useEffect(() => {
     hasMountedRef.current = true;
   }, []);
 
   const setInventoryView = (nextView: InventoryView) => {
-    const nextParams = new URLSearchParams(searchParams);
-    if (nextView === 'caulk') {
-      nextParams.set('inventoryView', 'caulk');
-    } else {
-      nextParams.delete('inventoryView');
-    }
-    setSearchParams(nextParams);
+    setSearchParams(
+      writeInventoryRouteState(
+        patchInventoryRouteState(routeState, { inventoryView: nextView }),
+        { defaultWarehouse }
+      ),
+      { replace: true }
+    );
   };
 
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
-    const merged = {
-      ...filters,
-      ...next,
-      film: '',
-      widths: normalizeSelectedWidths(next.widths ?? filters.widths)
-    };
-    const nextParams = new URLSearchParams();
-
-    nextParams.set('warehouse', toWarehouseFilterOptionValue(merged.warehouse));
-    if (inventoryView === 'caulk') {
-      nextParams.set('inventoryView', 'caulk');
-    }
-
-    if (merged.q) {
-      nextParams.set('q', merged.q);
-    }
-    if (merged.manufacturer) {
-      nextParams.set('manufacturer', merged.manufacturer);
-    }
-    if (merged.status) {
-      nextParams.set('status', merged.status);
-    }
-    writeSelectedWidths(nextParams, merged.widths);
-    setSearchParams(nextParams);
+    setSearchParams(
+      writeInventoryRouteState(
+        patchInventoryRouteState(routeState, { filters: next }),
+        { defaultWarehouse }
+      ),
+      { replace: true }
+    );
   };
 
   const inventoryViewToggle = (
@@ -292,7 +247,10 @@ export default function InventoryHomePage() {
         {!boxesQuery.isLoading && !boxesQuery.isError ? (
           <InventoryTable
             boxes={filteredBoxes}
-            onSelect={(boxId) => navigate(`/inventory/${encodeURIComponent(boxId)}`)}
+            buildDetailRoute={(boxId) =>
+              `/inventory/${encodeURIComponent(boxId)}`
+            }
+            getAnchorRef={inventoryScroll.getAnchorRef}
           />
         ) : null}
       </section>
@@ -351,8 +309,4 @@ function formatSyncTimestamp(value: string): string {
   }
 
   return parsed.toLocaleString();
-}
-
-function readInventoryView(value: string | null): InventoryView {
-  return value === 'caulk' ? 'caulk' : 'film';
 }

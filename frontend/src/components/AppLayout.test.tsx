@@ -2,7 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppLayout } from './AppLayout';
 import { ToastProvider } from './Toast';
@@ -92,12 +92,23 @@ function createQueryClient() {
   });
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <span data-testid="location-probe" hidden>
+      {location.pathname}
+      {location.search}
+    </span>
+  );
+}
+
 function buildLayoutTree(pathname: string) {
   return (
     <QueryClientProvider client={createQueryClient()}>
       <ToastProvider>
         <AppThemeProvider>
           <MemoryRouter initialEntries={[pathname]}>
+            <LocationProbe />
             <Routes>
               <Route path="/" element={<AppLayout />}>
                 <Route index element={<div>Inventory page</div>} />
@@ -155,6 +166,7 @@ describe('AppLayout', () => {
       writable: true,
       value: 0
     });
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
     window.localStorage.clear();
     document.documentElement.removeAttribute('data-theme');
   });
@@ -500,6 +512,23 @@ describe('AppLayout', () => {
       )
     ).toBe(false);
     consoleErrorSpy.mockRestore();
+  });
+
+  it('makes MAIN_DEFAULT Jobs clear active and inactive URL substate', async () => {
+    renderLayout(
+      '/allocations?view=list&lifecycle=completed&warehouse=MS1&q=123&sort=ready&calendarView=month&date=2026-09-17'
+    );
+
+    expect(screen.getByTestId('location-probe').textContent).toContain(
+      'calendarView=month'
+    );
+    fireEvent.click(screen.getByRole('link', { name: 'Jobs' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-probe').textContent).toBe(
+        '/allocations'
+      );
+    });
   });
 
   it('clears the desktop film-orders attention dot as soon as the last actionable order is gone', () => {

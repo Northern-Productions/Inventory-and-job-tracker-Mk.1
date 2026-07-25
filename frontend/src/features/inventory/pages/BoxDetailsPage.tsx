@@ -144,6 +144,7 @@ export default function BoxDetailsPage() {
         onDownloadQrImage={handleDownloadQrImage}
         onCopyQrCode={() => void handleCopyQrCode()}
         onOpenOrderedReceiveDialog={() => boxActions.handleStatusChange('IN_STOCK')}
+        onBack={goBackToInventory}
         allocationsSection={
           <AllocationsPanel
             boxId={box.boxId}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useToast } from '../../../../components/Toast';
 import { type Box } from '../../../../domain';
 import { safeDecodePathParam } from '../../../../lib/url';
@@ -43,6 +43,8 @@ import {
 import { useBoxDetailActions } from './useBoxDetailActions';
 import { useBoxQrCode } from './useBoxQrCode';
 import { useBoxTransferWorkflow } from './useBoxTransferWorkflow';
+import { useSafeListBack } from '../../../navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../../../navigation/navigationSession';
 
 function normalizeGuidedReturnTarget(value: string) {
   return String(value || '').trim().toLowerCase();
@@ -55,6 +57,7 @@ function resolveGuidedReturnPath(returnTo: string) {
 export function useBoxDetailsPageModel() {
   const params = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const toast = useToast();
   const auth = useAuth();
@@ -93,6 +96,7 @@ export function useBoxDetailsPageModel() {
   const [isHistorySectionCollapsed, setIsHistorySectionCollapsed] = useState(true);
   const didHandleScanNotice = useRef('');
   const didAutoOpenOrderedReceiveKey = useRef('');
+  const goBackToInventory = useSafeListBack(LIST_ROUTE_KINDS.INVENTORY, '/');
 
   const box = boxQuery.data;
   const transferEntry = boxTransferQuery.data;
@@ -281,8 +285,13 @@ export function useBoxDetailsPageModel() {
     const nextUrl = nextSearch
       ? `/inventory/${encodeURIComponent(box.boxId)}?${nextSearch}`
       : `/inventory/${encodeURIComponent(box.boxId)}`;
-    navigate(nextUrl, { replace: true });
-  }, [box, boxId, navigate, searchParams]);
+    navigate(
+      nextUrl,
+      location.state === null
+        ? { replace: true }
+        : { replace: true, state: location.state }
+    );
+  }, [box, boxId, location.state, navigate, searchParams]);
 
   useEffect(() => {
     if (!isGuidedOrderedReceive || filmOrdersQuery.isLoading) {
@@ -432,6 +441,6 @@ export function useBoxDetailsPageModel() {
     handleCopyQrImage,
     handleDownloadQrImage,
     transferWorkflow,
-    goBackToInventory: () => navigate('/')
+    goBackToInventory
   };
 }

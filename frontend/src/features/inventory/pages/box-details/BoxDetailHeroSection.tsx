@@ -134,6 +134,7 @@ interface BoxDetailHeroSectionProps {
   onDownloadQrImage: () => void;
   onCopyQrCode: () => void;
   onOpenOrderedReceiveDialog: () => void;
+  onBack: () => void;
   allocationsSection: ReactNode;
 }
 
@@ -165,6 +166,7 @@ export function BoxDetailHeroSection({
   onDownloadQrImage,
   onCopyQrCode,
   onOpenOrderedReceiveDialog,
+  onBack,
   allocationsSection
 }: BoxDetailHeroSectionProps) {
   const technicalDetailsId = useId();
@@ -288,6 +290,9 @@ export function BoxDetailHeroSection({
         </div>
         <div className="box-detail-header-meta">
           <div className="box-detail-action-row">
+            <Button type="button" variant="ghost" onClick={onBack}>
+              Back
+            </Button>
             <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
             {ownerDisplayName ? (
               <span className="badge badge-muted" title="Inventory owner company">

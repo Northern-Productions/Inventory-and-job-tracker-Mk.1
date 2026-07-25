@@ -1,7 +1,13 @@
-import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from 'react';
+import type {
+  ButtonHTMLAttributes,
+  PropsWithChildren,
+  ReactNode,
+  Ref
+} from 'react';
 
 interface MobileRecordCardProps {
   className?: string;
+  recordRef?: Ref<HTMLElement>;
 }
 
 interface MobileRecordHeaderProps {
@@ -11,6 +17,7 @@ interface MobileRecordHeaderProps {
   onTitleClick?: ButtonHTMLAttributes<HTMLButtonElement>['onClick'];
   onTitleMouseEnter?: ButtonHTMLAttributes<HTMLButtonElement>['onMouseEnter'];
   onTitleFocus?: ButtonHTMLAttributes<HTMLButtonElement>['onFocus'];
+  titleLink?: ReactNode;
 }
 
 interface MobileFieldProps {
@@ -20,9 +27,14 @@ interface MobileFieldProps {
 
 export function MobileRecordCard({
   children,
-  className = ''
+  className = '',
+  recordRef
 }: PropsWithChildren<MobileRecordCardProps>) {
-  return <article className={`mobile-record-card ${className}`.trim()}>{children}</article>;
+  return (
+    <article ref={recordRef} className={`mobile-record-card ${className}`.trim()}>
+      {children}
+    </article>
+  );
 }
 
 export function MobileRecordHeader({
@@ -31,12 +43,15 @@ export function MobileRecordHeader({
   badge,
   onTitleClick,
   onTitleMouseEnter,
-  onTitleFocus
+  onTitleFocus,
+  titleLink
 }: MobileRecordHeaderProps) {
   return (
     <div className={`mobile-record-header ${badge ? 'mobile-record-header-with-badge' : ''}`.trim()}>
       <div className="mobile-record-heading">
-        {onTitleClick ? (
+        {titleLink ? (
+          titleLink
+        ) : onTitleClick ? (
           <button
             type="button"
             className="mobile-record-title-button"

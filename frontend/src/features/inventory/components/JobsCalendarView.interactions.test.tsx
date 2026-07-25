@@ -21,7 +21,14 @@ vi.mock('react-router-dom', () => ({
     >
       {children}
     </a>
-  ))
+  )),
+  useLocation: () => ({
+    pathname: '/allocations',
+    search: '',
+    hash: '',
+    state: null,
+    key: 'calendar-interactions-test'
+  })
 }));
 
 function buildJob(overrides: Partial<CalendarJob> & Pick<CalendarJob, 'jobNumber'>): CalendarJob {

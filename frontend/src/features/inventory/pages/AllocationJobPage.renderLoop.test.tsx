@@ -43,6 +43,13 @@ const useAllocationPreviewMock = vi.fn();
 const useSearchBoxesWithOptionsMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
+  useLocation: () => ({
+    pathname: '/allocations/9874651321',
+    search: '',
+    hash: '',
+    state: null,
+    key: 'job-detail-test'
+  }),
   useNavigate: () => navigateMock,
   useParams: () => ({ jobNumber: '9874651321' }),
   useSearchParams: () => [new URLSearchParams()]

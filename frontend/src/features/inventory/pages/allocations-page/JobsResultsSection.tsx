@@ -1,3 +1,4 @@
+import type { RefCallback } from 'react';
 import { DeferredLoadingState } from '../../../../components/DeferredLoadingState';
 import {
   MobileField,
@@ -10,6 +11,12 @@ import { formatDate } from '../../../../lib/date';
 import { formatJobDisplayLabel } from '../../../../lib/jobDisplay';
 import { JobsCalendarView } from '../../components/JobsCalendarView';
 import { getJobListDisplayStatus } from '../../utils/jobSorts';
+import {
+  buildAllocationJobRoute,
+  getJobNavigationIdentity
+} from '../../utils/jobRoutes';
+import { ManagedDetailLink } from '../../../navigation/NavigationCoordinator';
+import { LIST_ROUTE_KINDS } from '../../../navigation/navigationSession';
 
 function formatStatusLabel(status: string) {
   if (status === 'NEEDS_ALLOCATION') {
@@ -30,20 +37,6 @@ function renderStatusBadges(entry: JobListEntry) {
       ) : null}
     </div>
   );
-}
-
-function getJobListRowKey(entry: JobListEntry) {
-  const jobId = String(entry.jobId || '').trim();
-  if (jobId) {
-    return `job:${jobId}`;
-  }
-
-  return [
-    'legacy-job',
-    entry.jobNumber,
-    entry.workScopeKey || entry.workScope || entry.sections || '',
-    entry.warehouse || ''
-  ].join(':');
 }
 
 interface JobsResultsSectionProps {
@@ -80,6 +73,8 @@ interface JobsResultsSectionProps {
   onPrefetchJob?: (jobNumber: string, jobId?: string) => void;
   onViewChange: (view: 'week' | 'month') => void;
   onAnchorDateChange: (anchorDate: string) => void;
+  useManagedDetailLinks?: boolean;
+  getAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
 }
 
 export function JobsResultsSection({
@@ -112,7 +107,9 @@ export function JobsResultsSection({
   onOpenJob,
   onPrefetchJob,
   onViewChange,
-  onAnchorDateChange
+  onAnchorDateChange,
+  useManagedDetailLinks = false,
+  getAnchorRef
 }: JobsResultsSectionProps) {
   return (
     <section className="panel">
@@ -150,13 +147,35 @@ export function JobsResultsSection({
           <div className="mobile-record-list">
             {listJobs.map((entry) => {
               const displayJobLabel = formatJobDisplayLabel(entry);
+              const navigationIdentity = getJobNavigationIdentity(entry);
               return (
-                <MobileRecordCard key={getJobListRowKey(entry)}>
+                <MobileRecordCard
+                  key={navigationIdentity}
+                  recordRef={getAnchorRef?.(navigationIdentity)}
+                >
                   <MobileRecordHeader
                     title={displayJobLabel}
                     subtitle={`${entry.warehouse} warehouse`}
                     badge={renderStatusBadges(entry)}
-                    onTitleClick={() => onOpenJob(entry.jobNumber, entry.jobId)}
+                    onTitleClick={
+                      useManagedDetailLinks
+                        ? undefined
+                        : () => onOpenJob(entry.jobNumber, entry.jobId)
+                    }
+                    titleLink={
+                      useManagedDetailLinks ? (
+                        <ManagedDetailLink
+                          to={buildAllocationJobRoute(entry)}
+                          originKind={LIST_ROUTE_KINDS.JOBS_LIST}
+                          anchorIdentity={navigationIdentity}
+                          className="mobile-record-title-button"
+                          onMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                          onFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                        >
+                          {displayJobLabel}
+                        </ManagedDetailLink>
+                      ) : undefined
+                    }
                     onTitleMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
                     onTitleFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
                   />
@@ -189,18 +208,35 @@ export function JobsResultsSection({
               <tbody>
                 {listJobs.map((entry) => {
                   const displayJobLabel = formatJobDisplayLabel(entry);
+                  const navigationIdentity = getJobNavigationIdentity(entry);
                   return (
-                    <tr key={getJobListRowKey(entry)}>
+                    <tr
+                      key={navigationIdentity}
+                      ref={getAnchorRef?.(navigationIdentity)}
+                    >
                       <td>
-                        <button
-                          type="button"
-                          className="row-button"
-                          onClick={() => onOpenJob(entry.jobNumber, entry.jobId)}
-                          onMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
-                          onFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
-                        >
-                          {displayJobLabel}
-                        </button>
+                        {useManagedDetailLinks ? (
+                          <ManagedDetailLink
+                            to={buildAllocationJobRoute(entry)}
+                            originKind={LIST_ROUTE_KINDS.JOBS_LIST}
+                            anchorIdentity={navigationIdentity}
+                            className="row-button"
+                            onMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                            onFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                          >
+                            {displayJobLabel}
+                          </ManagedDetailLink>
+                        ) : (
+                          <button
+                            type="button"
+                            className="row-button"
+                            onClick={() => onOpenJob(entry.jobNumber, entry.jobId)}
+                            onMouseEnter={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                            onFocus={() => onPrefetchJob?.(entry.jobNumber, entry.jobId)}
+                          >
+                            {displayJobLabel}
+                          </button>
+                        )}
                       </td>
                       <td>{formatDate(entry.installDate)}</td>
                       <td>{entry.workScope ?? entry.sections ?? '--'}</td>
@@ -237,6 +273,7 @@ export function JobsResultsSection({
             navigationStatus={calendarNavigationStatus}
             transitionToken={calendarTransitionToken}
             onPrefetchJob={onPrefetchJob}
+            getNavigationAnchorRef={getAnchorRef}
             onViewChange={onViewChange}
             onAnchorDateChange={onAnchorDateChange}
           />

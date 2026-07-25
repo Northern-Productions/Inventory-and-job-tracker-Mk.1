@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { forwardRef, type PropsWithChildren } from 'react';
+import { forwardRef, useState, type PropsWithChildren } from 'react';
 import AllocationsPage from './AllocationsPage';
 import { warehouseRegistryScopedQueryKey } from '../hooks/useWarehouseRegistry';
 
@@ -16,16 +16,40 @@ const useCreateJobMock = vi.fn();
 const useFilmCatalogMock = vi.fn();
 const useCaulkProductsMock = vi.fn();
 const checkJobDuplicateMock = vi.fn();
+const setSearchParamsMock = vi.fn();
+let persistedJobsSearch = '';
 
 vi.mock('react-router-dom', () => ({
-  Link: forwardRef<HTMLAnchorElement, PropsWithChildren<{ to: string }>>(
-    ({ to, children, ...props }, ref) => (
+  Link: forwardRef<HTMLAnchorElement, PropsWithChildren<{ to: string; state?: unknown }>>(
+    ({ to, children, state: _state, ...props }, ref) => (
       <a ref={ref} href={to} {...props}>
         {children}
       </a>
     )
   ),
-  useNavigate: () => navigateMock
+  useLocation: () => ({
+    pathname: '/allocations',
+    search: '',
+    hash: '',
+    state: null,
+    key: 'jobs-list-test'
+  }),
+  useNavigate: () => navigateMock,
+  useNavigationType: () => 'POP',
+  useSearchParams: () => {
+    const [params, setParams] = useState(
+      () => new URLSearchParams(persistedJobsSearch)
+    );
+    return [
+      params,
+      (next: URLSearchParams, options?: { replace?: boolean }) => {
+        const nextParams = new URLSearchParams(next);
+        persistedJobsSearch = nextParams.toString();
+        setSearchParamsMock(persistedJobsSearch, options);
+        setParams(nextParams);
+      }
+    ] as const;
+  }
 }));
 
 vi.mock('../../../hooks/useIsPhoneLayout', () => ({
@@ -189,6 +213,8 @@ describe('AllocationsPage interactions', () => {
   beforeEach(() => {
     navigateMock.mockReset();
     toastPushMock.mockReset();
+    setSearchParamsMock.mockReset();
+    persistedJobsSearch = '';
     checkJobDuplicateMock.mockReset();
     checkJobDuplicateMock.mockResolvedValue({
       exists: false,
@@ -296,17 +322,38 @@ describe('AllocationsPage interactions', () => {
       warehouse: ''
     });
     expect(screen.getByRole('button', { name: 'List' }).getAttribute('aria-pressed')).toBe('true');
-    expect(Boolean(screen.getByRole('button', { name: 'IL1-16961 / 260' }))).toBe(true);
+    expect(Boolean(screen.getByRole('link', { name: 'IL1-16961 / 260' }))).toBe(true);
+  });
+
+  it('replaces the visible search URL immediately and restores it after refresh', () => {
+    const firstRender = renderPage({ initialJobsViewMode: 'list' });
+    const searchInput = screen.getByLabelText('Search Job ID Number');
+
+    fireEvent.change(searchInput, { target: { value: '1' } });
+    fireEvent.change(searchInput, { target: { value: '12' } });
+    fireEvent.change(searchInput, { target: { value: '123' } });
+
+    expect((searchInput as HTMLInputElement).value).toBe('123');
+    expect(new URLSearchParams(persistedJobsSearch).get('q')).toBe('123');
+    expect(setSearchParamsMock).toHaveBeenCalledTimes(3);
+    expect(
+      setSearchParamsMock.mock.calls.every(([, options]) => options?.replace === true)
+    ).toBe(true);
+
+    firstRender.unmount();
+    renderPage({ initialJobsViewMode: 'list' });
+
+    expect(
+      (screen.getByLabelText('Search Job ID Number') as HTMLInputElement).value
+    ).toBe('123');
   });
 
   it('opens list jobs with the canonical jobId route when available', () => {
     renderPage({ initialJobsViewMode: 'list' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'IL1-16961 / 260' }));
-
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/allocations/jobs/11111111-1111-4111-8111-111111111111'
-    );
+    expect(
+      screen.getByRole('link', { name: 'IL1-16961 / 260' }).getAttribute('href')
+    ).toBe('/allocations/jobs/11111111-1111-4111-8111-111111111111');
   });
 
   it('opens the selected same-number list row by its own canonical jobId', () => {
@@ -333,12 +380,12 @@ describe('AllocationsPage interactions', () => {
 
     renderPage({ initialJobsViewMode: 'list' });
 
-    expect(screen.getByRole('button', { name: /IL1-9327001.*Sections 1/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /IL1-9327001.*Sections 2/ }));
-
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/allocations/jobs/22222222-2222-4222-8222-222222222222'
-    );
+    expect(screen.getByRole('link', { name: /IL1-9327001.*Sections 1/ })).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: /IL1-9327001.*Sections 2/ })
+        .getAttribute('href')
+    ).toBe('/allocations/jobs/22222222-2222-4222-8222-222222222222');
   });
 
   it('renders same-number calendar rows as distinct canonical links without duplicate keys', () => {

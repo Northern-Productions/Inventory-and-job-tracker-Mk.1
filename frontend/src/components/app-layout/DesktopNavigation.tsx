@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
 import { NavLink } from 'react-router-dom';
+import { isUnmodifiedPrimaryClick } from '../../features/navigation/NavigationCoordinator';
 import type { ComputedNavItem } from './config';
 
 interface DesktopNavigationProps {
@@ -12,6 +13,7 @@ interface DesktopNavigationProps {
   moreAttentionAriaLabel?: string;
   onToggleMore: () => void;
   onCloseMore: () => void;
+  onMainDefault: (path: '/' | '/allocations') => void;
 }
 
 export function DesktopNavigation({
@@ -23,7 +25,8 @@ export function DesktopNavigation({
   moreHasAttention,
   moreAttentionAriaLabel,
   onToggleMore,
-  onCloseMore
+  onCloseMore,
+  onMainDefault
 }: DesktopNavigationProps) {
   return (
     <div className="app-nav-shell">
@@ -39,6 +42,15 @@ export function DesktopNavigation({
             end={item.to === '/'}
             className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`.trim()}
             aria-label={item.showAttentionDot ? item.attentionAriaLabel : undefined}
+            onClick={(event) => {
+              if (
+                (item.to === '/' || item.to === '/allocations') &&
+                isUnmodifiedPrimaryClick(event)
+              ) {
+                event.preventDefault();
+                onMainDefault(item.to);
+              }
+            }}
           >
             <span className="nav-attention-label">
               {item.desktopLabel}

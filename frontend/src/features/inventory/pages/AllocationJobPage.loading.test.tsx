@@ -14,6 +14,13 @@ const useCaulkProductsMock = vi.fn();
 const useJobLifecycleWorkflowMock = vi.fn();
 
 vi.mock('react-router-dom', () => ({
+  useLocation: () => ({
+    pathname: '/allocations/000123',
+    search: '',
+    hash: '',
+    state: null,
+    key: 'job-detail-test'
+  }),
   useNavigate: () => navigateMock,
   useParams: () => ({ jobNumber: '000123' }),
   useSearchParams: () => [new URLSearchParams()]
