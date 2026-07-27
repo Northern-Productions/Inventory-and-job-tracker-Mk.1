@@ -115,6 +115,8 @@ export interface WarehouseAssetAuditRow {
   pendingTransferDestination: Warehouse | null;
   status: WarehouseAssetAuditStatus;
   statusLabel: string;
+  checkedOutJobNumber: string | null;
+  checkedOutCrewLeaderName: string | null;
   manufacturer: string;
   filmName: string;
   widthIn: number;
@@ -124,7 +126,7 @@ export interface WarehouseAssetAuditRow {
 }
 
 export interface WarehouseAssetAuditResponse {
-  snapshotVersion: 1;
+  snapshotVersion: 2;
   metadata: {
     organizationName: string;
     generatedAt: string;

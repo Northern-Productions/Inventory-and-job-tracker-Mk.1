@@ -1,5 +1,6 @@
 import {
   buildAllocationJobList,
+  buildJobListEntry,
   buildJobsList,
   buildPublicCaulkRequirementEntries,
   buildPublicJobRequirementEntries,
@@ -20,6 +21,29 @@ function assertEquals(actual: unknown, expected: unknown, message: string) {
   if (actualJson !== expectedJson) {
     throw new Error(`${message}\nExpected: ${expectedJson}\nActual: ${actualJson}`);
   }
+}
+
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJsonValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((key) => [
+          key,
+          canonicalizeJsonValue((value as Record<string, unknown>)[key]),
+        ]),
+    );
+  }
+  return value;
+}
+
+async function hashCanonicalJson(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalizeJsonValue(value)));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (entry) => entry.toString(16).padStart(2, "0")).join("");
 }
 
 async function assertRejectsWithMessage(
@@ -2881,4 +2905,102 @@ Deno.test("Edge read routes ignore client-supplied org IDs and use the authentic
     );
     assertEquals(calls, routeCase.expectedCalls, `Expected ${routeCase.route} to use only the auth-derived org.`);
   }
+});
+
+Deno.test("Edge Jobs summaries retain exact pre-refactor public shape and values", async () => {
+  const header = (overrides: Record<string, unknown> = {}) => ({
+    id: "job-1",
+    jobNumber: "1234",
+    warehouse: "IL1",
+    workScope: "Area A",
+    sections: "Area A",
+    installDate: "",
+    crewLeader: "Header Crew",
+    lifecycleStatus: "ACTIVE",
+    isLaborOnly: true,
+    isStagedForPickup: false,
+    createdAt: "2026-07-01T00:00:00Z",
+    updatedAt: "2026-07-02T00:00:00Z",
+    notes: "",
+    ...overrides,
+  });
+  const phase = (overrides: Record<string, unknown> = {}) => ({
+    phaseId: "phase-1",
+    phaseNumber: 1,
+    workScope: "Area A",
+    sections: "Area A",
+    installDate: "2999-01-01",
+    crewLeader: "",
+    laborStatus: "ACTIVE",
+    workflowStatus: "ACTIVE",
+    isPrimary: true,
+    createdAt: "2026-07-01T00:00:00Z",
+    updatedAt: "2026-07-02T00:00:00Z",
+    ...overrides,
+  });
+  const build = ({
+    job = header(),
+    phases = [phase()],
+    requirements = [],
+    caulkRequirements = [],
+    allocations = [],
+    filmOrders = [],
+  }: {
+    job?: Record<string, unknown>;
+    phases?: Array<Record<string, unknown>>;
+    requirements?: any[];
+    caulkRequirements?: any[];
+    allocations?: any[];
+    filmOrders?: any[];
+  } = {}) => buildJobListEntry(
+    job,
+    requirements,
+    allocations,
+    filmOrders,
+    caulkRequirements,
+    {},
+    { phases },
+  );
+  const cases = {
+    currentPhase: build(),
+    completion: build({
+      phases: [
+        phase({ laborStatus: "COMPLETE" }),
+        phase({ phaseId: "phase-2", phaseNumber: 2, installDate: "2999-02-01" }),
+      ],
+    }),
+    phaseCrew: build({ phases: [phase({ crewLeader: "Phase Crew" })] }),
+    missingCrew: build({ job: header({ crewLeader: "" }) }),
+    multipleSameDate: build({
+      phases: [
+        phase({ phaseId: "phase-2", phaseNumber: 2 }),
+        phase({ phaseId: "phase-1", phaseNumber: 1 }),
+      ],
+    }),
+    legacyFallback: build({
+      job: header({ crewLeader: "" }),
+      allocations: [{
+        allocationId: "alloc-1",
+        boxId: "IL1-1",
+        jobNumber: "1234",
+        status: "ACTIVE",
+        allocationKind: "EXTRA",
+        allocatedFeet: 1,
+        installDate: "",
+        crewLeader: "Legacy Crew",
+      }],
+    }),
+  };
+  const actual: Record<string, string> = {};
+  for (const [name, value] of Object.entries(cases)) {
+    actual[name] = await hashCanonicalJson(value);
+  }
+  assertEquals(actual, {
+    currentPhase: "c79047c1be895752a930cac61429215c5a3c33a5055b09a96d63493d268e4742",
+    completion: "64bd35e97a9b7d07c45eb266e5ed4d7a26e8340eb5ffaa3a94d54067b4d9a142",
+    phaseCrew: "0d16f74e4ddbd28289ad933ac3374cb8a96fa4fb3f31c0067d1e5c7f96bc5b6b",
+    missingCrew: "d2e68b10dfd34218aa50de13c86b0222c36d27e17ec7fcd806d298c9f34314c1",
+    multipleSameDate: "d8b0603cee2841996c9309447619e258fbf8f2668fa02f17d85a29c06bb1745a",
+    legacyFallback: "98c71bbe32bb66ef2140ec47f6b94b314a141d55a63262fca1d07aaae6425f23",
+  }, "Expected exact canonical Jobs-summary parity.");
 });

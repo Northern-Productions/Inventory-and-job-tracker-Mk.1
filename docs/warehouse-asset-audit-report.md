@@ -18,6 +18,43 @@ Each box must resolve to exactly one custody warehouse:
 
 Multiple pending transfers, a missing transfer for a transfer-state box, pending transfer state on another box status, invalid source or destination warehouses, missing checkout LF, duplicate box identities, and dangling active allocation or transfer references fail the report. The report does not guess custody.
 
+## Checked-out assignment context
+
+Warehouse Asset Audit responses use `snapshotVersion: 2`. Every row has
+`checkedOutJobNumber` and `checkedOutCrewLeaderName`:
+
+- Non-checked-out rows return `null` for both fields.
+- Checked-out rows require a safe, nonblank canonical display job number.
+- A missing crew leader is valid, returns `null`, and displays as `N/A`.
+
+The Status cell is shared by screen and print. Checked-out rows display status,
+`Job #<display number>`, and crew leader on separate lines.
+
+Job identity resolves in this order:
+
+1. Same-organization durable job ID.
+2. One unambiguous compatible legacy job number.
+3. A directly linked film order for a direct-to-job-site box when stronger
+   evidence is absent.
+
+Compatible evidence for the same canonical job collapses. Missing, dangling,
+cross-organization, ambiguous, or conflicting job evidence fails closed.
+Display values come only from canonical job-number fields; database and
+relationship IDs are never display fallbacks. Crew precedence matches Jobs:
+current phase, then job header, then legacy allocation or film-order metadata.
+
+Checked-out context is validated for all operational boxes before user filters
+are applied. Consequently, one inconsistent operational checked-out box blocks
+every Warehouse Asset Audit filter for that organization. The API returns the
+stable sanitized HTTP 409 category
+`WAREHOUSE_ASSET_AUDIT_CHECKOUT_CONTEXT_INTEGRITY` without business
+identifiers or row values.
+
+The local adapter adds one organization-bounded context query whenever any
+checked-out box exists. The Edge adapter uses one fixed set of batched,
+organization-scoped reads. Neither adapter adds reads per checked-out row; the
+zero-checked-out path skips context loading.
+
 ## Cost basis
 
 Each row reports one explicit category:
@@ -43,6 +80,15 @@ npm --prefix backend run verify:warehouse-asset-audit:scale -- --env .env.dev --
 ```
 
 It selects representative filters internally but emits only aggregate counts, payload size, and timings. PROD use requires both `--expect prod` and `--allow-prod` after an explicit read-only PROD verification approval.
+
+## Contract deployment order
+
+Compatibility tests cover both frontend generations against response versions
+1 and 2. The version-1 frontend tolerates the additive version-2 fields, while
+the version-2 frontend intentionally rejects version 1 or malformed version 2.
+The safe rollout order is therefore Edge version 2 first, verify the currently
+deployed frontend, then deploy the version-2 frontend. A rollback reverses that
+order: restore the older frontend before restoring Edge version 1.
 
 ## Consistency limit
 

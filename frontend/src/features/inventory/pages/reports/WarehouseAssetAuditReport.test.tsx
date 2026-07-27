@@ -39,6 +39,8 @@ function buildSnapshot(generatedAt: string, rowCount: number): WarehouseAssetAud
     pendingTransferDestination: null,
     status: 'IN_STOCK' as const,
     statusLabel: 'In Stock',
+    checkedOutJobNumber: null,
+    checkedOutCrewLeaderName: null,
     manufacturer: 'Maker',
     filmName: 'Film',
     widthIn: 60,
@@ -47,7 +49,7 @@ function buildSnapshot(generatedAt: string, rowCount: number): WarehouseAssetAud
     onHandAssetCostCents: '10000'
   }));
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     metadata: { organizationName: 'Organization', generatedAt, generatedBy: 'Reader' },
     appliedFilters: {
       warehouse: 'IL1',
@@ -139,6 +141,59 @@ describe('WarehouseAssetAuditReport', () => {
     expect(headers).not.toContain('Found');
     expect(headers).not.toContain('Owner Verified');
     expect(headers).not.toContain('Notes');
+  });
+
+  it('shows no report and disables Print on a cold incompatible response', () => {
+    useAuditQueryMock.mockReturnValue({
+      data: undefined,
+      error: new Error('Warehouse asset audit data is incompatible with this application version.'),
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+
+    render(<WarehouseAssetAuditReport />);
+
+    expect(document.querySelectorAll('[data-audit-row-id]')).toHaveLength(0);
+    expect(screen.queryByText('Total Known On-Hand Asset Cost')).toBeNull();
+    expect(screen.getByText(
+      'Warehouse asset audit data is incompatible with this application version.'
+    )).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+  });
+
+  it('retains only explicit previous rows and disables Print after replacement contract failure', () => {
+    const valid = buildSnapshot('2026-07-21T10:00:00.000Z', 2);
+    useAuditQueryMock.mockReturnValue({
+      data: valid,
+      error: null,
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+    const view = render(<WarehouseAssetAuditReport />);
+
+    useAuditQueryMock.mockReturnValue({
+      data: valid,
+      error: new Error('Warehouse asset audit data is incompatible with this application version.'),
+      isLoading: false,
+      isFetching: false,
+      isPlaceholderData: true,
+      refetch: vi.fn()
+    });
+    view.rerender(<WarehouseAssetAuditReport />);
+
+    expect(view.container.querySelectorAll('[data-audit-row-id]')).toHaveLength(2);
+    expect(screen.getByText(/Previous results from/)).toBeTruthy();
+    expect(screen.getByText(
+      'Previous results are shown and may not match the selected filters.'
+    )).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Print Audit' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(document.querySelector('.warehouse-asset-audit-print-only-root')).toBeNull();
   });
 
   it('uses one forced live response for every printed row, total, filter, and timestamp', async () => {

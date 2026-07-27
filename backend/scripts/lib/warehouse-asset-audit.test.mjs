@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   UNASSIGNED_OWNER_FILTER,
+  WAREHOUSE_ASSET_AUDIT_CHECKOUT_CONTEXT_INTEGRITY_CODE,
   WarehouseAssetAuditError,
   buildWarehouseAssetAuditReport,
   derivePhysicalFeetFromWeight,
@@ -12,8 +14,30 @@ import { buildWarehouseAssetAuditFromDatabase } from '../../src/app/services/run
 import { shouldUseLocalFallbackRoute } from '../../src/routes/localFallbackRoutes.mjs';
 
 const ORG_ID = '00000000-0000-4000-8000-000000000001';
+const JOB_ID = '30000000-0000-4000-8000-000000000001';
+const ADAPTER_PARITY_GOLDEN = '63aa2ff8dbbe3584ea23823357aa050e4b119fd4e5a5e23e52494c5a4bb8182f';
+
+function canonicalize(value) {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+    );
+  }
+  return value;
+}
+
+function canonicalHash(value) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonicalize(value)))
+    .digest('hex');
+}
 
 function box(overrides = {}) {
+  const status = overrides.status || 'IN_STOCK';
   return {
     id: overrides.id || '10000000-0000-4000-8000-000000000001',
     org_id: ORG_ID,
@@ -25,12 +49,44 @@ function box(overrides = {}) {
     width_in: 60,
     initial_feet: 100,
     feet_available: 100,
-    status: 'IN_STOCK',
+    status,
+    direct_to_job_site: false,
+    last_checkout_job_id: status === 'CHECKED_OUT' ? JOB_ID : null,
+    last_checkout_job: status === 'CHECKED_OUT' ? 'IL1-1234' : '',
     last_roll_weight_lbs: null,
     core_weight_lbs: null,
     lf_weight_lbs_per_ft: null,
     price_per_lf: null,
     purchase_cost: null,
+    ...overrides,
+  };
+}
+
+function checkoutContext(overrides = {}) {
+  return {
+    jobs: [{
+      id: JOB_ID,
+      org_id: ORG_ID,
+      job_number: 'IL1-1234',
+      warehouse: 'IL1',
+      crew_leader: 'Header Crew',
+    }],
+    filmOrderBoxLinks: [],
+    filmOrders: [],
+    phases: [{
+      id: '40000000-0000-4000-8000-000000000001',
+      org_id: ORG_ID,
+      job_id: JOB_ID,
+      phase_number: 1,
+      install_date: '2026-07-21',
+      crew_leader: 'Phase Crew',
+      labor_status: 'ACTIVE',
+      workflow_status: 'ACTIVE',
+      is_primary: true,
+    }],
+    requirements: [],
+    caulkRequirements: [],
+    allocations: [],
     ...overrides,
   };
 }
@@ -57,6 +113,7 @@ function baseInput(overrides = {}) {
     boxes: [box()],
     pendingTransfers: [],
     allocations: [],
+    checkoutContext: checkoutContext(),
     filters: {},
     ...overrides,
   };
@@ -241,10 +298,209 @@ test('warehouse asset audit resolves canonical custody and physical LF for every
   assert.equal(byId.get('IL1-201').custodyBasis, 'CURRENT_WAREHOUSE');
   assert.equal(byId.get('IL1-202').onHandLf, 70);
   assert.equal(byId.get('IL1-202').custodyBasis, 'CHECKOUT_SOURCE');
+  assert.equal(byId.get('IL1-202').checkedOutJobNumber, '1234');
+  assert.equal(byId.get('IL1-202').checkedOutCrewLeaderName, 'Phase Crew');
+  assert.equal(byId.get('IL1-201').checkedOutJobNumber, null);
+  assert.equal(byId.get('IL1-203').checkedOutCrewLeaderName, null);
   assert.equal(byId.get('IL1-203').onHandLf, 50);
   assert.equal(byId.get('IL1-203').warehouse, 'IL1');
   assert.equal(byId.get('IL1-203').pendingTransferDestination, 'MS1');
   assert.equal(byId.get('IL1-203').statusLabel, 'Pending Transfer to MS1');
+});
+
+test('warehouse asset audit version 2 preserves missing crew as null', () => {
+  const report = buildWarehouseAssetAuditReport(baseInput({
+    boxes: [box({ status: 'CHECKED_OUT' })],
+    checkoutContext: checkoutContext({
+      jobs: [{
+        id: JOB_ID,
+        org_id: ORG_ID,
+        job_number: '1234',
+        warehouse: 'IL1',
+        crew_leader: '',
+      }],
+      phases: [],
+    }),
+  }));
+
+  assert.equal(report.snapshotVersion, 2);
+  assert.equal(report.rows[0].checkedOutJobNumber, '1234');
+  assert.equal(report.rows[0].checkedOutCrewLeaderName, null);
+});
+
+test('warehouse asset audit collapses same-job evidence and rejects conflicting or unsafe identity', () => {
+  const checkedBox = box({
+    status: 'CHECKED_OUT',
+    direct_to_job_site: true,
+  });
+  const sameJobEvidence = checkoutContext({
+    filmOrderBoxLinks: [{
+      id: 'link-1',
+      org_id: ORG_ID,
+      box_id: checkedBox.box_id,
+      film_order_id: 'FO-1',
+    }],
+    filmOrders: [{
+      id: 'film-order-row-1',
+      org_id: ORG_ID,
+      film_order_id: 'FO-1',
+      job_id: JOB_ID,
+      job_number: '1234',
+      warehouse: 'IL1',
+      crew_leader: '',
+    }],
+  });
+  assert.doesNotThrow(() => buildWarehouseAssetAuditReport(baseInput({
+    boxes: [checkedBox],
+    checkoutContext: sameJobEvidence,
+  })));
+
+  const assertSafeIntegrityFailure = (input) => {
+    assert.throws(
+      () => buildWarehouseAssetAuditReport(input),
+      (error) => {
+        assert(error instanceof WarehouseAssetAuditError);
+        assert.equal(error.statusCode, 409);
+        assert.equal(error.code, WAREHOUSE_ASSET_AUDIT_CHECKOUT_CONTEXT_INTEGRITY_CODE);
+        assert.equal(
+          error.message,
+          'Checked-out assignment context is inconsistent. The warehouse asset audit is unavailable.',
+        );
+        assert(!error.message.includes(checkedBox.box_id));
+        assert(!error.message.includes('1234'));
+        return true;
+      },
+    );
+  };
+  assertSafeIntegrityFailure(baseInput({
+    boxes: [checkedBox],
+    checkoutContext: checkoutContext({
+      jobs: [
+        ...sameJobEvidence.jobs,
+        {
+          id: '30000000-0000-4000-8000-000000000002',
+          org_id: ORG_ID,
+          job_number: '5678',
+          warehouse: 'IL1',
+          crew_leader: '',
+        },
+      ],
+      filmOrderBoxLinks: sameJobEvidence.filmOrderBoxLinks,
+      filmOrders: [{
+        ...sameJobEvidence.filmOrders[0],
+        job_id: '30000000-0000-4000-8000-000000000002',
+        job_number: '5678',
+      }],
+    }),
+  }));
+  assertSafeIntegrityFailure(baseInput({
+    boxes: [box({
+      status: 'CHECKED_OUT',
+      last_checkout_job_id: '30000000-0000-4000-8000-000000000099',
+    })],
+  }));
+  assertSafeIntegrityFailure(baseInput({
+    boxes: [box({ status: 'CHECKED_OUT' })],
+    checkoutContext: checkoutContext({
+      jobs: [{
+        id: JOB_ID,
+        org_id: '00000000-0000-4000-8000-000000000099',
+        job_number: '1234',
+        warehouse: 'IL1',
+        crew_leader: '',
+      }],
+    }),
+  }));
+  assertSafeIntegrityFailure(baseInput({
+    boxes: [box({ status: 'CHECKED_OUT' })],
+    checkoutContext: checkoutContext({
+      jobs: [{
+        id: JOB_ID,
+        org_id: ORG_ID,
+        job_number: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        warehouse: 'IL1',
+        crew_leader: '',
+      }],
+    }),
+  }));
+  assertSafeIntegrityFailure(baseInput({
+    boxes: [box({ status: 'CHECKED_OUT' })],
+    checkoutContext: checkoutContext({
+      jobs: [{
+        id: JOB_ID,
+        org_id: ORG_ID,
+        job_number: '',
+        warehouse: 'IL1',
+        crew_leader: '',
+      }],
+    }),
+  }));
+  assertSafeIntegrityFailure(baseInput({
+    boxes: [box({
+      status: 'CHECKED_OUT',
+      last_checkout_job_id: null,
+      last_checkout_job: '1234',
+    })],
+    checkoutContext: checkoutContext({
+      jobs: [
+        {
+          id: JOB_ID,
+          org_id: ORG_ID,
+          job_number: 'IL1-1234',
+          warehouse: 'IL1',
+          crew_leader: '',
+        },
+        {
+          id: '30000000-0000-4000-8000-000000000003',
+          org_id: ORG_ID,
+          job_number: '1234',
+          warehouse: 'IL1',
+          crew_leader: '',
+        },
+      ],
+    }),
+  }));
+
+  const uuidSuffixJobNumber = 'IL1-WO-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const safeDisplay = buildWarehouseAssetAuditReport(baseInput({
+    boxes: [box({
+      status: 'CHECKED_OUT',
+      last_checkout_job: uuidSuffixJobNumber,
+    })],
+    checkoutContext: checkoutContext({
+      jobs: [{
+        id: JOB_ID,
+        org_id: ORG_ID,
+        job_number: uuidSuffixJobNumber,
+        warehouse: 'IL1',
+        crew_leader: '',
+      }],
+    }),
+  }));
+  assert.equal(
+    safeDisplay.rows[0].checkedOutJobNumber,
+    'WO-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  );
+});
+
+test('one inconsistent checked-out box blocks every audit filter before totals are built', () => {
+  for (const filters of [{ warehouse: 'IL1' }, { q: 'nonmatching' }, { statuses: ['IN_STOCK'] }]) {
+    assert.throws(
+      () => buildWarehouseAssetAuditReport(baseInput({
+        boxes: [
+          box({ id: 'box-good', box_id: 'IL1-GOOD' }),
+          box({
+            id: 'box-bad',
+            box_id: 'IL1-BAD',
+            status: 'CHECKED_OUT',
+            last_checkout_job_id: 'missing-job',
+          }),
+        ],
+        filters,
+      })),
+      (error) => error?.code === WAREHOUSE_ASSET_AUDIT_CHECKOUT_CONTEXT_INTEGRITY_CODE,
+    );
+  }
 });
 
 test('warehouse asset audit fails closed for ambiguous or conflicting custody', () => {
@@ -381,6 +637,83 @@ test('local report reader uses read-only projections and PostgreSQL canonical ph
   assert.equal(report.rows[0].onHandLf, 44);
   assert(statements.some((sql) => sql.includes('app_api.box_physical_feet_available')));
   assert(statements.every((sql) => /^\s*select\b/i.test(sql)));
+});
+
+test('local audit adapter adds one fixed context read for one or many checked-out boxes', async () => {
+  const run = async (checkedOutCount) => {
+    const logicalReads = [];
+    const checkedBoxes = Array.from({ length: checkedOutCount }, (_, index) => box({
+      id: `checked-record-${index}`,
+      box_id: `IL1-CHECKED-${index}`,
+      status: 'CHECKED_OUT',
+      physical_feet_available: 40,
+    }));
+    await buildWarehouseAssetAuditFromDatabase(
+      {},
+      ORG_ID,
+      {},
+      { generatedAt: '2026-07-21T12:00:00.000Z', generatedBy: 'Reader' },
+      {
+        onLogicalRead: (name) => logicalReads.push(name),
+        queryRow: async (_client, sql) => {
+          if (sql.includes('jsonb_build_object')) {
+            return { checkout_context: checkoutContext() };
+          }
+          return { org_id: ORG_ID, name: 'Test Organization' };
+        },
+        queryRows: async (_client, sql) => {
+          if (sql.includes('from app.warehouses')) {
+            return [{ org_id: ORG_ID, code: 'IL1', name: 'Wauconda IL1' }];
+          }
+          if (sql.includes('from app.owner_companies')) return [];
+          if (sql.includes('from app.boxes')) return checkedBoxes;
+          if (sql.includes('from app.box_transfers')) return [];
+          throw new Error('Unexpected read');
+        },
+      },
+    );
+    return logicalReads;
+  };
+
+  const zero = await run(0);
+  const one = await run(1);
+  const many = await run(25);
+  assert.deepEqual(zero, ['organization', 'warehouses', 'owners', 'boxes', 'pending-transfers']);
+  assert.deepEqual(one, [...zero, 'checked-out-context']);
+  assert.deepEqual(many, one);
+});
+
+test('local audit adapter matches the exact cross-runtime version-2 public golden', async () => {
+  const report = await buildWarehouseAssetAuditFromDatabase(
+    {},
+    ORG_ID,
+    {},
+    { generatedAt: '2026-07-21T12:00:00.000Z', generatedBy: 'Reader' },
+    {
+      queryRow: async (_client, sql) => (
+        sql.includes('jsonb_build_object')
+          ? { checkout_context: checkoutContext() }
+          : { org_id: ORG_ID, name: 'Test Organization' }
+      ),
+      queryRows: async (_client, sql) => {
+        if (sql.includes('from app.warehouses')) {
+          return [{ org_id: ORG_ID, code: 'IL1', name: 'Wauconda IL1' }];
+        }
+        if (sql.includes('from app.owner_companies')) return [];
+        if (sql.includes('from app.boxes')) {
+          return [box({
+            status: 'CHECKED_OUT',
+            feet_available: 50,
+            physical_feet_available: 50,
+          })];
+        }
+        if (sql.includes('from app.box_transfers')) return [];
+        throw new Error('Unexpected read');
+      },
+    },
+  );
+
+  assert.equal(canonicalHash(report), ADAPTER_PARITY_GOLDEN);
 });
 
 test('warehouse asset audit route is reports-read, local parity, and no-store', () => {

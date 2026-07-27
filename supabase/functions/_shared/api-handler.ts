@@ -49,6 +49,14 @@ import {
 } from "./services/jobsCaulkSummary.ts";
 import { listRollHistoryByJob as listRollHistoryByJobFromService } from "./services/rollHistory.ts";
 import { buildWarehouseAssetAuditFromEdge } from "./services/warehouseAssetAudit.ts";
+import {
+  chooseCurrentJobPhaseGroup,
+  compareJobPhasesByNumber,
+  getJobPhaseWorkflowStatus,
+  isJobPhaseComplete,
+  isJobPhaseWorkflowActive,
+  resolveCurrentJobCrewLeader,
+} from "../../../shared/domain/jobCurrentAssignment.mjs";
 import { requiresNoStoreResponse } from "../../../shared/domain/runtimeContract.mjs";
 import {
   buildCurrentCheckedOutAllocationIdSet,
@@ -5296,55 +5304,26 @@ function filterRequirementLinkedEntriesForPhase(
 }
 
 function isPhaseCompleteFromRequirements(phase: any, requirements: any[], caulkRequirements: any[] = []) {
-  const filmRequirements = Array.isArray(requirements) ? requirements : [];
-  const caulkEntries = Array.isArray(caulkRequirements) ? caulkRequirements : [];
-  if (filmRequirements.length > 0 || caulkEntries.length > 0) {
-    return (
-      filmRequirements.every((entry) => isRequirementComplete(entry)) &&
-      caulkEntries.every((entry) => isCaulkRequirementComplete(entry))
-    );
-  }
-  return asTrimmedString(phase?.laborStatus || phase?.status).toUpperCase() === "COMPLETE";
+  return isJobPhaseComplete(phase, requirements, caulkRequirements);
 }
 
 function comparePhasesByNumber(left: any, right: any): number {
-  const leftNumber = integerOrZero(left?.phaseNumber) || 1;
-  const rightNumber = integerOrZero(right?.phaseNumber) || 1;
-  if (leftNumber !== rightNumber) {
-    return leftNumber - rightNumber;
-  }
-  return compareCatalogStrings(left?.phaseId, right?.phaseId);
+  return compareJobPhasesByNumber(left, right, compareCatalogStrings);
 }
 
 function getPhaseWorkflowStatus(phase: any) {
-  return asTrimmedString(phase?.workflowStatus || phase?.workflow_status).toUpperCase() === "PLACEHOLDER"
-    ? "PLACEHOLDER"
-    : "ACTIVE";
+  return getJobPhaseWorkflowStatus(phase);
 }
 
 function isPhaseWorkflowActive(phase: any) {
-  return getPhaseWorkflowStatus(phase) === "ACTIVE";
+  return isJobPhaseWorkflowActive(phase);
 }
 
 function chooseNextRelevantPhaseGroup(phases: any[]) {
-  const incomplete = (Array.isArray(phases) ? phases : [])
-    .filter((phase) => !phase.isComplete && isPhaseWorkflowActive(phase))
-    .slice();
-  if (!incomplete.length) {
-    return [];
-  }
-  const today = todayDateString();
-  const dated = incomplete.filter((phase) => asTrimmedString(phase.installDate));
-  const pastOrToday = dated
-    .filter((phase) => asTrimmedString(phase.installDate) <= today)
-    .sort((left, right) => left.installDate !== right.installDate ? (left.installDate < right.installDate ? -1 : 1) : comparePhasesByNumber(left, right));
-  const future = dated
-    .filter((phase) => asTrimmedString(phase.installDate) > today)
-    .sort((left, right) => left.installDate !== right.installDate ? (left.installDate < right.installDate ? -1 : 1) : comparePhasesByNumber(left, right));
-  const source = pastOrToday.length ? pastOrToday : future.length ? future : incomplete.sort(comparePhasesByNumber);
-  const first = source[0];
-  const installDate = asTrimmedString(first.installDate);
-  return installDate ? source.filter((phase) => asTrimmedString(phase.installDate) === installDate) : [first];
+  return chooseCurrentJobPhaseGroup(phases, {
+    today: todayDateString(),
+    compareStrings: compareCatalogStrings,
+  });
 }
 
 function combinePhaseGroupStatus(phases: any[]) {
@@ -5478,7 +5457,7 @@ function buildJobPhaseEntries(
   }));
 }
 
-function buildJobListEntry(
+export function buildJobListEntry(
   jobHeader: any,
   requirements: any[],
   allocations: any[],
@@ -5514,7 +5493,11 @@ function buildJobListEntry(
     installDate = metadata.installDate;
   }
   const installEndDate = asTrimmedString(currentPhase?.installEndDate);
-  const crewLeader = asTrimmedString(currentPhase?.crewLeader) || asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
+  const crewLeader = resolveCurrentJobCrewLeader({
+    currentPhase,
+    jobCrewLeader: jobHeader.crewLeader,
+    legacyCrewLeader: metadata.crewLeader,
+  });
   let requiredFeet = 0;
   let allocatedFeet = 0;
   let allocatedWithInstallDateFeet = 0;

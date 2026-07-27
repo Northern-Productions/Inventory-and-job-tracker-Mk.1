@@ -6015,6 +6015,19 @@ td.col-available-linear-ft {
   vertical-align: top;
 }
 
+.warehouse-asset-audit-status-stack {
+  display: grid;
+  gap: 0.12em;
+  max-width: 100%;
+  line-height: 1.22;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.warehouse-asset-audit-status-primary {
+  font-weight: 700;
+}
+
 .warehouse-asset-audit-table .warehouse-asset-audit-col-width,
 .warehouse-asset-audit-table .warehouse-asset-audit-col-on-hand-lf,
 .warehouse-asset-audit-table .warehouse-asset-audit-col-asset-cost {
@@ -6394,6 +6407,12 @@ td.col-available-linear-ft {
 
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table td {
     text-wrap: pretty;
+  }
+
+  body.warehouse-asset-audit-printing .warehouse-asset-audit-status-stack {
+    justify-items: center;
+    line-height: 1.18;
+    text-align: center;
   }
 
   body.warehouse-asset-audit-printing .warehouse-asset-audit-table

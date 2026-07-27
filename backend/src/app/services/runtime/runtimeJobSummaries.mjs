@@ -2,6 +2,14 @@
 import { buildCurrentCheckedOutAllocationIdSet } from '../../../../../shared/checkoutSemantics.mjs';
 import { hasSameDayCrewConflict } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 import {
+  chooseCurrentJobPhaseGroup,
+  compareJobPhasesByNumber,
+  getJobPhaseWorkflowStatus,
+  isJobPhaseComplete,
+  isJobPhaseWorkflowActive,
+  resolveCurrentJobCrewLeader,
+} from '../../../../../shared/domain/jobCurrentAssignment.mjs';
+import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
   queryRow,
@@ -638,13 +646,11 @@ function getEntryPhaseId(entry) {
 }
 
 function getPhaseWorkflowStatus(phase) {
-  return asTrimmedString(phase?.workflowStatus || phase?.workflow_status).toUpperCase() === 'PLACEHOLDER'
-    ? 'PLACEHOLDER'
-    : 'ACTIVE';
+  return getJobPhaseWorkflowStatus(phase);
 }
 
 function isPhaseWorkflowActive(phase) {
-  return getPhaseWorkflowStatus(phase) === 'ACTIVE';
+  return isJobPhaseWorkflowActive(phase);
 }
 
 function getPhaseDisplayWorkScope(phase, fallback = null) {
@@ -700,67 +706,18 @@ function filterRequirementLinkedEntriesForPhase(entries, phase, requirementIds, 
 }
 
 function isPhaseCompleteFromRequirements(phase, requirements, caulkRequirements = []) {
-  const filmRequirements = Array.isArray(requirements) ? requirements : [];
-  const caulkEntries = Array.isArray(caulkRequirements) ? caulkRequirements : [];
-  if (filmRequirements.length > 0 || caulkEntries.length > 0) {
-    return (
-      filmRequirements.every((entry) => isRequirementComplete(entry)) &&
-      caulkEntries.every((entry) => isCaulkRequirementComplete(entry))
-    );
-  }
-
-  return asTrimmedString(phase?.laborStatus || phase?.status).toUpperCase() === 'COMPLETE';
+  return isJobPhaseComplete(phase, requirements, caulkRequirements);
 }
 
 function comparePhasesByNumber(left, right) {
-  const leftNumber = integerOrZero(left?.phaseNumber) || 1;
-  const rightNumber = integerOrZero(right?.phaseNumber) || 1;
-  if (leftNumber !== rightNumber) {
-    return leftNumber - rightNumber;
-  }
-
-  return compareCatalogStrings(left?.phaseId, right?.phaseId);
+  return compareJobPhasesByNumber(left, right, compareCatalogStrings);
 }
 
 function chooseNextRelevantPhaseGroup(phases) {
-  const incomplete = (Array.isArray(phases) ? phases : [])
-    .filter((phase) => !phase.isComplete && isPhaseWorkflowActive(phase))
-    .slice();
-  if (!incomplete.length) {
-    return [];
-  }
-
-  const today = todayDateString();
-  const dated = incomplete.filter((phase) => asTrimmedString(phase.installDate));
-  const pastOrToday = dated
-    .filter((phase) => asTrimmedString(phase.installDate) <= today)
-    .sort((left, right) => {
-      if (left.installDate !== right.installDate) {
-        return left.installDate < right.installDate ? -1 : 1;
-      }
-      return comparePhasesByNumber(left, right);
-    });
-  const future = dated
-    .filter((phase) => asTrimmedString(phase.installDate) > today)
-    .sort((left, right) => {
-      if (left.installDate !== right.installDate) {
-        return left.installDate < right.installDate ? -1 : 1;
-      }
-      return comparePhasesByNumber(left, right);
-    });
-
-  const source = pastOrToday.length
-    ? pastOrToday
-    : future.length
-      ? future
-      : incomplete.sort(comparePhasesByNumber);
-  const first = source[0];
-  const installDate = asTrimmedString(first.installDate);
-  if (!installDate) {
-    return [first];
-  }
-
-  return source.filter((phase) => asTrimmedString(phase.installDate) === installDate);
+  return chooseCurrentJobPhaseGroup(phases, {
+    today: todayDateString(),
+    compareStrings: compareCatalogStrings,
+  });
 }
 
 function combinePhaseGroupStatus(phases) {
@@ -930,7 +887,11 @@ function buildJobListEntry(
     installDate = metadata.installDate;
   }
   const installEndDate = asTrimmedString(currentPhase?.installEndDate);
-  const crewLeader = asTrimmedString(currentPhase?.crewLeader) || asTrimmedString(jobHeader.crewLeader) || metadata.crewLeader;
+  const crewLeader = resolveCurrentJobCrewLeader({
+    currentPhase,
+    jobCrewLeader: jobHeader.crewLeader,
+    legacyCrewLeader: metadata.crewLeader,
+  });
 
   let requiredFeet = 0;
   let allocatedFeet = 0;

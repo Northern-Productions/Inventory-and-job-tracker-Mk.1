@@ -33,6 +33,16 @@ function createFakeClient(tableRows: Record<string, Row[]>, failTable = '') {
       return this;
     }
 
+    in(column: string, values: unknown[]) {
+      this.filters.push([column, { values }]);
+      return this;
+    }
+
+    is(column: string, value: null) {
+      this.filters.push([column, { is: value }]);
+      return this;
+    }
+
     order(column: string) {
       this.orderColumn = column;
       return this;
@@ -40,7 +50,19 @@ function createFakeClient(tableRows: Record<string, Row[]>, failTable = '') {
 
     filteredRows() {
       return (tableRows[this.table] || [])
-        .filter((row) => this.filters.every(([column, value]) => row[column] === value))
+        .filter((row) => this.filters.every(([column, value]) => {
+          if (
+            value &&
+            typeof value === 'object' &&
+            Array.isArray((value as { values?: unknown[] }).values)
+          ) {
+            return (value as { values: unknown[] }).values.includes(row[column]);
+          }
+          if (value && typeof value === 'object' && 'is' in value) {
+            return row[column] === (value as { is: unknown }).is;
+          }
+          return row[column] === value;
+        }))
         .slice()
         .sort((left, right) => String(left[this.orderColumn] || '').localeCompare(String(right[this.orderColumn] || '')));
     }
@@ -73,6 +95,27 @@ function createFakeClient(tableRows: Record<string, Row[]>, failTable = '') {
 }
 
 const ORG_ID = 'org-1';
+const ADAPTER_PARITY_GOLDEN = '63aa2ff8dbbe3584ea23823357aa050e4b119fd4e5a5e23e52494c5a4bb8182f';
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((key) => [key, canonicalize((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return value;
+}
+
+async function canonicalHash(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalize(value)));
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, (entry) => entry.toString(16).padStart(2, '0')).join('');
+}
 
 function edgeBox(index: number): Row {
   return {
@@ -92,6 +135,17 @@ function edgeBox(index: number): Row {
     lf_weight_lbs_per_ft: null,
     price_per_lf: '1.00',
     purchase_cost: null,
+  };
+}
+
+function checkedOutEdgeBox(index: number): Row {
+  return {
+    ...edgeBox(index),
+    status: 'CHECKED_OUT',
+    direct_to_job_site: false,
+    last_checkout_job_id: 'job-1',
+    last_checkout_job: 'IL1-1234',
+    feet_available: 50,
   };
 }
 
@@ -170,6 +224,182 @@ Deno.test('Edge warehouse asset audit converts read failures to a generic safe e
     return;
   }
   throw new Error('Expected Edge report read to fail.');
+});
+
+Deno.test('Edge audit adapter uses a fixed logical read count for one or many checked-out boxes', async () => {
+  const run = async (count: number) => {
+    const logicalReads: string[] = [];
+    const client = createFakeClient({
+      organizations: [{ id: ORG_ID, name: 'Test Organization' }],
+      warehouses: [{ id: 'warehouse-1', org_id: ORG_ID, code: 'IL1', name: 'Wauconda IL1' }],
+      owner_companies: [],
+      boxes: Array.from({ length: count }, (_, index) => checkedOutEdgeBox(index)),
+      box_transfers: [],
+      allocations: [],
+      film_order_box_links: [],
+      film_orders: [],
+      jobs: [{
+        id: 'job-1',
+        org_id: ORG_ID,
+        job_number: 'IL1-1234',
+        warehouse: 'IL1',
+        crew_leader: '',
+      }],
+      job_phases: [{
+        id: 'phase-1',
+        org_id: ORG_ID,
+        job_id: 'job-1',
+        phase_number: 1,
+        install_date: '2026-07-21',
+        crew_leader: '',
+        labor_status: 'ACTIVE',
+        workflow_status: 'ACTIVE',
+        is_primary: true,
+      }],
+      job_requirements: [],
+      job_caulk_requirements: [],
+    });
+    const report = await buildWarehouseAssetAuditFromEdge(
+      client,
+      ORG_ID,
+      {},
+      { generatedAt: '2026-07-21T12:00:00.000Z', generatedBy: 'Reader' },
+      { onLogicalRead: (name) => logicalReads.push(name) },
+    );
+    return { logicalReads, report };
+  };
+
+  const zero = await run(0);
+  const one = await run(1);
+  const many = await run(30);
+  assertEquals(zero.logicalReads.length, 6, 'Zero checked-out boxes use the base fast path.');
+  assertEquals(one.logicalReads.length, 16, 'Checked-out context uses a fixed set of batched reads.');
+  assertEquals(many.logicalReads, one.logicalReads, 'Read count and categories cannot grow with checked-out rows.');
+  assertEquals(one.report.rows[0].checkedOutCrewLeaderName, null, 'Missing crew remains valid.');
+  assertEquals(many.report.rows.length, 30, 'All checked-out boxes remain present.');
+});
+
+Deno.test('Edge audit adapter preserves legacy compatible-number crew fallback without per-row reads', async () => {
+  const logicalReads: string[] = [];
+  const client = createFakeClient({
+    organizations: [{ id: ORG_ID, name: 'Test Organization' }],
+    warehouses: [{ id: 'warehouse-1', org_id: ORG_ID, code: 'IL1', name: 'Wauconda IL1' }],
+    owner_companies: [],
+    boxes: [{
+      ...checkedOutEdgeBox(1),
+      last_checkout_job_id: null,
+      last_checkout_job: '1234',
+    }],
+    box_transfers: [],
+    allocations: [{
+      id: 'legacy-allocation',
+      org_id: ORG_ID,
+      allocation_id: 'legacy-allocation',
+      box_id: 'IL1-0001',
+      allocated_feet: 1,
+      allocation_kind: 'EXTRA',
+      requirement_id: null,
+      job_id: null,
+      job_number: '1234',
+      warehouse: 'IL1',
+      crew_leader: 'Legacy Crew',
+      status: 'CANCELLED',
+      created_at: '2026-07-01T00:00:00Z',
+    }],
+    film_order_box_links: [],
+    film_orders: [],
+    jobs: [{
+      id: 'job-1',
+      org_id: ORG_ID,
+      job_number: 'IL1-1234',
+      warehouse: 'IL1',
+      crew_leader: '',
+    }],
+    job_phases: [],
+    job_requirements: [],
+    job_caulk_requirements: [],
+  });
+
+  const report = await buildWarehouseAssetAuditFromEdge(
+    client,
+    ORG_ID,
+    {},
+    { generatedAt: '2026-07-21T12:00:00.000Z', generatedBy: 'Reader' },
+    { onLogicalRead: (name) => logicalReads.push(name) },
+  );
+
+  assertEquals(
+    report.rows[0].checkedOutCrewLeaderName,
+    'Legacy Crew',
+    'Compatible unprefixed legacy evidence must retain crew fallback.',
+  );
+  assertEquals(logicalReads.length, 16, 'Legacy fallback must use the fixed batched read set.');
+});
+
+Deno.test('Edge audit adapter matches the exact cross-runtime version-2 public golden', async () => {
+  const client = createFakeClient({
+    organizations: [{ id: ORG_ID, name: 'Test Organization' }],
+    warehouses: [{ id: 'warehouse-1', org_id: ORG_ID, code: 'IL1', name: 'Wauconda IL1' }],
+    owner_companies: [],
+    boxes: [{
+      id: '10000000-0000-4000-8000-000000000001',
+      org_id: ORG_ID,
+      box_id: 'IL1-100',
+      warehouse: 'IL1',
+      owner_company_id: null,
+      manufacturer: '3M Solar',
+      film_name: 'Prestige 70',
+      width_in: 60,
+      initial_feet: 100,
+      feet_available: 50,
+      status: 'CHECKED_OUT',
+      direct_to_job_site: false,
+      last_checkout_job_id: 'job-1',
+      last_checkout_job: 'IL1-1234',
+      last_roll_weight_lbs: null,
+      core_weight_lbs: null,
+      lf_weight_lbs_per_ft: null,
+      price_per_lf: null,
+      purchase_cost: null,
+    }],
+    box_transfers: [],
+    allocations: [],
+    film_order_box_links: [],
+    film_orders: [],
+    jobs: [{
+      id: 'job-1',
+      org_id: ORG_ID,
+      job_number: 'IL1-1234',
+      warehouse: 'IL1',
+      crew_leader: 'Header Crew',
+    }],
+    job_phases: [{
+      id: '40000000-0000-4000-8000-000000000001',
+      org_id: ORG_ID,
+      job_id: 'job-1',
+      phase_number: 1,
+      install_date: '2026-07-21',
+      crew_leader: 'Phase Crew',
+      labor_status: 'ACTIVE',
+      workflow_status: 'ACTIVE',
+      is_primary: true,
+    }],
+    job_requirements: [],
+    job_caulk_requirements: [],
+  });
+
+  const report = await buildWarehouseAssetAuditFromEdge(
+    client,
+    ORG_ID,
+    {},
+    { generatedAt: '2026-07-21T12:00:00.000Z', generatedBy: 'Reader' },
+  );
+
+  assertEquals(
+    await canonicalHash(report),
+    ADAPTER_PARITY_GOLDEN,
+    'Edge and local adapters must return the exact same canonical public response.',
+  );
 });
 
 Deno.test('Edge generic pager terminates only after a short page', async () => {

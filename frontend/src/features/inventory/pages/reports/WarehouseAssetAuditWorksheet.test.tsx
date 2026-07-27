@@ -32,6 +32,8 @@ function buildSnapshot(rowCount = 1): WarehouseAssetAuditResponse {
     pendingTransferDestination: null,
     status: 'IN_STOCK' as const,
     statusLabel: 'In Stock',
+    checkedOutJobNumber: null,
+    checkedOutCrewLeaderName: null,
     manufacturer: '3M Solar',
     filmName: 'Prestige 70',
     widthIn: 60,
@@ -40,7 +42,7 @@ function buildSnapshot(rowCount = 1): WarehouseAssetAuditResponse {
     onHandAssetCostCents: '12500'
   }));
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     metadata: {
       organizationName: 'Test Organization',
       generatedAt: '2026-07-21T12:00:00.000Z',
@@ -112,6 +114,36 @@ describe('WarehouseAssetAuditWorksheet', () => {
     expect(rows).toHaveLength(127);
     expect(new Set(rows.map((row) => row.getAttribute('data-audit-row-id'))).size).toBe(127);
     expect(container.querySelector('[data-audit-expected-row-count="127"]')).not.toBeNull();
+  });
+
+  it('uses one shared checked-out Status presentation for screen and print rows', () => {
+    const snapshot = buildSnapshot(2);
+    snapshot.rows[0] = {
+      ...snapshot.rows[0],
+      status: 'CHECKED_OUT',
+      statusLabel: 'Checked Out',
+      custodyBasis: 'CHECKOUT_SOURCE',
+      checkedOutJobNumber: '17380',
+      checkedOutCrewLeaderName: 'Alexis'
+    };
+    snapshot.rows[1] = {
+      ...snapshot.rows[1],
+      status: 'CHECKED_OUT',
+      statusLabel: 'Checked Out',
+      custodyBasis: 'CHECKOUT_SOURCE',
+      checkedOutJobNumber: '17381',
+      checkedOutCrewLeaderName: null
+    };
+    const { container } = render(<WarehouseAssetAuditWorksheet snapshot={snapshot} />);
+    const statusCells = Array.from(
+      container.querySelectorAll('tbody .warehouse-asset-audit-col-status')
+    );
+
+    expect(statusCells[0]?.textContent).toBe('Checked OutJob #17380Alexis');
+    expect(statusCells[1]?.textContent).toBe('Checked OutJob #17381N/A');
+    expect(statusCells.every((cell) =>
+      cell.querySelectorAll('.warehouse-asset-audit-status-stack').length === 1
+    )).toBe(true);
   });
 
   it('prints Unassigned, immutable metadata, and matching first-page and final totals', () => {

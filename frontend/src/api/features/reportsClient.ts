@@ -8,6 +8,70 @@ import type {
 } from '../../domain';
 import { assertFeatureAccess, assertOwnerAccess, requestReadWithFallback } from './sharedClient';
 
+const WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR =
+  'Warehouse asset audit data is incompatible with this application version.';
+const EXACT_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isNullableSafeDisplayText(value: unknown) {
+  return value === null || (
+    typeof value === 'string' &&
+    Boolean(value.trim()) &&
+    !EXACT_UUID_PATTERN.test(value.trim())
+  );
+}
+
+export function assertWarehouseAssetAuditV2Response(
+  value: unknown
+): asserts value is WarehouseAssetAuditResponse {
+  if (!isRecord(value) || value.snapshotVersion !== 2 || !Array.isArray(value.rows)) {
+    throw new Error(WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR);
+  }
+  if (
+    !isRecord(value.metadata) ||
+    typeof value.metadata.organizationName !== 'string' ||
+    typeof value.metadata.generatedAt !== 'string' ||
+    typeof value.metadata.generatedBy !== 'string' ||
+    !isRecord(value.appliedFilters) ||
+    !Array.isArray(value.appliedFilters.statuses) ||
+    !isRecord(value.appliedFilterLabels) ||
+    !isRecord(value.filterOptions) ||
+    !Array.isArray(value.filterOptions.owners) ||
+    !Array.isArray(value.filterOptions.warehouses) ||
+    !isRecord(value.totals)
+  ) {
+    throw new Error(WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR);
+  }
+
+  for (const entry of value.rows) {
+    if (!isRecord(entry)) {
+      throw new Error(WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR);
+    }
+    const status = entry.status;
+    const checkedOutJobNumber = entry.checkedOutJobNumber;
+    const checkedOutCrewLeaderName = entry.checkedOutCrewLeaderName;
+    if (!['IN_STOCK', 'CHECKED_OUT', 'TRANSFER'].includes(String(status))) {
+      throw new Error(WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR);
+    }
+    if (status === 'CHECKED_OUT') {
+      if (
+        typeof checkedOutJobNumber !== 'string' ||
+        !checkedOutJobNumber.trim() ||
+        EXACT_UUID_PATTERN.test(checkedOutJobNumber.trim()) ||
+        !isNullableSafeDisplayText(checkedOutCrewLeaderName)
+      ) {
+        throw new Error(WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR);
+      }
+    } else if (checkedOutJobNumber !== null || checkedOutCrewLeaderName !== null) {
+      throw new Error(WAREHOUSE_ASSET_AUDIT_CONTRACT_ERROR);
+    }
+  }
+}
+
 export async function getReportsSummary(filters: ReportsSummaryFilters): Promise<ReportsSummary> {
   assertFeatureAccess('reports', 'read');
   const params = {
@@ -77,7 +141,7 @@ export async function getWarehouseAssetAuditReport(
     statuses: filters.statuses,
     q: filters.q
   };
-  return requestReadWithFallback<WarehouseAssetAuditResponse>(
+  const response = await requestReadWithFallback<unknown>(
     '/reports/warehouse-asset-audit',
     params,
     params,
@@ -86,4 +150,6 @@ export async function getWarehouseAssetAuditReport(
       ...(options.signal ? { signal: options.signal } : {})
     }
   );
+  assertWarehouseAssetAuditV2Response(response);
+  return response;
 }

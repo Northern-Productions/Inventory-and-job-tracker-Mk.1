@@ -26,6 +26,7 @@ import {
 } from './client';
 import { createDefaultFeatureAccessMap, type EffectiveAccessContext } from '../domain';
 import { APIError, request } from './http';
+import { assertWarehouseAssetAuditV2Response } from './features/reportsClient';
 
 const requestMock = vi.mocked(request);
 
@@ -149,7 +150,7 @@ describe('reports API client', () => {
     setClientAccessContext(accessContext);
     requestMock.mockResolvedValueOnce({
       data: {
-        snapshotVersion: 1,
+        snapshotVersion: 2,
         metadata: {
           organizationName: 'Test Organization',
           generatedAt: '2026-07-21T12:00:00.000Z',
@@ -220,6 +221,49 @@ describe('reports API client', () => {
       cache: 'no-store',
       signal: controller.signal
     });
+  });
+
+  it('rejects Edge v1 and malformed version-2 checked-out context with one safe error', () => {
+    const safeError = 'Warehouse asset audit data is incompatible with this application version.';
+    expect(() => assertWarehouseAssetAuditV2Response({ snapshotVersion: 1 })).toThrow(safeError);
+
+    const base = {
+      snapshotVersion: 2,
+      metadata: {
+        organizationName: 'Test Organization',
+        generatedAt: '2026-07-21T12:00:00.000Z',
+        generatedBy: 'Test User'
+      },
+      appliedFilters: { statuses: [] },
+      appliedFilterLabels: {},
+      filterOptions: { owners: [], warehouses: [] },
+      totals: {},
+      rows: []
+    };
+    expect(() => assertWarehouseAssetAuditV2Response({
+      ...base,
+      rows: [{
+        status: 'CHECKED_OUT',
+        checkedOutJobNumber: null,
+        checkedOutCrewLeaderName: null
+      }]
+    })).toThrow(safeError);
+    expect(() => assertWarehouseAssetAuditV2Response({
+      ...base,
+      rows: [{
+        status: 'IN_STOCK',
+        checkedOutJobNumber: '1234',
+        checkedOutCrewLeaderName: null
+      }]
+    })).toThrow(safeError);
+    expect(() => assertWarehouseAssetAuditV2Response({
+      ...base,
+      rows: [{
+        status: 'CHECKED_OUT',
+        checkedOutJobNumber: '1234',
+        checkedOutCrewLeaderName: null
+      }]
+    })).not.toThrow();
   });
 
   it('rejects owner asset total cost for non-owner context', async () => {

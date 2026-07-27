@@ -23,6 +23,19 @@ export function formatAuditNumber(value: number) {
   return NUMBER_FORMATTER.format(value);
 }
 
+export function WarehouseAssetAuditStatusCell({ row }: { row: WarehouseAssetAuditRow }) {
+  if (row.status !== 'CHECKED_OUT') {
+    return <span className="warehouse-asset-audit-status-stack">{row.statusLabel}</span>;
+  }
+  return (
+    <span className="warehouse-asset-audit-status-stack">
+      <span className="warehouse-asset-audit-status-primary">{row.statusLabel}</span>
+      <span>{`Job #${row.checkedOutJobNumber}`}</span>
+      <span>{row.checkedOutCrewLeaderName || 'N/A'}</span>
+    </span>
+  );
+}
+
 function formatGeneratedAt(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
@@ -36,7 +49,9 @@ export function WarehouseAssetAuditRows({ rows }: { rows: WarehouseAssetAuditRow
           <td className="warehouse-asset-audit-col-box-id">{row.boxId}</td>
           <td className="warehouse-asset-audit-col-owner">{row.ownerCompanyLabel}</td>
           <td className="warehouse-asset-audit-col-custody">{row.warehouse}</td>
-          <td className="warehouse-asset-audit-col-status">{row.statusLabel}</td>
+          <td className="warehouse-asset-audit-col-status">
+            <WarehouseAssetAuditStatusCell row={row} />
+          </td>
           <td className="warehouse-asset-audit-col-manufacturer">{row.manufacturer}</td>
           <td className="warehouse-asset-audit-col-film">{row.filmName}</td>
           <td className="warehouse-asset-audit-col-width">{formatAuditNumber(row.widthIn)}&quot;</td>

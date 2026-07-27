@@ -2,6 +2,12 @@ import {
   getStoredPhysicalFootprintEntries,
   sumAllocatedFeet,
 } from './filmAllocationReservations.mjs';
+import {
+  getJobPhaseWorkflowStatus,
+  isJobPhaseComplete,
+  resolveCurrentJobCrewLeader,
+  selectCurrentJobPhase,
+} from './jobCurrentAssignment.mjs';
 
 const OPERATIONAL_BOX_STATUSES = Object.freeze(['IN_STOCK', 'CHECKED_OUT', 'TRANSFER']);
 const COST_BASIS_CATEGORIES = Object.freeze([
@@ -10,6 +16,11 @@ const COST_BASIS_CATEGORIES = Object.freeze([
   'MISSING',
 ]);
 const UNASSIGNED_OWNER_FILTER = 'UNASSIGNED';
+const CHECKOUT_CONTEXT_INTEGRITY_CODE = 'WAREHOUSE_ASSET_AUDIT_CHECKOUT_CONTEXT_INTEGRITY';
+const CHECKOUT_CONTEXT_INTEGRITY_MESSAGE =
+  'Checked-out assignment context is inconsistent. The warehouse asset audit is unavailable.';
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const STATUS_LABELS = Object.freeze({
   IN_STOCK: 'In Stock',
@@ -37,6 +48,404 @@ function readValue(source, ...keys) {
     }
   }
   return undefined;
+}
+
+function failCheckoutContextIntegrity() {
+  throw new WarehouseAssetAuditError(
+    CHECKOUT_CONTEXT_INTEGRITY_MESSAGE,
+    CHECKOUT_CONTEXT_INTEGRITY_CODE,
+    409,
+  );
+}
+
+function assertCheckoutContextOrg(entry, expectedOrgId) {
+  if (asTrimmedString(readValue(entry, 'orgId', 'org_id')) !== expectedOrgId) {
+    failCheckoutContextIntegrity();
+  }
+}
+
+function normalizeJobNumberKey(value) {
+  return asTrimmedString(value).toUpperCase();
+}
+
+function getCompatibleJobNumberKeys(value, warehouse) {
+  const normalized = normalizeJobNumberKey(value);
+  if (!normalized) {
+    return [];
+  }
+  const keys = new Set([normalized]);
+  const prefix = `${normalizeUpper(warehouse)}-`;
+  if (prefix !== '-' && normalized.startsWith(prefix) && normalized.length > prefix.length) {
+    keys.add(normalized.slice(prefix.length));
+  }
+  return [...keys];
+}
+
+function jobNumbersAreCompatible(leftValue, leftWarehouse, rightValue, rightWarehouse) {
+  const rightKeys = new Set(getCompatibleJobNumberKeys(rightValue, rightWarehouse));
+  return getCompatibleJobNumberKeys(leftValue, leftWarehouse).some((key) => rightKeys.has(key));
+}
+
+function formatCheckedOutJobNumber(job) {
+  const jobNumber = asTrimmedString(readValue(job, 'jobNumber', 'job_number'));
+  if (!jobNumber || UUID_PATTERN.test(jobNumber)) {
+    failCheckoutContextIntegrity();
+  }
+  const warehouse = normalizeUpper(readValue(job, 'warehouse'));
+  const prefix = `${warehouse}-`;
+  if (
+    warehouse &&
+    jobNumber.toUpperCase().startsWith(prefix) &&
+    jobNumber.length > prefix.length
+  ) {
+    return jobNumber.slice(prefix.length);
+  }
+  return jobNumber;
+}
+
+function indexCheckoutJobs(jobs, expectedOrgId) {
+  const byId = new Map();
+  const entries = [];
+  for (const job of Array.isArray(jobs) ? jobs : []) {
+    assertCheckoutContextOrg(job, expectedOrgId);
+    const id = asTrimmedString(readValue(job, 'id', 'jobId', 'job_id'));
+    const jobNumber = asTrimmedString(readValue(job, 'jobNumber', 'job_number'));
+    if (!id || !jobNumber || byId.has(id)) {
+      failCheckoutContextIntegrity();
+    }
+    const normalized = {
+      ...job,
+      id,
+      jobNumber,
+      warehouse: normalizeUpper(readValue(job, 'warehouse')),
+      crewLeader: asTrimmedString(readValue(job, 'crewLeader', 'crew_leader')),
+    };
+    byId.set(id, normalized);
+    entries.push(normalized);
+  }
+  return { byId, entries };
+}
+
+function findCompatibleJobs(jobs, jobNumber, warehouse) {
+  if (!asTrimmedString(jobNumber)) {
+    return [];
+  }
+  return jobs.filter((job) =>
+    jobNumbersAreCompatible(jobNumber, warehouse, job.jobNumber, job.warehouse)
+  );
+}
+
+function resolveJobEvidence(entry, jobsById, jobs, fallbackWarehouse = '') {
+  const jobId = asTrimmedString(readValue(entry, 'jobId', 'job_id'));
+  const jobNumber = asTrimmedString(readValue(entry, 'jobNumber', 'job_number'));
+  if (jobId) {
+    const job = jobsById.get(jobId);
+    if (
+      !job ||
+      (jobNumber &&
+        !jobNumbersAreCompatible(jobNumber, fallbackWarehouse, job.jobNumber, job.warehouse))
+    ) {
+      failCheckoutContextIntegrity();
+    }
+    return job;
+  }
+  const matches = findCompatibleJobs(jobs, jobNumber, fallbackWarehouse);
+  if (matches.length !== 1) {
+    failCheckoutContextIntegrity();
+  }
+  return matches[0];
+}
+
+function indexFilmOrders(filmOrders, expectedOrgId) {
+  const byBusinessId = new Map();
+  for (const entry of Array.isArray(filmOrders) ? filmOrders : []) {
+    assertCheckoutContextOrg(entry, expectedOrgId);
+    const filmOrderId = asTrimmedString(readValue(entry, 'filmOrderId', 'film_order_id'));
+    if (!filmOrderId || byBusinessId.has(filmOrderId)) {
+      failCheckoutContextIntegrity();
+    }
+    byBusinessId.set(filmOrderId, entry);
+  }
+  return byBusinessId;
+}
+
+function buildDirectJobsByBox(
+  links,
+  filmOrdersByBusinessId,
+  jobsById,
+  jobs,
+  boxesByBusinessId,
+  expectedOrgId,
+) {
+  const result = new Map();
+  const seenLinks = new Set();
+  for (const link of Array.isArray(links) ? links : []) {
+    assertCheckoutContextOrg(link, expectedOrgId);
+    const linkId = asTrimmedString(readValue(link, 'id', 'linkId', 'link_id'));
+    const boxId = normalizeUpper(readValue(link, 'boxId', 'box_id'));
+    const filmOrderId = asTrimmedString(readValue(link, 'filmOrderId', 'film_order_id'));
+    if (!linkId || seenLinks.has(linkId) || !boxId || !filmOrderId) {
+      failCheckoutContextIntegrity();
+    }
+    seenLinks.add(linkId);
+    const box = boxesByBusinessId.get(boxId);
+    if (!box) {
+      failCheckoutContextIntegrity();
+    }
+    if (readValue(box, 'directToJobSite', 'direct_to_job_site') !== true) {
+      continue;
+    }
+    const filmOrder = filmOrdersByBusinessId.get(filmOrderId);
+    if (!filmOrder) {
+      failCheckoutContextIntegrity();
+    }
+    const job = resolveJobEvidence(
+      filmOrder,
+      jobsById,
+      jobs,
+      readValue(filmOrder, 'warehouse'),
+    );
+    const current = result.get(boxId) || new Map();
+    current.set(job.id, job);
+    result.set(boxId, current);
+  }
+  return result;
+}
+
+function groupCheckoutRowsByJob(rows, expectedOrgId, jobsById, jobs) {
+  const result = new Map();
+  for (const entry of Array.isArray(rows) ? rows : []) {
+    assertCheckoutContextOrg(entry, expectedOrgId);
+    const job = resolveJobEvidence(entry, jobsById, jobs, readValue(entry, 'warehouse'));
+    const current = result.get(job.id) || [];
+    current.push(entry);
+    result.set(job.id, current);
+  }
+  return result;
+}
+
+function buildCurrentPhase(job, phases, filmRequirements, caulkRequirements, today) {
+  const phaseEntries = (Array.isArray(phases) ? phases : []).map((phase) => {
+    const phaseId = asTrimmedString(readValue(phase, 'phaseId', 'phase_id', 'id'));
+    if (!phaseId) {
+      failCheckoutContextIntegrity();
+    }
+    return {
+      phaseId,
+      phaseNumber: Number(readValue(phase, 'phaseNumber', 'phase_number')) || 1,
+      installDate: asTrimmedString(readValue(phase, 'installDate', 'install_date')),
+      crewLeader: asTrimmedString(readValue(phase, 'crewLeader', 'crew_leader')),
+      laborStatus: asTrimmedString(readValue(phase, 'laborStatus', 'labor_status')),
+      workflowStatus: getJobPhaseWorkflowStatus(phase),
+      isPrimary: readValue(phase, 'isPrimary', 'is_primary') === true,
+    };
+  });
+  const phaseIds = new Set(phaseEntries.map((phase) => phase.phaseId));
+  const fallbackPhaseId =
+    phaseEntries.find((phase) => phase.isPrimary)?.phaseId || phaseEntries[0]?.phaseId || '';
+  const getRequirementsForPhase = (entries, phaseId) =>
+    (Array.isArray(entries) ? entries : []).filter((entry) => {
+      const entryPhaseId = asTrimmedString(readValue(entry, 'phaseId', 'phase_id'));
+      if (entryPhaseId && !phaseIds.has(entryPhaseId)) {
+        failCheckoutContextIntegrity();
+      }
+      return entryPhaseId ? entryPhaseId === phaseId : fallbackPhaseId === phaseId;
+    });
+  const resolvedPhases = phaseEntries.map((phase) => ({
+    ...phase,
+    isComplete: isJobPhaseComplete(
+      phase,
+      getRequirementsForPhase(filmRequirements, phase.phaseId),
+      getRequirementsForPhase(caulkRequirements, phase.phaseId),
+    ),
+  }));
+  return selectCurrentJobPhase(resolvedPhases, { today });
+}
+
+function firstLegacyCrewLeader(allocations, filmOrders) {
+  for (const entry of Array.isArray(allocations) ? allocations : []) {
+    const crewLeader = asTrimmedString(readValue(entry, 'crewLeader', 'crew_leader'));
+    if (crewLeader) {
+      return crewLeader;
+    }
+  }
+  for (const entry of Array.isArray(filmOrders) ? filmOrders : []) {
+    const crewLeader = asTrimmedString(readValue(entry, 'crewLeader', 'crew_leader'));
+    if (crewLeader) {
+      return crewLeader;
+    }
+  }
+  return '';
+}
+
+function buildCheckedOutContextByBox({
+  expectedOrgId,
+  boxes,
+  checkoutContext,
+  today,
+}) {
+  const checkedOutBoxes = (Array.isArray(boxes) ? boxes : []).filter(
+    (box) => normalizeUpper(readValue(box, 'status')) === 'CHECKED_OUT',
+  );
+  if (!checkedOutBoxes.length) {
+    return new Map();
+  }
+  if (!checkoutContext || typeof checkoutContext !== 'object') {
+    failCheckoutContextIntegrity();
+  }
+
+  try {
+    const boxesByBusinessId = new Map();
+    for (const box of checkedOutBoxes) {
+      assertCheckoutContextOrg(box, expectedOrgId);
+      const boxId = normalizeUpper(readValue(box, 'boxId', 'box_id'));
+      if (!boxId || boxesByBusinessId.has(boxId)) {
+        failCheckoutContextIntegrity();
+      }
+      boxesByBusinessId.set(boxId, box);
+    }
+
+    const { byId: jobsById, entries: jobs } = indexCheckoutJobs(
+      checkoutContext.jobs,
+      expectedOrgId,
+    );
+    const filmOrdersByBusinessId = indexFilmOrders(
+      checkoutContext.filmOrders,
+      expectedOrgId,
+    );
+    const directJobsByBox = buildDirectJobsByBox(
+      checkoutContext.filmOrderBoxLinks,
+      filmOrdersByBusinessId,
+      jobsById,
+      jobs,
+      boxesByBusinessId,
+      expectedOrgId,
+    );
+    const phasesByJob = groupCheckoutRowsByJob(
+      checkoutContext.phases,
+      expectedOrgId,
+      jobsById,
+      jobs,
+    );
+    const requirementsByJob = groupCheckoutRowsByJob(
+      checkoutContext.requirements,
+      expectedOrgId,
+      jobsById,
+      jobs,
+    );
+    const caulkRequirementsByJob = groupCheckoutRowsByJob(
+      checkoutContext.caulkRequirements,
+      expectedOrgId,
+      jobsById,
+      jobs,
+    );
+    const allocationsByJob = groupCheckoutRowsByJob(
+      checkoutContext.allocations,
+      expectedOrgId,
+      jobsById,
+      jobs,
+    );
+    const filmOrdersByJob = groupCheckoutRowsByJob(
+      checkoutContext.filmOrders,
+      expectedOrgId,
+      jobsById,
+      jobs,
+    );
+    const result = new Map();
+
+    for (const box of checkedOutBoxes) {
+      const boxRecordId = asTrimmedString(readValue(box, 'id', 'boxRecordId', 'box_record_id'));
+      const boxId = normalizeUpper(readValue(box, 'boxId', 'box_id'));
+      const warehouse = normalizeUpper(readValue(box, 'warehouse'));
+      const durableJobId = asTrimmedString(
+        readValue(box, 'lastCheckoutJobId', 'last_checkout_job_id'),
+      );
+      const legacyJobNumber = asTrimmedString(
+        readValue(box, 'lastCheckoutJob', 'last_checkout_job'),
+      );
+      const legacyMatches = findCompatibleJobs(jobs, legacyJobNumber, warehouse);
+      if (legacyMatches.length > 1) {
+        failCheckoutContextIntegrity();
+      }
+      const directJobs = [...(directJobsByBox.get(boxId)?.values() || [])];
+      if (directJobs.length > 1) {
+        failCheckoutContextIntegrity();
+      }
+
+      let selectedJob = null;
+      if (durableJobId) {
+        selectedJob = jobsById.get(durableJobId) || null;
+        if (!selectedJob) {
+          failCheckoutContextIntegrity();
+        }
+        if (
+          legacyJobNumber &&
+          !jobNumbersAreCompatible(
+            legacyJobNumber,
+            warehouse,
+            selectedJob.jobNumber,
+            selectedJob.warehouse,
+          )
+        ) {
+          failCheckoutContextIntegrity();
+        }
+      } else if (legacyJobNumber) {
+        if (legacyMatches.length !== 1) {
+          failCheckoutContextIntegrity();
+        }
+        selectedJob = legacyMatches[0];
+      } else if (readValue(box, 'directToJobSite', 'direct_to_job_site') === true) {
+        if (directJobs.length !== 1) {
+          failCheckoutContextIntegrity();
+        }
+        selectedJob = directJobs[0];
+      } else {
+        failCheckoutContextIntegrity();
+      }
+
+      if (
+        legacyMatches.some((job) => job.id !== selectedJob.id) ||
+        directJobs.some((job) => job.id !== selectedJob.id)
+      ) {
+        failCheckoutContextIntegrity();
+      }
+
+      const currentPhase = buildCurrentPhase(
+        selectedJob,
+        phasesByJob.get(selectedJob.id) || [],
+        requirementsByJob.get(selectedJob.id) || [],
+        caulkRequirementsByJob.get(selectedJob.id) || [],
+        today,
+      );
+      const legacyCrewLeader = firstLegacyCrewLeader(
+        allocationsByJob.get(selectedJob.id) || [],
+        filmOrdersByJob.get(selectedJob.id) || [],
+      );
+      const crewLeader =
+        resolveCurrentJobCrewLeader({
+          currentPhase,
+          jobCrewLeader: selectedJob.crewLeader,
+          legacyCrewLeader,
+        }) || null;
+      if (crewLeader && UUID_PATTERN.test(crewLeader)) {
+        failCheckoutContextIntegrity();
+      }
+      result.set(boxRecordId, {
+        checkedOutJobNumber: formatCheckedOutJobNumber(selectedJob),
+        checkedOutCrewLeaderName: crewLeader,
+      });
+    }
+
+    return result;
+  } catch (error) {
+    if (
+      error instanceof WarehouseAssetAuditError &&
+      error.code === CHECKOUT_CONTEXT_INTEGRITY_CODE
+    ) {
+      throw error;
+    }
+    failCheckoutContextIntegrity();
+  }
 }
 
 function normalizeUpper(value) {
@@ -583,6 +992,7 @@ function buildWarehouseAssetAuditReport({
   warehouses,
   pendingTransfers,
   allocations,
+  checkoutContext,
   filters = {},
 }) {
   const orgId = asTrimmedString(expectedOrgId);
@@ -593,6 +1003,12 @@ function buildWarehouseAssetAuditReport({
   const ownerMap = buildOwnerMap(owners, orgId);
   const transfersByBox = buildPendingTransfersByBox(pendingTransfers, orgId);
   const allocationsByBox = buildAllocationsByBox(allocations, orgId);
+  const checkedOutContextByBox = buildCheckedOutContextByBox({
+    expectedOrgId: orgId,
+    boxes,
+    checkoutContext,
+    today: asTrimmedString(generatedAt).slice(0, 10) || undefined,
+  });
   const boxRecordIds = new Set();
   const boxIds = new Set();
   const operationalRows = [];
@@ -636,6 +1052,11 @@ function buildWarehouseAssetAuditReport({
       throw new WarehouseAssetAuditError('A box film identity is incomplete.');
     }
     const cost = resolveCost(box, onHandLf);
+    const checkedOutContext =
+      status === 'CHECKED_OUT' ? checkedOutContextByBox.get(boxRecordId) : null;
+    if (status === 'CHECKED_OUT' && !checkedOutContext) {
+      failCheckoutContextIntegrity();
+    }
     operationalRows.push({
       boxId,
       ...owner,
@@ -644,6 +1065,8 @@ function buildWarehouseAssetAuditReport({
       filmName,
       widthIn,
       status,
+      checkedOutJobNumber: checkedOutContext?.checkedOutJobNumber || null,
+      checkedOutCrewLeaderName: checkedOutContext?.checkedOutCrewLeaderName || null,
       onHandLf,
       costBasis: cost.costBasis,
       onHandAssetCostCents: cost.onHandAssetCostCents,
@@ -679,7 +1102,7 @@ function buildWarehouseAssetAuditReport({
   }
 
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     metadata: {
       organizationName: asTrimmedString(organizationName),
       generatedAt: asTrimmedString(generatedAt) || new Date().toISOString(),
@@ -699,6 +1122,7 @@ function buildWarehouseAssetAuditReport({
 }
 
 export {
+  CHECKOUT_CONTEXT_INTEGRITY_CODE as WAREHOUSE_ASSET_AUDIT_CHECKOUT_CONTEXT_INTEGRITY_CODE,
   COST_BASIS_CATEGORIES,
   OPERATIONAL_BOX_STATUSES,
   STATUS_LABELS as WAREHOUSE_ASSET_AUDIT_STATUS_LABELS,

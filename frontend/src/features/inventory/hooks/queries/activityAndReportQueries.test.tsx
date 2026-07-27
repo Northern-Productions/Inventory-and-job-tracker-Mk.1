@@ -23,7 +23,7 @@ vi.mock('../../../../api/features/reportsClient', () => ({
 
 function buildSnapshot(q: string): WarehouseAssetAuditResponse {
   return {
-    snapshotVersion: 1,
+    snapshotVersion: 2,
     metadata: {
       organizationName: 'Organization',
       generatedAt: `2026-07-24T12:00:0${q.length}.000Z`,
@@ -116,6 +116,40 @@ afterEach(() => {
 });
 
 describe('useWarehouseAssetAuditReport', () => {
+  it('keeps a cold incompatible response empty and unsettled', async () => {
+    getWarehouseAssetAuditReportMock.mockRejectedValue(
+      new Error('Warehouse asset audit data is incompatible with this application version.')
+    );
+    const { wrapper } = createHarness();
+    const { result } = renderHook(
+      () => useWarehouseAssetAuditReport('user-1', 'org-1', buildFilters('cold')),
+      { wrapper }
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPlaceholderData).toBe(false);
+  });
+
+  it('does not settle replacement data when an incompatible response rejects', async () => {
+    getWarehouseAssetAuditReportMock
+      .mockResolvedValueOnce(buildSnapshot('valid'))
+      .mockRejectedValueOnce(
+        new Error('Warehouse asset audit data is incompatible with this application version.')
+      );
+    const { wrapper } = createHarness();
+    const { result, rerender } = renderHook(
+      ({ q }) => useWarehouseAssetAuditReport('user-1', 'org-1', buildFilters(q)),
+      { initialProps: { q: 'valid' }, wrapper }
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    rerender({ q: 'replacement' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.data?.appliedFilters.q).not.toBe('replacement');
+    expect(result.current.isPlaceholderData).toBe(false);
+  });
+
   it('uses canonical filters in a key containing both user and organization', async () => {
     getWarehouseAssetAuditReportMock.mockResolvedValue(buildSnapshot('box 12'));
     const { queryClient, wrapper } = createHarness();
