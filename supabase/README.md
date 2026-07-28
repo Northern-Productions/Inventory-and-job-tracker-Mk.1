@@ -34,6 +34,49 @@ npm --prefix backend run check:schema:latest
 npx supabase functions deploy api --project-ref tiwpulgvxtwlmqdnyuzd --no-verify-jwt
 ```
 
+### Deterministic API Bundling
+
+The `api` function uses a function-local frozen Deno configuration:
+
+- `functions/api/deno.json`
+- `functions/api/deno.lock`
+- exact `npm:@supabase/supabase-js@2.102.1` import
+
+Release deployments must use Supabase CLI `2.110.0` and Docker bundling from an
+exact `git archive` materialization of the approved commit. Do not deploy Edge
+source from the primary worktree. Do not use API/server-side bundling because
+that path does not certify the committed function-local lockfile.
+
+1. Verify the target with the repository target guard without printing the env
+   file or its values.
+2. Confirm `functions.api.verify_jwt = false` in committed `config.toml` and
+   confirm the target's current function policy is also `VerifyJWT=false`.
+3. Materialize the approved commit with `git archive` into a new temporary
+   directory. Do not run an install or modify its files.
+4. Write the provenance manifest outside the materialized archive:
+
+   ```text
+   npm --prefix backend run verify:edge:provenance -- --repo <primary-repo> --source <archive-root> --commit <approved-commit> --manifest <outside-archive>/edge-provenance.json --expect-local-modules <approved-count>
+   ```
+
+5. Run an untouched-archive positive bundle probe and a separate disposable-copy
+   negative probe with intentionally invalid lock integrity. Both probes and the
+   deployment must use the same `supabase@2.110.0` CLI and the same immutable
+   `supabase/edge-runtime:v1.74.2` image ID. The positive probe must reach the
+   deployment phase; the negative probe must fail during Docker bundling.
+6. From the untouched certified archive, deploy only `api`:
+
+   ```text
+   npx --yes supabase@2.110.0 functions deploy api --project-ref <verified-project-ref> --use-docker --no-verify-jwt
+   ```
+
+Treat any Docker-unavailable warning, API/server bundling fallback, image-digest
+change, frozen-lock failure, mutable dependency, untracked import, path escape,
+commit-byte mismatch, or VerifyJWT mismatch as a hard stop. The provenance
+manifest records relative paths, byte digests, exact dependency specifiers, and
+package-integrity metadata; it must not contain source bodies, absolute paths,
+credentials, or environment values.
+
 If you prefer an env file:
 
 ```bash
