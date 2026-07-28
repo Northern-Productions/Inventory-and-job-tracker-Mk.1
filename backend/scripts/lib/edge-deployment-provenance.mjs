@@ -226,10 +226,20 @@ export function validateLockedGraph({ graph, denoConfig, lock }) {
   return { externalSpecifiers, npmPackages };
 }
 
-function runDenoInfo({ sourceRoot, entrypointPath, denoConfigPath }) {
+export function runDenoInfo({ sourceRoot, entrypointPath, denoConfigPath }) {
+  const entrypointArgument = `./${assertInside(
+    sourceRoot,
+    fs.realpathSync(entrypointPath),
+    'The API entrypoint'
+  )}`;
+  const denoConfigArgument = `./${assertInside(
+    sourceRoot,
+    fs.realpathSync(denoConfigPath),
+    'The Deno configuration'
+  )}`;
   const result = spawnSync(
     'deno',
-    ['info', '--json', '--config', denoConfigPath, '--frozen', entrypointPath],
+    ['info', '--json', '--config', denoConfigArgument, '--frozen', entrypointArgument],
     {
       cwd: sourceRoot,
       encoding: 'utf8',

@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import {
   isExactNpmSpecifier,
+  runDenoInfo,
   validateLockedGraph,
   verifyMaterializedTree
 } from './edge-deployment-provenance.mjs';
@@ -99,6 +100,57 @@ test('requires a frozen version-5 lock with package integrity metadata', () => {
   assert.throws(
     () => validateLockedGraph(unfrozenFixture),
     /must use \.\/deno\.lock in frozen mode/
+  );
+});
+
+test('resolves a frozen archive graph through source-relative Deno paths', (t) => {
+  const sourceRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'edge-deployment-deno-path-test-')
+  );
+  t.after(() => fs.rmSync(sourceRoot, { force: true, recursive: true }));
+
+  const apiRoot = path.join(sourceRoot, 'supabase', 'functions', 'api');
+  const sharedRoot = path.join(sourceRoot, 'supabase', 'functions', '_shared');
+  fs.mkdirSync(apiRoot, { recursive: true });
+  fs.mkdirSync(sharedRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(apiRoot, 'deno.json'),
+    `${JSON.stringify({ lock: { path: './deno.lock', frozen: true } }, null, 2)}\n`,
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(apiRoot, 'deno.lock'),
+    `${JSON.stringify(
+      { version: '5', specifiers: {}, jsr: {}, npm: {}, remote: {} },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(apiRoot, 'index.ts'),
+    "import { value } from '../_shared/value.ts';\nexport { value };\n",
+    'utf8'
+  );
+  fs.writeFileSync(
+    path.join(sharedRoot, 'value.ts'),
+    'export const value = 1;\n',
+    'utf8'
+  );
+
+  const graph = runDenoInfo({
+    sourceRoot,
+    entrypointPath: path.join(apiRoot, 'index.ts'),
+    denoConfigPath: path.join(apiRoot, 'deno.json')
+  });
+  const localModules = graph.modules.filter((module) =>
+    String(module.specifier || '').startsWith('file:')
+  );
+
+  assert.equal(localModules.length, 2);
+  assert.deepEqual(
+    localModules.map((module) => path.basename(new URL(module.specifier).pathname)).sort(),
+    ['index.ts', 'value.ts']
   );
 });
 
