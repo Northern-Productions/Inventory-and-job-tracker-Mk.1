@@ -130,3 +130,32 @@ export function patchInventoryRouteState(
     }
   };
 }
+
+export function replaceInventoryHashSearchParams(
+  searchParams: URLSearchParams
+): boolean {
+  if (
+    typeof window === 'undefined' ||
+    typeof window.history?.replaceState !== 'function' ||
+    !window.location.hash.startsWith('#')
+  ) {
+    return false;
+  }
+
+  const queryIndex = window.location.hash.indexOf('?');
+  const hashPath =
+    queryIndex >= 0 ? window.location.hash.slice(0, queryIndex) : window.location.hash;
+  const serializedSearch = searchParams.toString();
+  const nextHash = serializedSearch
+    ? `${hashPath}?${serializedSearch}`
+    : hashPath;
+  const nextRelativeUrl =
+    `${window.location.pathname}${window.location.search}${nextHash}`;
+
+  window.history.replaceState(
+    window.history.state,
+    document.title,
+    nextRelativeUrl
+  );
+  return true;
+}

@@ -1,4 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../../components/Button';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
@@ -21,15 +28,20 @@ import { getActiveCustomWidth } from '../utils/widthFilters';
 import {
   patchInventoryRouteState,
   readInventoryRouteState,
+  replaceInventoryHashSearchParams,
   writeInventoryRouteState,
   type InventoryView
 } from '../utils/inventoryRouteState';
 import { LIST_ROUTE_KINDS } from '../../navigation/navigationSession';
 import { useManagedListScroll } from '../../navigation/NavigationCoordinator';
 
+const INVENTORY_SEARCH_SETTLE_MS = 200;
+
 export default function InventoryHomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const hasMountedRef = useRef(false);
+  const pendingSearchQueryRef = useRef<string | null>(null);
+  const searchSettleTimerRef = useRef<number | null>(null);
   const defaultWarehouse = useDefaultWarehouse();
   const warehouseRegistry = useWarehouseRegistry();
   const warehouseRegistrySettled =
@@ -52,18 +64,34 @@ export default function InventoryHomePage() {
   const [rememberedCustomWidth, setRememberedCustomWidth] = useState(() =>
     getActiveCustomWidth(filters.widths)
   );
+  const [visibleSearchQuery, setVisibleSearchQuery] = useState(filters.q);
+  const [settledSearchQuery, setSettledSearchQuery] = useState(filters.q);
   const inventoryView = routeState.inventoryView;
-  const deferredFilters = useDeferredValue(filters);
+  const selectedWidthsKey = filters.widths.join('|');
+  const settledFilters = useMemo(
+    () => ({ ...filters, q: settledSearchQuery }),
+    [
+      filters.film,
+      filters.manufacturer,
+      filters.showRetired,
+      filters.status,
+      filters.warehouse,
+      selectedWidthsKey,
+      settledSearchQuery
+    ]
+  );
+  const deferredFilters = useDeferredValue(settledFilters);
   const boxesQuery = useOfflineInventorySearch(filters.warehouse, {
     enabled: warehouseRegistrySettled
   });
-  const filteredBoxes = useMemo(
+  const nextFilteredBoxes = useMemo(
     () => filterOfflineBoxes(boxesQuery.snapshotBoxes, deferredFilters),
     [boxesQuery.snapshotBoxes, deferredFilters]
   );
+  const filteredBoxes = useStableOrderedBoxResults(nextFilteredBoxes);
   const searchSuggestions = useMemo(
-    () => getInventorySearchSuggestions(boxesQuery.snapshotBoxes, filters),
-    [boxesQuery.snapshotBoxes, filters]
+    () => getInventorySearchSuggestions(boxesQuery.snapshotBoxes, deferredFilters),
+    [boxesQuery.snapshotBoxes, deferredFilters]
   );
   const filmCatalogQuery = useFilmCatalog();
   const manufacturerOptions = useMemo(() => {
@@ -123,10 +151,73 @@ export default function InventoryHomePage() {
     hasMountedRef.current = true;
   }, []);
 
-  const setInventoryView = (nextView: InventoryView) => {
+  useEffect(() => {
+    const pendingSearchQuery = pendingSearchQueryRef.current;
+
+    if (pendingSearchQuery !== null && filters.q === pendingSearchQuery) {
+      pendingSearchQueryRef.current = null;
+      return;
+    }
+
+    if (pendingSearchQuery !== null && filters.q !== pendingSearchQuery) {
+      pendingSearchQueryRef.current = null;
+      if (searchSettleTimerRef.current !== null) {
+        window.clearTimeout(searchSettleTimerRef.current);
+        searchSettleTimerRef.current = null;
+      }
+    }
+
+    setVisibleSearchQuery(filters.q);
+    setSettledSearchQuery(filters.q);
+  }, [filters.q]);
+
+  useEffect(() => {
+    if (
+      pendingSearchQueryRef.current !== settledSearchQuery ||
+      filters.q === settledSearchQuery
+    ) {
+      return;
+    }
+
     setSearchParams(
       writeInventoryRouteState(
-        patchInventoryRouteState(routeState, { inventoryView: nextView }),
+        patchInventoryRouteState(routeState, {
+          filters: { q: settledSearchQuery }
+        }),
+        { defaultWarehouse }
+      ),
+      { replace: true }
+    );
+  }, [
+    defaultWarehouse,
+    filters.q,
+    routeState,
+    setSearchParams,
+    settledSearchQuery
+  ]);
+
+  useEffect(
+    () => () => {
+      if (searchSettleTimerRef.current !== null) {
+        window.clearTimeout(searchSettleTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const setInventoryView = (nextView: InventoryView) => {
+    pendingSearchQueryRef.current = null;
+    if (searchSettleTimerRef.current !== null) {
+      window.clearTimeout(searchSettleTimerRef.current);
+      searchSettleTimerRef.current = null;
+    }
+    setSettledSearchQuery(visibleSearchQuery);
+    setSearchParams(
+      writeInventoryRouteState(
+        patchInventoryRouteState(routeState, {
+          inventoryView: nextView,
+          filters: { q: visibleSearchQuery }
+        }),
         { defaultWarehouse }
       ),
       { replace: true }
@@ -134,14 +225,57 @@ export default function InventoryHomePage() {
   };
 
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
+    if (Object.prototype.hasOwnProperty.call(next, 'q')) {
+      const nextSearchQuery = next.q || '';
+      const nextRouteState = patchInventoryRouteState(routeState, {
+        filters: { q: nextSearchQuery }
+      });
+      const nextSearchParams = writeInventoryRouteState(nextRouteState, {
+        defaultWarehouse
+      });
+
+      setVisibleSearchQuery(nextSearchQuery);
+      replaceInventoryHashSearchParams(nextSearchParams);
+
+      if (searchSettleTimerRef.current !== null) {
+        window.clearTimeout(searchSettleTimerRef.current);
+      }
+
+      if (nextSearchQuery === filters.q) {
+        pendingSearchQueryRef.current = null;
+        searchSettleTimerRef.current = null;
+        setSettledSearchQuery(nextSearchQuery);
+        return;
+      }
+
+      pendingSearchQueryRef.current = nextSearchQuery;
+      searchSettleTimerRef.current = window.setTimeout(() => {
+        searchSettleTimerRef.current = null;
+        setSettledSearchQuery(nextSearchQuery);
+      }, INVENTORY_SEARCH_SETTLE_MS);
+      return;
+    }
+
+    pendingSearchQueryRef.current = null;
+    if (searchSettleTimerRef.current !== null) {
+      window.clearTimeout(searchSettleTimerRef.current);
+      searchSettleTimerRef.current = null;
+    }
+    setSettledSearchQuery(visibleSearchQuery);
     setSearchParams(
       writeInventoryRouteState(
-        patchInventoryRouteState(routeState, { filters: next }),
+        patchInventoryRouteState(routeState, {
+          filters: { ...next, q: visibleSearchQuery }
+        }),
         { defaultWarehouse }
       ),
       { replace: true }
     );
   };
+  const buildDetailRoute = useCallback(
+    (boxId: string) => `/inventory/${encodeURIComponent(boxId)}`,
+    []
+  );
 
   const inventoryViewToggle = (
     <div className="inventory-view-toggle" role="group" aria-label="Inventory view">
@@ -210,7 +344,7 @@ export default function InventoryHomePage() {
           </div>
         </div>
         <InventoryFilters
-          values={filters}
+          values={{ ...filters, q: visibleSearchQuery }}
           manufacturerOptions={manufacturerOptions}
           searchSuggestions={searchSuggestions}
           rememberedCustomWidth={rememberedCustomWidth}
@@ -247,9 +381,7 @@ export default function InventoryHomePage() {
         {!boxesQuery.isLoading && !boxesQuery.isError ? (
           <InventoryTable
             boxes={filteredBoxes}
-            buildDetailRoute={(boxId) =>
-              `/inventory/${encodeURIComponent(boxId)}`
-            }
+            buildDetailRoute={buildDetailRoute}
             getAnchorRef={inventoryScroll.getAnchorRef}
           />
         ) : null}
@@ -272,6 +404,22 @@ export default function InventoryHomePage() {
       {inventoryViewContent}
     </div>
   );
+}
+
+function useStableOrderedBoxResults(
+  nextBoxes: ReturnType<typeof filterOfflineBoxes>
+): ReturnType<typeof filterOfflineBoxes> {
+  const previousBoxesRef = useRef<ReturnType<typeof filterOfflineBoxes>>([]);
+  const previousBoxes = previousBoxesRef.current;
+  const hasSameOrderedBoxes =
+    previousBoxes.length === nextBoxes.length &&
+    previousBoxes.every((box, index) => box === nextBoxes[index]);
+
+  if (!hasSameOrderedBoxes) {
+    previousBoxesRef.current = nextBoxes;
+  }
+
+  return hasSameOrderedBoxes ? previousBoxes : nextBoxes;
 }
 
 function getOfflineInventoryStatusLabel(

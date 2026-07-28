@@ -147,4 +147,38 @@ describe('InventoryTable', () => {
     expect(screen.getByText('Dealer')).toBeTruthy();
     expect(screen.getByText('Accent')).toBeTruthy();
   });
+
+  it('does not rebuild a retained mobile card when the result array narrows', () => {
+    useIsPhoneLayoutMock.mockReturnValue(true);
+    let filmNameReads = 0;
+    const retainedBox = buildBox({ boxId: 'IL1-2001' });
+    const onSelect = vi.fn();
+
+    Object.defineProperty(retainedBox, 'filmName', {
+      configurable: true,
+      get() {
+        filmNameReads += 1;
+        return 'Prestige 60';
+      }
+    });
+
+    const rendered = render(
+      <InventoryTable
+        boxes={[retainedBox, buildBox({ boxId: 'IL1-2002' })]}
+        onSelect={onSelect}
+      />
+    );
+    const initialReads = filmNameReads;
+
+    rendered.rerender(
+      <InventoryTable
+        boxes={[retainedBox]}
+        onSelect={onSelect}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'IL1-2001' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'IL1-2002' })).toBeNull();
+    expect(filmNameReads).toBe(initialReads);
+  });
 });

@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+
+import { describe, expect, it, vi } from 'vitest';
 import {
   patchInventoryRouteState,
   readInventoryRouteState,
+  replaceInventoryHashSearchParams,
   writeInventoryRouteState
 } from './inventoryRouteState';
 
@@ -79,5 +82,25 @@ describe('inventoryRouteState', () => {
     });
 
     expect(refreshed.filters.q).toBe('matte 2080');
+  });
+
+  it('replaces the visible hash search without adding a history entry', () => {
+    window.history.replaceState({}, '', '/#/inventory?status=IN_STOCK');
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+
+    try {
+      const replaced = replaceInventoryHashSearchParams(
+        new URLSearchParams('status=IN_STOCK&q=IL1-1098')
+      );
+
+      expect(replaced).toBe(true);
+      expect(window.location.hash).toBe(
+        '#/inventory?status=IN_STOCK&q=IL1-1098'
+      );
+      expect(replaceState).toHaveBeenCalledTimes(1);
+    } finally {
+      replaceState.mockRestore();
+      window.history.replaceState({}, '', '/');
+    }
   });
 });
