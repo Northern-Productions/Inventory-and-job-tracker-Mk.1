@@ -129,15 +129,18 @@ test('prints one forced live warehouse asset audit response completely and exact
         ).filter((cell) => cell.tagName !== 'COL');
         let overflowCells = 0;
         let orphanCells = 0;
+        let emergencyWrappedStatusCells = 0;
         const renderedLineCounts = new Map<Element, number>();
 
         for (const cell of cells) {
           const cellRect = cell.getBoundingClientRect();
           const lines = new Map<number, { characters: number; overflow: boolean }>();
+          const emergencyFragmentLineTops = new Set<number>();
           const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
           let node = walker.nextNode();
           while (node) {
             const value = node.textContent || '';
+            const characterTops = new Map<number, Set<number>>();
             for (let index = 0; index < value.length; index += 1) {
               if (/\s/.test(value[index])) continue;
               const range = document.createRange();
@@ -145,6 +148,9 @@ test('prints one forced live warehouse asset audit response completely and exact
               range.setEnd(node, index + 1);
               for (const rect of Array.from(range.getClientRects())) {
                 const top = Math.round(rect.top * 2) / 2;
+                const tops = characterTops.get(index) || new Set<number>();
+                tops.add(top);
+                characterTops.set(index, tops);
                 const line = lines.get(top) || { characters: 0, overflow: false };
                 line.characters += 1;
                 line.overflow ||= (
@@ -154,6 +160,25 @@ test('prints one forced live warehouse asset audit response completely and exact
                   rect.bottom > cellRect.bottom + 0.5
                 );
                 lines.set(top, line);
+              }
+            }
+            for (const tokenMatch of value.matchAll(/\S+/g)) {
+              const tokenStart = tokenMatch.index;
+              const tokenEnd = tokenStart + tokenMatch[0].length;
+              const tokenLines = new Map<number, number>();
+              for (let index = tokenStart; index < tokenEnd; index += 1) {
+                for (const top of characterTops.get(index) || []) {
+                  tokenLines.set(top, (tokenLines.get(top) || 0) + 1);
+                }
+              }
+              const orderedTokenLines = Array.from(tokenLines.entries()).sort(
+                ([left], [right]) => left - right
+              );
+              if (
+                orderedTokenLines.length > 1 &&
+                (orderedTokenLines.at(-1)?.[1] || 0) <= 2
+              ) {
+                emergencyFragmentLineTops.add(orderedTokenLines.at(-1)![0]);
               }
             }
             node = walker.nextNode();
@@ -167,7 +192,20 @@ test('prints one forced live warehouse asset audit response completely and exact
             orderedLines.length > 1 &&
             (orderedLines.at(-1)?.[1].characters || 0) <= 2
           ) {
-            orphanCells += 1;
+            const finalLineTop = orderedLines.at(-1)?.[0];
+            const isEmergencyWrappedStatusToken = Boolean(
+              cell.classList.contains('warehouse-asset-audit-col-status') &&
+              finalLineTop !== undefined &&
+              emergencyFragmentLineTops.has(finalLineTop) &&
+              Array.from(
+                cell.querySelectorAll<HTMLElement>('.warehouse-asset-audit-status-stack > span')
+              ).some((line) => getComputedStyle(line).overflowWrap === 'anywhere')
+            );
+            if (isEmergencyWrappedStatusToken) {
+              emergencyWrappedStatusCells += 1;
+            } else {
+              orphanCells += 1;
+            }
           }
         }
 
@@ -284,6 +322,9 @@ test('prints one forced live warehouse asset audit response completely and exact
         document.body.dataset.auditPrintWorksheetBackground = worksheetStyle?.backgroundColor || '';
         document.body.dataset.auditPrintOverflowCells = String(overflowCells);
         document.body.dataset.auditPrintOrphanCells = String(orphanCells);
+        document.body.dataset.auditPrintEmergencyWrappedStatusCells = String(
+          emergencyWrappedStatusCells
+        );
         document.body.dataset.auditPrintHeaderClippedElements = String(clippedHeaderLeaves.length);
         document.body.dataset.auditPrintHeaderClippedRoles = clippedHeaderLeaves
           .map(describeHeaderLeaf)
@@ -591,6 +632,9 @@ test('prints one forced live warehouse asset audit response completely and exact
     worksheetBackground: body.dataset.auditPrintWorksheetBackground || '',
     overflowCells: Number(body.dataset.auditPrintOverflowCells || 0),
     orphanCells: Number(body.dataset.auditPrintOrphanCells || 0),
+    emergencyWrappedStatusCells: Number(
+      body.dataset.auditPrintEmergencyWrappedStatusCells || 0
+    ),
     headerClippedElements: Number(body.dataset.auditPrintHeaderClippedElements || 0),
     headerClippedRoles: body.dataset.auditPrintHeaderClippedRoles || '',
     headerClippedMetrics: body.dataset.auditPrintHeaderClippedMetrics || '',
@@ -628,6 +672,7 @@ test('prints one forced live warehouse asset audit response completely and exact
   expect(printMetrics.worksheetBackground).toBe('rgb(255, 255, 255)');
   expect(printMetrics.overflowCells).toBe(0);
   expect(printMetrics.orphanCells).toBe(0);
+  expect(printMetrics.emergencyWrappedStatusCells).toBeLessThanOrEqual(printMetrics.rows);
   expect(printMetrics.headerClippedMetrics).toBe('');
   expect(printMetrics.headerClippedRoles).toBe('');
   expect(printMetrics.headerClippedElements).toBe(0);

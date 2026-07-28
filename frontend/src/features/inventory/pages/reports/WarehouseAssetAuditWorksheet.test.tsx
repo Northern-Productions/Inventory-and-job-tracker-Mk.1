@@ -146,6 +146,73 @@ describe('WarehouseAssetAuditWorksheet', () => {
     )).toBe(true);
   });
 
+  it('preserves every shared Status value without placing context in attributes', () => {
+    const longCrewToken = 'SYNTHETICUNBROKENCREWCONTEXTTOKEN0123456789';
+    const longJobToken = 'SYNTHETICUNBROKENJOBNUMBERTOKEN0123456789';
+    const snapshot = buildSnapshot(6);
+    snapshot.rows = [
+      {
+        ...snapshot.rows[0],
+        status: 'CHECKED_OUT',
+        statusLabel: 'Checked Out',
+        custodyBasis: 'CHECKOUT_SOURCE',
+        checkedOutJobNumber: '17380',
+        checkedOutCrewLeaderName: 'Alexis'
+      },
+      {
+        ...snapshot.rows[1],
+        status: 'CHECKED_OUT',
+        statusLabel: 'Checked Out',
+        custodyBasis: 'CHECKOUT_SOURCE',
+        checkedOutJobNumber: '17381',
+        checkedOutCrewLeaderName: 'Alexandra Field Operations Lead'
+      },
+      {
+        ...snapshot.rows[2],
+        status: 'CHECKED_OUT',
+        statusLabel: 'Checked Out',
+        custodyBasis: 'CHECKOUT_SOURCE',
+        checkedOutJobNumber: '17382',
+        checkedOutCrewLeaderName: longCrewToken
+      },
+      {
+        ...snapshot.rows[3],
+        status: 'CHECKED_OUT',
+        statusLabel: 'Checked Out',
+        custodyBasis: 'CHECKOUT_SOURCE',
+        checkedOutJobNumber: longJobToken,
+        checkedOutCrewLeaderName: null
+      },
+      snapshot.rows[4],
+      {
+        ...snapshot.rows[5],
+        status: 'TRANSFER',
+        statusLabel: 'Pending Transfer',
+        custodyBasis: 'PENDING_TRANSFER_SOURCE',
+        checkedOutJobNumber: null,
+        checkedOutCrewLeaderName: null
+      }
+    ];
+    const { container } = render(<WarehouseAssetAuditWorksheet snapshot={snapshot} />);
+    const statusCells = Array.from(
+      container.querySelectorAll<HTMLElement>('tbody .warehouse-asset-audit-col-status')
+    );
+    const attributeValues = Array.from(container.querySelectorAll('*')).flatMap((element) =>
+      Array.from(element.attributes, (attribute) => attribute.value)
+    );
+
+    expect(statusCells.map((cell) => cell.textContent)).toEqual([
+      'Checked OutJob #17380Alexis',
+      'Checked OutJob #17381Alexandra Field Operations Lead',
+      `Checked OutJob #17382${longCrewToken}`,
+      `Checked OutJob #${longJobToken}N/A`,
+      'In Stock',
+      'Pending Transfer'
+    ]);
+    expect(attributeValues).not.toContain(longCrewToken);
+    expect(attributeValues).not.toContain(longJobToken);
+  });
+
   it('prints Unassigned, immutable metadata, and matching first-page and final totals', () => {
     render(<WarehouseAssetAuditWorksheet snapshot={buildSnapshot(1)} />);
     expect(screen.getByText('Unassigned')).toBeTruthy();
@@ -263,7 +330,12 @@ describe('WarehouseAssetAuditWorksheet', () => {
     expect(auditPrintCss).toMatch(
       /\.warehouse-asset-audit-table td\s*\{[^}]*text-wrap:\s*pretty;/s
     );
-    expect(auditPrintCss).not.toContain('overflow-wrap: anywhere');
+    expect(styles).toMatch(
+      /\.warehouse-asset-audit-status-stack\s*>\s*span\s*\{[^}]*min-inline-size:\s*0;[^}]*max-width:\s*100%;[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*normal;/s
+    );
+    expect(styles).toMatch(
+      /\.warehouse-asset-audit-table\s*\{[^}]*font-size:\s*0\.84rem;/s
+    );
     expect(auditPrintCss).not.toMatch(/(?:^|[;{])\s*(?:zoom|transform|scale)\s*:/m);
     expect(auditPrintCss).not.toContain('body.label-printing');
   });

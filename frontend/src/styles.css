@@ -6018,9 +6018,18 @@ td.col-available-linear-ft {
 .warehouse-asset-audit-status-stack {
   display: grid;
   gap: 0.12em;
+  min-inline-size: 0;
   max-width: 100%;
   line-height: 1.22;
   overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.warehouse-asset-audit-status-stack > span {
+  min-inline-size: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   word-break: normal;
 }
 

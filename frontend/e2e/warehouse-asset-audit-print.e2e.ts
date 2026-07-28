@@ -19,6 +19,9 @@ let viteServer: ViteDevServer;
 let WarehouseAssetAuditWorksheet: ComponentType<{
   snapshot: WarehouseAssetAuditResponse;
 }>;
+let WarehouseAssetAuditTable: ComponentType<{
+  rows: WarehouseAssetAuditRow[];
+}>;
 
 function buildRow(index: number): WarehouseAssetAuditRow {
   const ordinal = index + 1;
@@ -46,8 +49,9 @@ function buildRow(index: number): WarehouseAssetAuditRow {
   };
 }
 
-function buildSnapshot(): WarehouseAssetAuditResponse {
-  const rows = Array.from({ length: ROW_COUNT }, (_, index) => buildRow(index));
+function buildSnapshot(
+  rows = Array.from({ length: ROW_COUNT }, (_, index) => buildRow(index))
+): WarehouseAssetAuditResponse {
   const knownCost = rows.reduce(
     (total, row) => total + BigInt(row.onHandAssetCostCents || '0'),
     0n
@@ -117,6 +121,26 @@ async function renderWorksheet(page: Page, snapshot: WarehouseAssetAuditResponse
   await page.emulateMedia({ media: 'print' });
 }
 
+async function renderScreenTable(page: Page, rows: WarehouseAssetAuditRow[]) {
+  const table = renderToStaticMarkup(
+    createElement(WarehouseAssetAuditTable, { rows })
+  );
+  await page.setViewportSize({ width: 1200, height: 755 });
+  await page.setContent(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>Warehouse Asset Audit Screen Verification</title>
+        <style>${PRINT_CSS}</style>
+      </head>
+      <body>
+        <div class="table-wrap warehouse-asset-audit-screen-table">${table}</div>
+      </body>
+    </html>
+  `);
+  await page.emulateMedia({ media: 'screen' });
+}
+
 function getPdfPageCount(pdf: Buffer): number {
   return pdf.toString('latin1').match(/\/Type\s*\/Page(?!s)\b/g)?.length || 0;
 }
@@ -145,6 +169,7 @@ test.beforeAll(async () => {
     '/src/features/inventory/pages/reports/WarehouseAssetAuditWorksheet.tsx'
   );
   WarehouseAssetAuditWorksheet = module.WarehouseAssetAuditWorksheet;
+  WarehouseAssetAuditTable = module.WarehouseAssetAuditTable;
 });
 
 test.afterAll(async () => {
@@ -434,6 +459,299 @@ test('prints checked-out context across a complete multi-page Letter-landscape w
   const mediaBoxes = getPdfMediaBoxes(pdf);
   expect(mediaBoxes.length).toBeGreaterThan(0);
   for (const mediaBox of mediaBoxes) {
+    expect(mediaBox.width).toBeCloseTo(LETTER_LANDSCAPE_WIDTH_PT, 3);
+    expect(mediaBox.height).toBeCloseTo(LETTER_LANDSCAPE_HEIGHT_PT, 3);
+  }
+});
+
+test('emergency-wraps long checked-out context without changing screen or print geometry', async ({
+  page
+}) => {
+  const multiWordCrew = 'Alexandra Field Operations Lead';
+  const longCrewToken = 'SYNTHETICUNBROKENCREWCONTEXTTOKEN0123456789';
+  const longJobToken = 'SYNTHETICUNBROKENJOBNUMBERTOKEN0123456789';
+  const checkedOutRow = (
+    index: number,
+    checkedOutJobNumber: string,
+    checkedOutCrewLeaderName: string | null
+  ): WarehouseAssetAuditRow => ({
+    ...buildRow(index),
+    status: 'CHECKED_OUT',
+    statusLabel: 'Checked Out',
+    custodyBasis: 'CHECKOUT_SOURCE',
+    checkedOutJobNumber,
+    checkedOutCrewLeaderName
+  });
+  const rows: WarehouseAssetAuditRow[] = [
+    checkedOutRow(100, 'JOB-SHORT', 'Alexis'),
+    checkedOutRow(101, 'JOB-MULTI', multiWordCrew),
+    checkedOutRow(102, 'JOB-CREW-TOKEN', longCrewToken),
+    checkedOutRow(103, longJobToken, 'Jordan Sample'),
+    checkedOutRow(104, 'JOB-NO-CREW', null),
+    {
+      ...buildRow(105),
+      status: 'IN_STOCK',
+      statusLabel: 'In Stock',
+      custodyBasis: 'CURRENT_WAREHOUSE',
+      checkedOutJobNumber: null,
+      checkedOutCrewLeaderName: null
+    },
+    {
+      ...buildRow(106),
+      status: 'TRANSFER',
+      statusLabel: 'Pending Transfer',
+      custodyBasis: 'PENDING_TRANSFER_SOURCE',
+      checkedOutJobNumber: null,
+      checkedOutCrewLeaderName: null
+    }
+  ];
+
+  await renderScreenTable(page, rows);
+  const screenMetrics = await page.evaluate(({ crewToken, jobToken }) => {
+    const wrapper = document.querySelector<HTMLElement>(
+      '.warehouse-asset-audit-screen-table'
+    );
+    const table = wrapper?.querySelector<HTMLTableElement>(
+      '.warehouse-asset-audit-table'
+    );
+    const cells = Array.from(table?.querySelectorAll<HTMLTableCellElement>('tbody td') || []);
+    if (!wrapper || !table || cells.length === 0) {
+      throw new Error('Synthetic screen table did not render.');
+    }
+    const textOverflow = (cell: HTMLElement) => {
+      const cellRect = cell.getBoundingClientRect();
+      const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+      let overflow = 0;
+      let node = walker.nextNode();
+      while (node) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of Array.from(range.getClientRects())) {
+          overflow = Math.max(
+            overflow,
+            cellRect.left - rect.left,
+            rect.right - cellRect.right
+          );
+        }
+        node = walker.nextNode();
+      }
+      return Math.max(0, overflow);
+    };
+    const statusStack = table.querySelector<HTMLElement>(
+      '.warehouse-asset-audit-status-stack'
+    );
+    const attributeValues = Array.from(
+      table.querySelectorAll('.warehouse-asset-audit-status-stack *')
+    ).flatMap((element) => Array.from(element.attributes, (attribute) => attribute.value));
+
+    return {
+      fontSize: Number.parseFloat(getComputedStyle(table).fontSize),
+      tableWidth: table.getBoundingClientRect().width,
+      wrapperWidth: wrapper.getBoundingClientRect().width,
+      wrapperHorizontalOverflow: wrapper.scrollWidth > wrapper.clientWidth + 1,
+      maxCellOverflow: Math.max(...cells.map(textOverflow)),
+      statusStackMinInlineSize: statusStack
+        ? getComputedStyle(statusStack).minInlineSize
+        : '',
+      attributeLeak:
+        attributeValues.some((value) => value.includes(crewToken)) ||
+        attributeValues.some((value) => value.includes(jobToken))
+    };
+  }, { crewToken: longCrewToken, jobToken: longJobToken });
+
+  expect(screenMetrics.fontSize).toBeCloseTo(13.44, 2);
+  expect(screenMetrics.tableWidth).toBeLessThanOrEqual(screenMetrics.wrapperWidth + 1);
+  expect(screenMetrics.wrapperHorizontalOverflow).toBe(false);
+  expect(screenMetrics.maxCellOverflow).toBeLessThanOrEqual(0.5);
+  expect(screenMetrics.statusStackMinInlineSize).toBe('0px');
+  expect(screenMetrics.attributeLeak).toBe(false);
+
+  const snapshot = buildSnapshot(rows);
+  await renderWorksheet(page, snapshot);
+  const printMetrics = await page.evaluate(({
+    crewToken,
+    jobToken,
+    multiWord
+  }) => {
+    const root = document.querySelector<HTMLElement>(
+      '.warehouse-asset-audit-print-only-root'
+    );
+    const table = root?.querySelector<HTMLTableElement>(
+      '.warehouse-asset-audit-table'
+    );
+    const renderedRows = Array.from(
+      table?.querySelectorAll<HTMLTableRowElement>('tbody tr') || []
+    );
+    const cells = Array.from(table?.querySelectorAll<HTMLTableCellElement>('tbody td') || []);
+    if (!root || !table || renderedRows.length === 0 || cells.length === 0) {
+      throw new Error('Synthetic long-token worksheet did not render.');
+    }
+    const statusCell = (rowIndex: number) =>
+      renderedRows[rowIndex].querySelector<HTMLElement>(
+        '.warehouse-asset-audit-col-status'
+      )!;
+    const statusLine = (rowIndex: number, lineIndex: number) =>
+      statusCell(rowIndex).querySelectorAll<HTMLElement>(
+        '.warehouse-asset-audit-status-stack > span'
+      )[lineIndex]!;
+    const lineTops = (element: HTMLElement) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return new Set(
+        Array.from(range.getClientRects(), (rect) => Math.round(rect.top * 2) / 2)
+      ).size;
+    };
+    const wordLineCounts = (element: HTMLElement) => {
+      const node = element.firstChild;
+      if (!(node instanceof Text)) return [];
+      const value = node.textContent || '';
+      let offset = 0;
+      return multiWord.split(' ').map((word) => {
+        const start = value.indexOf(word, offset);
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + word.length);
+        offset = start + word.length;
+        return new Set(
+          Array.from(range.getClientRects(), (rect) => Math.round(rect.top * 2) / 2)
+        ).size;
+      });
+    };
+    const textOverflow = (cell: HTMLElement) => {
+      const cellRect = cell.getBoundingClientRect();
+      const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+      let overflow = 0;
+      let node = walker.nextNode();
+      while (node) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of Array.from(range.getClientRects())) {
+          overflow = Math.max(
+            overflow,
+            cellRect.left - rect.left,
+            rect.right - cellRect.right
+          );
+        }
+        node = walker.nextNode();
+      }
+      return Math.max(0, overflow);
+    };
+    const colWidths = Array.from(
+      table.querySelectorAll<HTMLTableColElement>('col'),
+      (col) => col.getBoundingClientRect().width
+    );
+    const tableWidth = table.getBoundingClientRect().width;
+    const longCrewLine = statusLine(2, 2);
+    const longJobLine = statusLine(3, 1);
+    const longCrewStyle = getComputedStyle(longCrewLine);
+    const adjacentOverlap = renderedRows.some((row) => {
+      const rowCells = Array.from(row.cells, (cell) => cell.getBoundingClientRect());
+      return rowCells.some(
+        (cell, index) =>
+          index < rowCells.length - 1 && cell.right > rowCells[index + 1].left + 0.5
+      );
+    });
+    const attributeValues = Array.from(
+      table.querySelectorAll('.warehouse-asset-audit-status-stack *')
+    ).flatMap((element) => Array.from(element.attributes, (attribute) => attribute.value));
+
+    return {
+      rowIds: renderedRows.map((row) => row.dataset.auditRowId || ''),
+      statusTexts: renderedRows.map(
+        (row) =>
+          row.querySelector('.warehouse-asset-audit-col-status')?.textContent || ''
+      ),
+      bodyFontSize: Number.parseFloat(
+        getComputedStyle(cells[0]).fontSize
+      ),
+      statusWidthPercent: (colWidths[3] / tableWidth) * 100,
+      filmWidthPercent: (colWidths[5] / tableWidth) * 100,
+      maxCellOverflow: Math.max(...cells.map(textOverflow)),
+      horizontalOverflow:
+        root.scrollWidth > root.clientWidth + 1 ||
+        table.scrollWidth > table.clientWidth + 1,
+      adjacentOverlap,
+      shortRowHeight: renderedRows[0].getBoundingClientRect().height,
+      longCrewRowHeight: renderedRows[2].getBoundingClientRect().height,
+      longJobRowHeight: renderedRows[3].getBoundingClientRect().height,
+      multiWordLineCount: lineTops(statusLine(1, 2)),
+      multiWordWordLineCounts: wordLineCounts(statusLine(1, 2)),
+      longCrewLineCount: lineTops(longCrewLine),
+      longJobLineCount: lineTops(longJobLine),
+      longCrewText: longCrewLine.textContent || '',
+      longJobText: longJobLine.textContent || '',
+      emergencyStyle: {
+        minInlineSize: longCrewStyle.minInlineSize,
+        maxWidth: longCrewStyle.maxWidth,
+        whiteSpace: longCrewStyle.whiteSpace,
+        overflowWrap: longCrewStyle.overflowWrap,
+        wordBreak: longCrewStyle.wordBreak,
+        overflow: longCrewStyle.overflow,
+        textOverflow: longCrewStyle.textOverflow
+      },
+      rowBreaks: renderedRows.map((row) => {
+        const style = getComputedStyle(row);
+        return style.breakInside || style.pageBreakInside;
+      }),
+      tableHeaderGroup: getComputedStyle(table.tHead as HTMLElement).display,
+      attributeLeak:
+        attributeValues.some((value) => value.includes(crewToken)) ||
+        attributeValues.some((value) => value.includes(jobToken))
+    };
+  }, {
+    crewToken: longCrewToken,
+    jobToken: longJobToken,
+    multiWord: multiWordCrew
+  });
+
+  expect(printMetrics.rowIds).toHaveLength(rows.length);
+  expect(new Set(printMetrics.rowIds).size).toBe(rows.length);
+  expect(printMetrics.statusTexts).toEqual([
+    'Checked OutJob #JOB-SHORTAlexis',
+    `Checked OutJob #JOB-MULTI${multiWordCrew}`,
+    `Checked OutJob #JOB-CREW-TOKEN${longCrewToken}`,
+    `Checked OutJob #${longJobToken}Jordan Sample`,
+    'Checked OutJob #JOB-NO-CREWN/A',
+    'In Stock',
+    'Pending Transfer'
+  ]);
+  expect(printMetrics.bodyFontSize).toBeCloseTo(12, 2);
+  expect(printMetrics.statusWidthPercent).toBeCloseTo(8, 1);
+  expect(printMetrics.filmWidthPercent).toBeCloseTo(24, 1);
+  expect(printMetrics.maxCellOverflow).toBeLessThanOrEqual(0.5);
+  expect(printMetrics.horizontalOverflow).toBe(false);
+  expect(printMetrics.adjacentOverlap).toBe(false);
+  expect(printMetrics.longCrewRowHeight).toBeGreaterThan(printMetrics.shortRowHeight);
+  expect(printMetrics.longJobRowHeight).toBeGreaterThan(printMetrics.shortRowHeight);
+  expect(printMetrics.multiWordLineCount).toBeGreaterThan(1);
+  expect(printMetrics.multiWordWordLineCounts).toEqual(new Array(4).fill(1));
+  expect(printMetrics.longCrewLineCount).toBeGreaterThan(1);
+  expect(printMetrics.longJobLineCount).toBeGreaterThan(1);
+  expect(printMetrics.longCrewText).toBe(longCrewToken);
+  expect(printMetrics.longJobText).toBe(`Job #${longJobToken}`);
+  expect(printMetrics.emergencyStyle).toMatchObject({
+    minInlineSize: '0px',
+    whiteSpace: 'normal',
+    overflowWrap: 'anywhere',
+    wordBreak: 'normal',
+    overflow: 'visible',
+    textOverflow: 'clip'
+  });
+  expect(Number.parseFloat(printMetrics.emergencyStyle.maxWidth)).toBeGreaterThan(0);
+  expect(printMetrics.rowBreaks.every((value) => value === 'avoid')).toBe(true);
+  expect(printMetrics.tableHeaderGroup).toBe('table-header-group');
+  expect(printMetrics.attributeLeak).toBe(false);
+
+  const pdf = await page.pdf({
+    format: 'Letter',
+    landscape: true,
+    preferCSSPageSize: true,
+    displayHeaderFooter: false,
+    printBackground: true,
+    scale: 1
+  });
+  expect(getPdfPageCount(pdf)).toBe(2);
+  for (const mediaBox of getPdfMediaBoxes(pdf)) {
     expect(mediaBox.width).toBeCloseTo(LETTER_LANDSCAPE_WIDTH_PT, 3);
     expect(mediaBox.height).toBeCloseTo(LETTER_LANDSCAPE_HEIGHT_PT, 3);
   }
