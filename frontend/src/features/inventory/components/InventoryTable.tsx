@@ -1,5 +1,5 @@
 import type { CSSProperties, RefCallback } from 'react';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Button } from '../../../components/Button';
 import {
   MobileActionStack,
@@ -23,7 +23,7 @@ interface InventoryTableProps {
   getAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
 }
 
-export function InventoryTable({
+export const InventoryTable = memo(function InventoryTable({
   boxes,
   onSelect,
   buildDetailRoute,
@@ -53,75 +53,16 @@ export function InventoryTable({
   if (isPhoneLayout) {
     return (
       <div className="mobile-record-list">
-        {boxes.map((box, index) => {
-          const displayBoxId = displayBoxIds[index] || box.boxId;
-          const physicalStockFeet = getPhysicalStockFeet(box);
-          const allocatableStockFeet = getAllocatableStockFeet(box);
-          const lowStockBadge = isLowStockBox(box) ? (
-            <span className="stock-flag stock-flag-low">LOW STOCK</span>
-          ) : null;
-
-          return (
-            <MobileRecordCard
-              key={box.boxId}
-              recordRef={getAnchorRef?.(box.boxId)}
-            >
-              <MobileRecordHeader
-                title={displayBoxId}
-                subtitle={`${box.manufacturer} ${box.filmName}`}
-                badge={<span className={`badge badge-${box.status}`}>{box.status}</span>}
-                onTitleClick={onSelect ? () => onSelect(displayBoxId) : undefined}
-                titleLink={
-                  buildDetailRoute ? (
-                    <ManagedDetailLink
-                      to={buildDetailRoute(displayBoxId)}
-                      originKind={LIST_ROUTE_KINDS.INVENTORY}
-                      anchorIdentity={box.boxId}
-                      className="mobile-record-title-button"
-                    >
-                      {displayBoxId}
-                    </ManagedDetailLink>
-                  ) : undefined
-                }
-              />
-              <MobileFieldList>
-                <MobileField label="Warehouse" value={box.warehouse} />
-                <MobileField label="Width" value={box.widthIn} />
-                <MobileField
-                  label="On Hand Linear Ft"
-                  value={
-                    lowStockBadge ? (
-                      <>
-                        {physicalStockFeet} {lowStockBadge}
-                      </>
-                    ) : (
-                      physicalStockFeet
-                    )
-                  }
-                />
-                <MobileField label="Available Linear Ft" value={allocatableStockFeet} />
-                <MobileField label="Last Weighed" value={formatDate(box.lastWeighedDate)} />
-                <MobileField label="Dealer" value={box.dealer || '--'} />
-              </MobileFieldList>
-              <MobileActionStack>
-                {buildDetailRoute ? (
-                  <ManagedDetailLink
-                    to={buildDetailRoute(displayBoxId)}
-                    originKind={LIST_ROUTE_KINDS.INVENTORY}
-                    anchorIdentity={box.boxId}
-                    className="button button-ghost button-size-md"
-                  >
-                    Open Box
-                  </ManagedDetailLink>
-                ) : (
-                  <Button type="button" variant="ghost" onClick={() => onSelect?.(displayBoxId)}>
-                    Open Box
-                  </Button>
-                )}
-              </MobileActionStack>
-            </MobileRecordCard>
-          );
-        })}
+        {boxes.map((box, index) => (
+          <MobileInventoryCard
+            key={box.boxId}
+            box={box}
+            displayBoxId={displayBoxIds[index] || box.boxId}
+            onSelect={onSelect}
+            buildDetailRoute={buildDetailRoute}
+            getAnchorRef={getAnchorRef}
+          />
+        ))}
       </div>
     );
   }
@@ -199,4 +140,84 @@ export function InventoryTable({
       </table>
     </div>
   );
+});
+
+interface MobileInventoryCardProps {
+  box: Box;
+  displayBoxId: string;
+  onSelect?: (boxId: string) => void;
+  buildDetailRoute?: (boxId: string) => string;
+  getAnchorRef?: (identity: string) => RefCallback<HTMLElement>;
 }
+
+const MobileInventoryCard = memo(function MobileInventoryCard({
+  box,
+  displayBoxId,
+  onSelect,
+  buildDetailRoute,
+  getAnchorRef
+}: MobileInventoryCardProps) {
+  const physicalStockFeet = getPhysicalStockFeet(box);
+  const allocatableStockFeet = getAllocatableStockFeet(box);
+  const lowStockBadge = isLowStockBox(box) ? (
+    <span className="stock-flag stock-flag-low">LOW STOCK</span>
+  ) : null;
+
+  return (
+    <MobileRecordCard recordRef={getAnchorRef?.(box.boxId)}>
+      <MobileRecordHeader
+        title={displayBoxId}
+        subtitle={`${box.manufacturer} ${box.filmName}`}
+        badge={<span className={`badge badge-${box.status}`}>{box.status}</span>}
+        onTitleClick={onSelect ? () => onSelect(displayBoxId) : undefined}
+        titleLink={
+          buildDetailRoute ? (
+            <ManagedDetailLink
+              to={buildDetailRoute(displayBoxId)}
+              originKind={LIST_ROUTE_KINDS.INVENTORY}
+              anchorIdentity={box.boxId}
+              className="mobile-record-title-button"
+            >
+              {displayBoxId}
+            </ManagedDetailLink>
+          ) : undefined
+        }
+      />
+      <MobileFieldList>
+        <MobileField label="Warehouse" value={box.warehouse} />
+        <MobileField label="Width" value={box.widthIn} />
+        <MobileField
+          label="On Hand Linear Ft"
+          value={
+            lowStockBadge ? (
+              <>
+                {physicalStockFeet} {lowStockBadge}
+              </>
+            ) : (
+              physicalStockFeet
+            )
+          }
+        />
+        <MobileField label="Available Linear Ft" value={allocatableStockFeet} />
+        <MobileField label="Last Weighed" value={formatDate(box.lastWeighedDate)} />
+        <MobileField label="Dealer" value={box.dealer || '--'} />
+      </MobileFieldList>
+      <MobileActionStack>
+        {buildDetailRoute ? (
+          <ManagedDetailLink
+            to={buildDetailRoute(displayBoxId)}
+            originKind={LIST_ROUTE_KINDS.INVENTORY}
+            anchorIdentity={box.boxId}
+            className="button button-ghost button-size-md"
+          >
+            Open Box
+          </ManagedDetailLink>
+        ) : (
+          <Button type="button" variant="ghost" onClick={() => onSelect?.(displayBoxId)}>
+            Open Box
+          </Button>
+        )}
+      </MobileActionStack>
+    </MobileRecordCard>
+  );
+});
