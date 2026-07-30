@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.102.1";
+import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 import {
   API_BUILD_SHA,
   API_BUILT_AT,

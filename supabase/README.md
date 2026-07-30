@@ -40,7 +40,7 @@ The `api` function uses a function-local frozen Deno configuration:
 
 - `functions/api/deno.json`
 - `functions/api/deno.lock`
-- exact `npm:@supabase/supabase-js@2.102.1` import
+- exact `npm:@supabase/supabase-js@2.110.8` import
 
 Release deployments must use Supabase CLI `2.110.0` and Docker bundling from an
 exact `git archive` materialization of the approved commit. Do not deploy Edge

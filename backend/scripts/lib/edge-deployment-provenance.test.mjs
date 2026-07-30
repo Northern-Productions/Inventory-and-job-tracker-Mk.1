@@ -12,7 +12,7 @@ import {
   verifyMaterializedTree
 } from './edge-deployment-provenance.mjs';
 
-const EXACT_SUPABASE_SPECIFIER = 'npm:@supabase/supabase-js@2.102.1';
+const EXACT_SUPABASE_SPECIFIER = 'npm:@supabase/supabase-js@2.110.8';
 
 function runGit(repoRoot, args) {
   return execFileSync('git', ['-C', repoRoot, ...args], {
@@ -34,22 +34,22 @@ function lockedGraphFixture() {
           dependencies: [
             {
               specifier: EXACT_SUPABASE_SPECIFIER,
-              npmPackage: '@supabase/supabase-js@2.102.1'
+              npmPackage: '@supabase/supabase-js@2.110.8'
             }
           ]
         }
       ],
       npmPackages: {
-        '@supabase/supabase-js@2.102.1': {}
+        '@supabase/supabase-js@2.110.8': {}
       }
     },
     lock: {
       version: '5',
       specifiers: {
-        [EXACT_SUPABASE_SPECIFIER]: '2.102.1'
+        [EXACT_SUPABASE_SPECIFIER]: '2.110.8'
       },
       npm: {
-        '@supabase/supabase-js@2.102.1': {
+        '@supabase/supabase-js@2.110.8': {
           integrity: `sha512-${Buffer.alloc(64, 7).toString('base64')}`
         }
       }
@@ -61,7 +61,7 @@ test('accepts only immutable exact npm dependency specifiers', () => {
   assert.equal(isExactNpmSpecifier(EXACT_SUPABASE_SPECIFIER), true);
   assert.equal(isExactNpmSpecifier('npm:uuid@11.1.0'), true);
   assert.equal(isExactNpmSpecifier('npm:@supabase/supabase-js@2'), false);
-  assert.equal(isExactNpmSpecifier('npm:@supabase/supabase-js@^2.102.1'), false);
+  assert.equal(isExactNpmSpecifier('npm:@supabase/supabase-js@^2.110.8'), false);
   assert.equal(isExactNpmSpecifier('npm:@supabase/supabase-js@latest'), false);
   assert.equal(isExactNpmSpecifier('https://example.invalid/module.ts'), false);
 });
@@ -73,11 +73,11 @@ test('requires a frozen version-5 lock with package integrity metadata', () => {
   assert.deepEqual(result.externalSpecifiers, [
     {
       specifier: EXACT_SUPABASE_SPECIFIER,
-      resolved: '@supabase/supabase-js@2.102.1'
+      resolved: '@supabase/supabase-js@2.110.8'
     }
   ]);
   assert.equal(result.npmPackages.length, 1);
-  assert.equal(result.npmPackages[0].package, '@supabase/supabase-js@2.102.1');
+  assert.equal(result.npmPackages[0].package, '@supabase/supabase-js@2.110.8');
 
   const mutableFixture = lockedGraphFixture();
   mutableFixture.graph.modules[0].dependencies[0].specifier =
@@ -88,7 +88,7 @@ test('requires a frozen version-5 lock with package integrity metadata', () => {
   );
 
   const invalidIntegrityFixture = lockedGraphFixture();
-  invalidIntegrityFixture.lock.npm['@supabase/supabase-js@2.102.1'].integrity =
+  invalidIntegrityFixture.lock.npm['@supabase/supabase-js@2.110.8'].integrity =
     'sha512-invalid';
   assert.throws(
     () => validateLockedGraph(invalidIntegrityFixture),
