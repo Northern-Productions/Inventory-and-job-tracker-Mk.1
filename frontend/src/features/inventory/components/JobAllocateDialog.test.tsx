@@ -584,9 +584,9 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('shows matching transfer boxes for the job warehouse and uses them in the live preview', async () => {
+  it('shows cross-warehouse in-stock boxes as transfer-assisted allocation candidates', async () => {
     useAllocationPreviewMock.mockImplementation((payload: { boxId?: string; jobWarehouse?: string } | null) =>
-      payload?.boxId === 'IL1-TRANSFER'
+      payload?.boxId === 'IL1-TRANSFER-ASSIST'
         ? buildPreviewState({
             data: {
               jobNumber: '4803',
@@ -594,10 +594,11 @@ describe('JobAllocateDialog', () => {
               crewLeader: '',
               requestedFeet: 13,
               requestedWidthIn: 72,
-              sourceBoxId: 'IL1-TRANSFER',
+              sourceBoxId: 'IL1-TRANSFER-ASSIST',
               sourceWarehouse: 'IL1',
               sourceWidthIn: 72,
               sourceBoxFeetAvailable: 96,
+              sourceRequiresTransfer: true,
               sourceSuggestedFeet: 13,
               sourceSuggestedCoveredFeet: 13,
               sourceConflicts: [],
@@ -620,20 +621,14 @@ describe('JobAllocateDialog', () => {
         allocationPlanningFeet: 20
       }),
       buildSearchBox({
-        boxId: 'IL1-TRANSFER',
+        boxId: 'IL1-TRANSFER-ASSIST',
         warehouse: 'IL1',
         manufacturer: 'SOLYX',
         filmName: 'Whiteout SXWF-WO',
         widthIn: 72,
-        status: 'TRANSFER',
+        status: 'IN_STOCK',
         feetAvailable: 96,
-        allocationPlanningFeet: 96,
-        pendingTransfer: {
-          transferId: 'TRF-1',
-          status: 'PENDING',
-          sourceWarehouse: 'IL1',
-          destinationWarehouse: 'MS1'
-        }
+        allocationPlanningFeet: 96
       })
     ]);
 
@@ -654,10 +649,10 @@ describe('JobAllocateDialog', () => {
     });
 
     const table = await screen.findByRole('table');
-    expect(screen.getByText(/Transfer boxes already headed to this warehouse/i)).toBeTruthy();
 
-    const transferRow = within(table).getByText(/IL1-TRANSFER/).closest('tr');
+    const transferRow = within(table).getByText(/IL1-TRANSFER-ASSIST/).closest('tr');
     expect(transferRow).not.toBeNull();
+    expect(within(transferRow as HTMLElement).getByText('TRANSFER REQUIRED')).toBeTruthy();
     const transferCheckbox = within(transferRow as HTMLElement).getByRole('checkbox') as HTMLInputElement;
 
     fireEvent.click(transferCheckbox);
@@ -665,7 +660,7 @@ describe('JobAllocateDialog', () => {
     await waitFor(() =>
       expect(useAllocationPreviewMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          boxId: 'IL1-TRANSFER',
+          boxId: 'IL1-TRANSFER-ASSIST',
           jobWarehouse: 'MS1'
         })
       )
@@ -946,7 +941,7 @@ describe('JobAllocateDialog', () => {
     queryClient.clear();
   });
 
-  it('keeps transfer boxes visible even when transfer metadata points elsewhere', async () => {
+  it('keeps pending-transfer boxes out of allocation candidates', async () => {
     searchBoxesMock.mockResolvedValue([
       buildSearchBox({
         boxId: 'IL1-TRANSFER-WRONG',
@@ -994,7 +989,7 @@ describe('JobAllocateDialog', () => {
 
     const table = await screen.findByRole('table');
     expect(table.textContent || '').toContain('MS1-IN-STOCK');
-    expect(table.textContent || '').toContain('IL1-TRANSFER-WRONG');
+    expect(table.textContent || '').not.toContain('IL1-TRANSFER-WRONG');
 
     queryClient.clear();
   });

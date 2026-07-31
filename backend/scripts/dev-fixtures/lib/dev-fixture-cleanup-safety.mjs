@@ -1,5 +1,29 @@
 import { asText, isUuidLike, normalizeFixtureTag } from './dev-fixture-guard.mjs';
-import { normalizeIdList } from './dev-fixture-manifest.mjs';
+import {
+  normalizeDealerTableIntegrity,
+  normalizeFixtureDealer,
+  normalizeIdList,
+} from './dev-fixture-manifest.mjs';
+
+function hasFixtureDealer(value = {}) {
+  return Boolean(asText(value.id) || asText(value.code) || asText(value.name));
+}
+
+function mergeFixtureDealer(manifestDealer = {}, discoveredDealer = {}) {
+  const candidates = [manifestDealer, discoveredDealer]
+    .map(normalizeFixtureDealer)
+    .filter(hasFixtureDealer);
+  if (candidates.length === 0) {
+    return normalizeFixtureDealer();
+  }
+  const [first, ...rest] = candidates;
+  if (rest.some((candidate) => (
+    candidate.id !== first.id || candidate.code !== first.code || candidate.name !== first.name
+  ))) {
+    throw new Error('Fixture dealer manifest and discovered identity do not match exactly.');
+  }
+  return first;
+}
 
 function normalizeFixtureIdentity({ tag, manifest = {}, discovered = {} } = {}) {
   const normalizedTag = normalizeFixtureTag(tag || manifest.tag || discovered.tag);
@@ -7,6 +31,10 @@ function normalizeFixtureIdentity({ tag, manifest = {}, discovered = {} } = {}) 
   const discoveredIds = discovered?.ids || {};
   return {
     tag: normalizedTag,
+    fixtureDealer: mergeFixtureDealer(manifest?.fixtureDealer, discovered?.fixtureDealer),
+    integrity: {
+      dealerTableBefore: normalizeDealerTableIntegrity(manifest?.integrity?.dealerTableBefore),
+    },
     ids: {
       jobIds: normalizeIdList([...(manifestIds.jobIds || []), ...(discoveredIds.jobIds || [])]).filter(isUuidLike),
       jobNumbers: normalizeIdList([...(manifestIds.jobNumbers || []), ...(discoveredIds.jobNumbers || [])]),
@@ -32,10 +60,35 @@ function assertSafeFixtureIdentity(identity) {
   if (allIds.some((value) => /[%*]/.test(value))) {
     throw new Error('Cleanup IDs must not contain wildcard characters.');
   }
+  const dealer = normalizeFixtureDealer(identity?.fixtureDealer);
+  if (hasFixtureDealer(dealer)) {
+    const normalizedName = dealer.name.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (!isUuidLike(dealer.id) || !dealer.code || !dealer.name) {
+      throw new Error('Tagged dealer cleanup requires an exact id, code, and name.');
+    }
+    if (!dealer.name.includes(tag) || !dealer.code.includes(tag.toLowerCase())) {
+      throw new Error('Tagged dealer cleanup identity must contain the exact fixture tag.');
+    }
+    if (dealer.code !== normalizedName || /[%*]/.test(`${dealer.code}${dealer.name}`)) {
+      throw new Error('Tagged dealer cleanup identity is not canonical and exact.');
+    }
+  }
   return true;
+}
+
+function dealerTableIntegrityMatches(before = {}, after = {}) {
+  const normalizedBefore = normalizeDealerTableIntegrity(before);
+  const normalizedAfter = normalizeDealerTableIntegrity(after);
+  return Boolean(
+    normalizedBefore.rowCount !== null &&
+    normalizedBefore.fingerprint &&
+    normalizedBefore.rowCount === normalizedAfter.rowCount &&
+    normalizedBefore.fingerprint === normalizedAfter.fingerprint
+  );
 }
 
 export {
   assertSafeFixtureIdentity,
+  dealerTableIntegrityMatches,
   normalizeFixtureIdentity,
 };

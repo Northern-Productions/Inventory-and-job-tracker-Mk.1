@@ -20,7 +20,7 @@ describe('FilmTransferAlertsPanel', () => {
     cleanup();
   });
 
-  it('starts transfer from a needed transfer alert using the existing alert context', () => {
+  it('keeps historical needs-transfer alerts review-only', () => {
     const onStartTransfer = vi.fn();
     render(
       <FilmTransferAlertsPanel
@@ -31,16 +31,8 @@ describe('FilmTransferAlertsPanel', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start Transfer' }));
-
-    expect(onStartTransfer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        boxId: 'MS1-505',
-        sourceWarehouse: 'MS1',
-        destinationWarehouse: 'IL1',
-        state: 'NEEDS_TRANSFER'
-      })
-    );
+    expect(screen.queryByRole('button', { name: 'Start Transfer' })).toBeNull();
+    expect(onStartTransfer).not.toHaveBeenCalled();
   });
 
   it('shows cancel transfer for pending transfer alerts', () => {
@@ -68,16 +60,16 @@ describe('FilmTransferAlertsPanel', () => {
   it('shows a row-scoped loading state for transfer actions', () => {
     render(
       <FilmTransferAlertsPanel
-        alerts={[buildAlert()]}
+        alerts={[buildAlert({ state: 'TRANSFER_REVIEW_REQUIRED', transferId: 'TRF-505' })]}
         jobWarehouse="IL1"
         onOpenBox={vi.fn()}
-        onStartTransfer={vi.fn()}
+        onCancelTransfer={vi.fn()}
         actionBoxId="MS1-505"
         actionPending
       />
     );
 
-    const button = screen.getByRole('button', { name: /Starting/ });
+    const button = screen.getByRole('button', { name: /Cancelling/ });
     expect(button).toBeTruthy();
     expect(button.getAttribute('aria-busy')).toBe('true');
   });

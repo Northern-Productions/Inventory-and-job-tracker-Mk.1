@@ -129,7 +129,7 @@ test('jobs update jobId scope migration does not alter deferred workflows or dup
   assert.match(baseSchemaMigration, /unique\s*\(\s*org_id\s*,\s*job_number\s*\)/i);
   assert.match(duplicateGuardMigration, /Job %s already exists/);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
 
   assert.match(schemaCheck, /sync_active_job_schedule_allocations_by_job_id/);
   assert.match(schemaCheck, /'jobIds', jsonb_build_array\(v_updated_job\.id\)/);

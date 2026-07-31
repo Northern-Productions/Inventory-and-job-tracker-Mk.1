@@ -49,5 +49,5 @@ test('client pilot migration removes only the automatic org warehouse seed trigg
 test('schema latest guard expects client pilot explicit warehouses migration', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
 });

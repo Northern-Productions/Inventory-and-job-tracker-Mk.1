@@ -11,7 +11,7 @@ import { writeManifest } from './lib/dev-fixture-manifest.mjs';
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || args.h) {
-    console.log(`Usage: node backend/scripts/dev-fixtures/create-dev-fixture.mjs --scenario <checked-out-box-job|allocation-eligibility> [--tag CODEX_DEV_FIXTURE_...]`);
+    console.log(`Usage: node backend/scripts/dev-fixtures/create-dev-fixture.mjs --scenario <checked-out-box-job|allocation-eligibility|atomic-transfer-assisted-allocation|allocation-timeout-remediation> [--tag CODEX_DEV_FIXTURE_...] [--safe-output]`);
     return;
   }
 
@@ -21,6 +21,13 @@ async function main() {
   const { createFixture } = await import('./lib/dev-fixture-scenarios.mjs');
   const manifest = await createFixture(config, { scenario, tag });
   const written = writeManifest(config, manifest);
+  const safeOutput = args['safe-output'] === true || String(args['safe-output']).toLowerCase() === 'true';
+  const idCounts = Object.fromEntries(
+    Object.entries(written.manifest.ids || {}).map(([key, values]) => [
+      key,
+      Array.isArray(values) ? values.length : 0,
+    ])
+  );
 
   console.log(JSON.stringify({
     ok: true,
@@ -29,9 +36,14 @@ async function main() {
     tag: written.manifest.tag,
     scenario: written.manifest.scenario,
     manifestPath: written.manifestPath.replace(/\\/g, '/'),
-    ids: written.manifest.ids,
-    routes: written.manifest.routes,
-    summary: written.manifest.summary,
+    fixtureDealerTracked: Boolean(written.manifest.fixtureDealer?.id),
+    ...(safeOutput
+      ? { idCounts }
+      : {
+          ids: written.manifest.ids,
+          routes: written.manifest.routes,
+          summary: written.manifest.summary,
+        }),
   }, null, 2));
 }
 

@@ -2853,6 +2853,7 @@ td.col-available-linear-ft {
 .key-value {
   display: grid;
   gap: 0.25rem;
+  min-width: 0;
 }
 
 .key-value dt {
@@ -2888,6 +2889,8 @@ td.col-available-linear-ft {
 .key-value dd {
   margin: 0;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mobile-record-list {

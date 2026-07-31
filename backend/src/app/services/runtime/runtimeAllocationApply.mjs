@@ -125,6 +125,7 @@ import {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  loadAllocationPreviewCandidateSnapshot,
   listBoxesByWarehouses,
   findBoxById,
   saveBoxRecord,
@@ -197,6 +198,7 @@ import {
 } from '../runtimeDeps.mjs';
 import {
   buildActiveAllocationsByBoxIndex,
+  buildCapacityAllocationsByBoxIndex,
   buildJobRequirementsByLookupKey,
   allocationMatchesRequirement,
   isRequirementComplete,
@@ -228,34 +230,6 @@ async function buildPendingTransfersByBoxRecordId(client, orgId, boxes) {
       )
     )
   );
-}
-
-/**
- * PURPOSE:
- * Loads the exact box candidate snapshot needed by allocation preview.
- *
- * AFFECTS:
- * /allocations/preview, allocation suggestion ordering, transfer eligibility,
- * and request latency for non-cross-warehouse allocation planning.
- *
- * WHEN CHANGING THIS, ALSO CHECK:
- * Supabase readHandlers /allocations/preview parity, buildAllocationPreviewPlan
- * candidate filtering, pending transfer lookup, and DEV timing audit results.
- *
- * COMMON FAILURE MODES:
- * Accidentally narrowing cross-warehouse previews, using a stale/requested
- * warehouse instead of the source box warehouse, or changing suggestion order.
- */
-async function loadAllocationPreviewBoxes(client, orgId, sourceBox, crossWarehouse, deps = {}) {
-  const loadAllBoxes = deps.listBoxes || listBoxes;
-  const loadWarehouseBoxes = deps.listBoxesByWarehouses || listBoxesByWarehouses;
-  const sourceWarehouse = asTrimmedString(sourceBox?.warehouse).toUpperCase();
-
-  if (crossWarehouse || !sourceWarehouse) {
-    return loadAllBoxes(client, orgId);
-  }
-
-  return loadWarehouseBoxes(client, orgId, [sourceWarehouse]);
 }
 
 async function resolveAllocationJobWarehouse(client, orgId, payload, jobNumber, selectedJob = null, options = {}) {
@@ -429,77 +403,40 @@ function trackActiveAllocationForCapacity(activeAllocationsByBox, allocation) {
 }
 
 async function previewAllocationPlan(client, orgId, payload) {
-  const source = await findBoxById(client, orgId, payload.boxId);
-  if (!source) {
-    throw new HttpError(404, 'Box not found.');
-  }
-
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
-  const requestedCrossWarehouse = parseCrossWarehouseFlag(payload.crossWarehouse);
-  const autoAllocate = parseBooleanFlag(payload.autoAllocate);
-  const requirementId = asTrimmedString(payload.requirementId);
-  const previewTarget = await resolvePreviewJobContext(client, orgId, payload, installDate, {
-    allowPhaseScheduleOverride: Boolean(requirementId)
-  });
-  let jobContext = previewTarget.jobContext;
-  const jobWarehouse = await resolveAllocationJobWarehouse(
+  const snapshot = await loadAllocationPreviewCandidateSnapshot(
     client,
     orgId,
-    payload,
-    jobContext.jobNumber,
-    previewTarget.job,
-    { requirePersistedJobWarehouse: autoAllocate }
+    {
+      ...payload,
+      jobDate: installDate
+    }
   );
-  if (autoAllocate && !jobWarehouse) {
-    throw new HttpError(400, 'Assign a warehouse to this job before auto-allocating material.');
-  }
-  if (autoAllocate && asTrimmedString(source.warehouse).toUpperCase() !== jobWarehouse) {
-    throw new HttpError(400, `Auto Allocate only uses material from the job warehouse (${jobWarehouse}).`);
-  }
-
-  const crossWarehouse = autoAllocate ? false : requestedCrossWarehouse;
-  const allBoxes = autoAllocate && jobWarehouse
-    ? await listBoxesByWarehouses(client, orgId, [jobWarehouse])
-    : await loadAllocationPreviewBoxes(client, orgId, source, crossWarehouse);
-  const activeAllocationsByBox = buildActiveAllocationsByBoxIndex(await listActiveAllocations(client, orgId));
-  const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, [
-    source,
-    ...allBoxes
-  ]);
-  ensureBoxEligibleForJobAllocation(
-    source,
-    pendingTransfersByBoxRecordId,
-    jobWarehouse,
-    'Only in-stock, ordered, or transfer boxes can be allocated.'
-  );
-  const jobRequirements = requirementId
-    ? previewTarget.jobId
-      ? await listJobRequirementsByJobId(client, orgId, previewTarget.jobId)
-      : await listJobRequirementsByJob(client, orgId, jobContext.jobNumber)
-    : [];
-  const selectedRequirement = requirementId
-    ? resolveSelectedRequirement(
-        jobRequirements,
-        requirementId,
-        source,
-        jobContext.jobNumber
-      )
+  const context = snapshot.context || {};
+  const canonicalJobContext = context.jobContext || {};
+  const requirementState = context.requirementState || {};
+  const phaseState = context.phaseState || {};
+  const selectedRequirement = asTrimmedString(requirementState.id)
+    ? {
+        ...requirementState,
+        phaseInstallDate: asTrimmedString(phaseState.installDate),
+        phaseCrewLeader: asTrimmedString(phaseState.crewLeader)
+      }
     : null;
-  jobContext = resolveRequirementScheduleJobContext(
-    jobContext,
-    selectedRequirement,
-    installDate,
-    payload.crewLeader
-  );
+  const jobContext = {
+    jobNumber: asTrimmedString(canonicalJobContext.jobNumber),
+    installDate: asTrimmedString(canonicalJobContext.jobDate ?? canonicalJobContext.installDate),
+    crewLeader: asTrimmedString(canonicalJobContext.crewLeader)
+  };
 
-  return buildAllocationPreviewPlan(source, payload.requestedFeet, jobContext, {
-    crossWarehouse,
-    minimumWidthIn: payload.requestedWidthIn,
-    allBoxes,
-    activeAllocationsByBox,
+  return buildAllocationPreviewPlan(snapshot.source, context.requestedFeet, jobContext, {
+    crossWarehouse: context.crossWarehouse === true,
+    minimumWidthIn: context.requestedWidthIn,
+    allBoxes: snapshot.boxes,
+    activeAllocationsByBox: buildCapacityAllocationsByBoxIndex(snapshot.allocations),
     selectedRequirement,
-    jobWarehouse,
-    pendingTransfersByBoxRecordId
+    jobWarehouse: asTrimmedString(context.jobWarehouse).toUpperCase(),
+    pendingTransfersByBoxRecordId: snapshot.pendingTransfersByBoxRecordId
   });
 }
 
@@ -529,7 +466,7 @@ function resolveSelectedRequirement(requirements, requirementId, sourceBox, jobN
   return selectedRequirement;
 }
 
-async function applyAllocationPlan(client, orgId, payload, actor) {
+async function applyAllocationPlanLegacy(client, orgId, payload, actor) {
   const warnings = [];
   const boxId = requireString(payload.boxId, 'BoxID');
   const installDate = payload.installDate !== undefined ? payload.installDate : payload.jobDate;
@@ -834,8 +771,90 @@ async function applyAllocationPlan(client, orgId, payload, actor) {
   );
 }
 
+async function applyAllocationPlan(client, orgId, payload, actor) {
+  const row = await queryRow(
+    client,
+    `select public.api_acl_allocations_apply($1::uuid, $2::text, $3::jsonb) as result`,
+    [orgId, actor, payload || {}]
+  );
+  const result = row?.result;
+  if (!result || typeof result !== 'object') {
+    throw new HttpError(500, 'Allocation apply did not return a result.');
+  }
+
+  const allocationIds = Array.isArray(result.allocationIds)
+    ? result.allocationIds.map((value) => asTrimmedString(value)).filter(Boolean)
+    : [];
+  const transferIds = Array.isArray(result.transferIds)
+    ? result.transferIds.map((value) => asTrimmedString(value)).filter(Boolean)
+    : [];
+  const rows = allocationIds.length
+    ? await queryRows(
+        client,
+        `
+          select *
+          from app.allocations
+          where org_id = $1
+            and allocation_id = any($2::text[])
+        `,
+        [orgId, allocationIds]
+      )
+    : [];
+  const allocationById = new Map(
+    rows.map((entry) => {
+      const allocation = mapDbAllocationRow(entry);
+      return [asTrimmedString(allocation?.allocationId), allocation];
+    })
+  );
+  const allocationRecords = allocationIds
+    .map((allocationId) => allocationById.get(allocationId) || null)
+    .filter(Boolean);
+  const boxIds = Array.from(
+    new Set(allocationRecords.map((entry) => asTrimmedString(entry?.boxId)).filter(Boolean))
+  );
+  const jobs = boxIds.length ? await listJobs(client, orgId) : [];
+  const reservationMetricsByBoxId = {};
+
+  for (let index = 0; index < boxIds.length; index += 1) {
+    const reservationBoxId = boxIds[index];
+    const reservationBox = await findBoxById(client, orgId, reservationBoxId);
+    if (!reservationBox) {
+      continue;
+    }
+    reservationMetricsByBoxId[reservationBoxId] = buildBoxReservationMetrics(
+      reservationBox,
+      await listAllocationsByBox(client, orgId, reservationBoxId),
+      { jobs }
+    );
+  }
+
+  const allocations = allocationRecords.map((allocation) => {
+    const snapshot = reservationMetricsByBoxId[allocation.boxId]?.allocationSnapshotsById?.[
+      allocation.allocationId
+    ];
+    return {
+      ...toPublicAllocation(allocation),
+      backedPhysicalFeet: snapshot
+        ? snapshot.backedPhysicalFeet
+        : integerOrZero(allocation.allocatedFeet),
+      reservationState: snapshot
+        ? snapshot.reservationState
+        : (asTrimmedString(allocation.installDate) ? 'WITH_INSTALL_DATE' : 'WITHOUT_INSTALL_DATE')
+    };
+  });
+
+  return ok(
+    {
+      allocations,
+      filmOrder: null,
+      remainingUncoveredFeet: integerOrZero(result.remainingUncoveredFeet),
+      transferIds
+    },
+    Array.isArray(result.warnings) ? result.warnings : []
+  );
+}
+
 export {
-  loadAllocationPreviewBoxes,
   previewAllocationPlan,
   resolveSelectedRequirement,
   applyAllocationPlan,

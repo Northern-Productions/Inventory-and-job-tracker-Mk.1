@@ -145,6 +145,7 @@ export async function withMutation(callback) {
     await client.query(`SET LOCAL lock_timeout = '5s'`);
     await client.query(`SET LOCAL statement_timeout = '30s'`);
     await client.query('SET LOCAL TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+    await client.query(`select pg_advisory_xact_lock(hashtextextended('film-material-flow', 0))`);
     await client.query(`
       lock table
         app.boxes,

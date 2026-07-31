@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization.sql';
+const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -132,8 +132,44 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_boxes_mark_labels_printed(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.api_allocations_apply_pre_0191(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.api_acl_allocations_apply_pre_0191(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.allocation_apply_box_states_0192(uuid, text[])' },
+  { kind: 'function', signature: 'app_api.build_allocation_apply_plan_0192(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_allocation_preview_candidates(uuid, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.api_acl_boxes_resolve_checkout_allocations_pre_0191(uuid, text, jsonb)' },
+  { kind: 'column', signature: 'app.box_transfers.transfer_created_allocation_id' },
+  { kind: 'index', signature: 'app.idx_box_transfers_transfer_created_allocation' },
+  { kind: 'constraint', signature: 'app.box_transfers.box_transfers_transfer_created_allocation_fk' },
+  { kind: 'trigger', signature: 'app.allocations.trg_0191_guard_pending_transfer_allocations' },
+  { kind: 'trigger', signature: 'app.boxes.trg_0191_guard_pending_transfer_boxes' },
+  { kind: 'trigger', signature: 'app.box_transfers.trg_0191_guard_box_transfers' },
+  { kind: 'trigger', signature: 'app.jobs.trg_0191_guard_pending_transfer_jobs' },
+  { kind: 'trigger', signature: 'app.job_requirements.trg_0191_guard_pending_transfer_requirements' },
+  { kind: 'trigger', signature: 'app.job_phases.trg_0191_guard_pending_transfer_phases' },
+  { kind: 'trigger', signature: 'app.box_transfers.trg_0191_transfer_consistency_transfer' },
+  { kind: 'trigger', signature: 'app.boxes.trg_0191_transfer_consistency_box' },
+  { kind: 'trigger', signature: 'app.allocations.trg_0191_transfer_consistency_allocation' },
+  { kind: 'function', signature: 'app_api.lock_film_material_flow()' },
+  { kind: 'function', signature: 'app_api.start_box_transfer_locked(uuid, text, text, text, text, text, text, integer)' },
+  { kind: 'function', signature: 'public.api_box_transfer_start(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_box_transfer_receive(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_box_transfer_cancel(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_box_transfer_start(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_box_transfer_receive(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_box_transfer_cancel(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.guard_pending_transfer_allocation_mutation()' },
+  { kind: 'function', signature: 'app_api.guard_pending_transfer_box_mutation()' },
+  { kind: 'function', signature: 'app_api.guard_box_transfer_mutation()' },
+  { kind: 'function', signature: 'app_api.release_pending_transfer_allocations(uuid, text, uuid, uuid, text, uuid)' },
+  { kind: 'function', signature: 'app_api.guard_pending_transfer_job_mutation()' },
+  { kind: 'function', signature: 'app_api.guard_pending_transfer_requirement_mutation()' },
+  { kind: 'function', signature: 'app_api.guard_pending_transfer_phase_mutation()' },
+  { kind: 'function', signature: 'app_api.assert_pending_transfer_consistency(uuid, uuid)' },
+  { kind: 'function', signature: 'app_api.enforce_pending_transfer_consistency_trigger()' },
   { kind: 'function', signature: 'public.api_film_orders_create(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_cancel(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_cancel(uuid, text, jsonb)' },
@@ -264,6 +300,165 @@ const REQUIRED_OBJECTS = [
 ];
 
 const REQUIRED_FUNCTION_SEMANTICS = [
+  {
+    signature: 'public.api_allocations_apply(uuid, text, jsonb)',
+    includes: [
+      'perform app_api.lock_film_material_flow();',
+      'v_plan := app_api.build_allocation_apply_plan_0192(p_org_id, p_actor, v_payload);',
+      'from app_api.allocation_apply_box_states_0192(p_org_id, v_affected_box_ids) s;',
+      'if v_pre_states is distinct from v_locked_states then',
+      'Transfer-assisted allocation can start only from an in-stock box.',
+      'Transfer-assisted allocation requires a box with zero prior reservations.',
+      'v_transfer := app_api.start_box_transfer_locked(',
+      "'transferIds', to_jsonb(v_transfer_ids)"
+    ],
+    excludes: [
+      'v_result := app_api.api_allocations_apply_pre_0191(p_org_id, p_actor, v_payload);',
+      'for v_pre_box in'
+    ]
+  },
+  {
+    signature: 'app_api.allocation_apply_box_states_0192(uuid, text[])',
+    includes: [
+      'from unnest(coalesce(p_box_ids, array[]::text[])) entry',
+      'join app.boxes b',
+      'left join app.allocations a',
+      'left join app.box_transfers t',
+      'allocation_state jsonb',
+      'pending_transfer_state jsonb',
+      'order by s.box_id'
+    ],
+    excludes: ['where b.org_id = p_org_id\n    order by b.box_id']
+  },
+  {
+    signature: 'app_api.build_allocation_apply_plan_0192(uuid, text, jsonb)',
+    includes: [
+      "v_auto_allocate boolean := coalesce((v_payload->>'autoAllocate')::boolean, false);",
+      'The same box cannot be selected more than once in one allocation apply request.',
+      'Requirement %s is complete. Reactivate it before allocating film.',
+      'JobDate must match the selected requirement phase.',
+      'CrewLeader must match the selected requirement phase.',
+      'or b.box_id = any(v_selected_box_ids)',
+      'order by array_position(v_candidate_box_ids, s.box_id)',
+      "'operations', v_operations",
+      "'warnings', '[]'::jsonb"
+    ],
+    excludes: ['app_api.api_allocations_apply_pre_0191']
+  },
+  {
+    signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)',
+    includes: [
+      "v_plan := app_api.build_allocation_apply_plan_0192(",
+      'from app_api.allocation_apply_box_states_0192(',
+      'where b.org_id = p_org_id',
+      'and b.width_in >= v_requested_width_in',
+      "and a.status in ('ACTIVE', 'FULFILLED')",
+      "and t.status = 'PENDING'",
+      "'pendingTransfersByBoxRecordId', v_pending_transfers",
+      "'candidateMetadata', v_candidate_metadata"
+    ],
+    excludes: [
+      'public.api_acl_list_boxes',
+      'set_config',
+      'statement_timeout',
+      'lock_timeout'
+    ]
+  },
+  {
+    signature: 'public.api_acl_allocation_preview_candidates(uuid, jsonb)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'read');",
+      'return app_api.allocation_preview_candidates_0193(p_org_id, p_payload);'
+    ],
+    excludes: ["'allocations', 'write'"]
+  },
+  {
+    signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
+    includes: [
+      'perform app_api.lock_film_material_flow();',
+      'return app_api.api_acl_allocations_apply_pre_0191(p_org_id, p_actor, p_payload);'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.start_box_transfer_locked(uuid, text, text, text, text, text, text, integer)',
+    includes: [
+      'perform app_api.lock_film_material_flow();',
+      "upper(coalesce(v_box.status::text, '')) <> 'IN_STOCK'",
+      'has reserved film and cannot start an ordinary transfer.',
+      'A transfer-assisted box must have exactly one first reservation.',
+      'Transfer destination must match the linked allocation job warehouse.',
+      'transfer_created_allocation_id'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'public.api_box_transfer_receive(uuid, text, jsonb)',
+    includes: [
+      'perform app_api.lock_film_material_flow();',
+      "perform set_config('app.transfer_workflow_action', 'receive', true);",
+      'update app.allocations',
+      'update app.audit_log',
+      'update app.roll_weight_log',
+      'update app.film_order_box_links',
+      'update app.film_orders',
+      'update app.film_catalog',
+      "set status = 'RECEIVED'"
+    ],
+    excludes: ["set status = 'ACTIVE'"]
+  },
+  {
+    signature: 'public.api_box_transfer_cancel(uuid, text, jsonb)',
+    includes: [
+      'perform app_api.lock_film_material_flow();',
+      'v_transfer.transfer_created_allocation_id',
+      'and upper(j.warehouse) = v_transfer.destination_warehouse;',
+      "set status = 'CANCELLED'",
+      "set status = 'IN_STOCK'",
+      'v_physical_feet'
+    ],
+    excludes: ['delete from app.allocations']
+  },
+  {
+    signature: 'app_api.guard_pending_transfer_allocation_mutation()',
+    includes: [
+      'allocation_id is an immutable canonical allocation key.',
+      'Pending-transfer boxes cannot receive additional allocations.',
+      'A pending-transfer allocation cannot be fulfilled before receipt.',
+      'A pending-transfer allocation cannot be reactivated.',
+      'A pending-transfer allocation cannot be strengthened or reassigned.'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.guard_box_transfer_mutation()',
+    includes: [
+      'Transfer history cannot be deleted.',
+      'Ordinary transfers require zero film reservations.',
+      'Allocation-assisted transfer requires exactly its one first reservation.',
+      'Transfer identity and allocation linkage are immutable.'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.guard_pending_transfer_phase_mutation()',
+    includes: [
+      'Released because the linked phase was removed.',
+      'Released because the linked phase was made a placeholder.',
+      'A phase with film still in transfer cannot be reactivated.',
+      'A phase with film still in transfer cannot be completed or consumed.'
+    ],
+    excludes: []
+  },
+  {
+    signature: 'app_api.assert_pending_transfer_consistency(uuid, uuid)',
+    includes: [
+      'Pending transfer and physical box custody are inconsistent.',
+      'Pending transfer allocation linkage is inconsistent.',
+      'Pending transfer has more than its one transfer-created reservation.'
+    ],
+    excludes: []
+  },
   {
     signature: 'app_api.member_permissions_for_user_json(uuid, uuid)',
     includes: [
@@ -653,7 +848,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: ["if p_payload ? 'sections' then\n    v_job.sections := app_api.normalize_job_sections"]
   },
   {
-    signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
+    signature: 'app_api.api_acl_allocations_apply_pre_0191(uuid, text, jsonb)',
     includes: [
       "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
       'Job identity mismatch: selected job does not match jobNumber.',
@@ -667,7 +862,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: ['perform app_api.reconcile_auto_shortage_film_orders_for_job(']
   },
   {
-    signature: 'public.api_allocations_apply(uuid, text, jsonb)',
+    signature: 'app_api.api_allocations_apply_pre_0191(uuid, text, jsonb)',
     includes: [
       "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
       'jobId must be a valid UUID.',
@@ -696,7 +891,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ]
   },
   {
-    signature: 'public.api_allocations_remove_box(uuid, text, jsonb)',
+    signature: 'app_api.api_allocations_remove_box_pre_0191(uuid, text, jsonb)',
     includes: [
       "v_allocation_id text := app_api.require_text(v_payload->>'allocationId', 'AllocationID');",
       "v_job_id_text text := app_api.trim_text(v_payload->>'jobId');",
@@ -722,7 +917,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: ['auto_planner_scope_job_numbers(']
   },
   {
-    signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)',
+    signature: 'app_api.api_acl_allocations_remove_box_pre_0191(uuid, text, jsonb)',
     includes: [
       "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'write');",
       'return public.api_allocations_remove_box(p_org_id, p_actor, p_payload);'
@@ -936,7 +1131,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
-    signature: 'public.api_acl_jobs_update(uuid, text, jsonb)',
+    signature: 'app_api.api_acl_jobs_update_pre_0191(uuid, text, jsonb)',
     includes: [
       "v_job_id_text text := app_api.trim_text(p_payload->>'jobId');",
       'perform app_api.sync_active_job_phase_schedules(p_org_id, v_updated_job.id);',
@@ -1028,7 +1223,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ]
   },
   {
-    signature: 'public.api_acl_boxes_set_status(uuid, text, jsonb)',
+    signature: 'app_api.api_acl_boxes_set_status_pre_0191(uuid, text, jsonb)',
     includes: [
       'perform app_api.recalculate_physical_box_allocatable_now(p_org_id, v_lookup_box_id);',
       'perform app_api.reconcile_auto_planned_allocations(',
@@ -1116,7 +1311,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
-    signature: 'public.api_acl_job_requirement_set_state(uuid, text, jsonb)',
+    signature: 'app_api.api_acl_job_requirement_set_state_pre_0191(uuid, text, jsonb)',
     includes: [
       "v_material_type text := upper(coalesce(nullif(app_api.trim_text(p_payload->>'materialType'), ''), nullif(app_api.trim_text(p_payload->>'material_type'), ''), 'FILM'))",
       "if v_material_type not in ('FILM', 'CAULK') then",
@@ -1578,6 +1773,10 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_acl_inventory_ownership_update_box(uuid, text, jsonb)',
   'public.api_acl_inventory_ownership_update_caulk_stock(uuid, text, jsonb)',
   'public.api_acl_inventory_ownership_bulk_transfer(uuid, text, jsonb)',
+  'public.api_acl_box_transfer_start(uuid, text, jsonb)',
+  'public.api_acl_box_transfer_receive(uuid, text, jsonb)',
+  'public.api_acl_box_transfer_cancel(uuid, text, jsonb)',
+  'public.api_acl_allocation_preview_candidates(uuid, jsonb)',
 ];
 
 function sqlLiteral(value) {
@@ -1626,6 +1825,25 @@ async function runSchemaCheck() {
                 and c.table_name = split_part(signature, '.', 2)
                 and c.column_name = split_part(signature, '.', 3)
             )
+            when kind = 'constraint' then exists (
+              select 1
+              from pg_constraint constraint_entry
+              join pg_class relation_entry on relation_entry.oid = constraint_entry.conrelid
+              join pg_namespace namespace_entry on namespace_entry.oid = relation_entry.relnamespace
+              where namespace_entry.nspname = split_part(signature, '.', 1)
+                and relation_entry.relname = split_part(signature, '.', 2)
+                and constraint_entry.conname = split_part(signature, '.', 3)
+            )
+            when kind = 'trigger' then exists (
+              select 1
+              from pg_trigger trigger_entry
+              join pg_class relation_entry on relation_entry.oid = trigger_entry.tgrelid
+              join pg_namespace namespace_entry on namespace_entry.oid = relation_entry.relnamespace
+              where namespace_entry.nspname = split_part(signature, '.', 1)
+                and relation_entry.relname = split_part(signature, '.', 2)
+                and trigger_entry.tgname = split_part(signature, '.', 3)
+                and not trigger_entry.tgisinternal
+            )
             else false
           end as exists
         from checks
@@ -1640,6 +1858,86 @@ async function runSchemaCheck() {
         '[schema-check] Missing required schema objects for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           `${details}`
+      );
+    }
+
+    const transferIntegrityRows = await client.query(`
+      select
+        exists (
+          select 1
+          from pg_attribute attribute_entry
+          where attribute_entry.attrelid = 'app.box_transfers'::regclass
+            and attribute_entry.attname = 'transfer_created_allocation_id'
+            and not attribute_entry.attisdropped
+            and not attribute_entry.attnotnull
+            and attribute_entry.atttypid = 'text'::regtype
+            and not exists (
+              select 1
+              from pg_attrdef default_entry
+              where default_entry.adrelid = attribute_entry.attrelid
+                and default_entry.adnum = attribute_entry.attnum
+            )
+        ) as nullable_text_link,
+        exists (
+          select 1
+          from pg_constraint constraint_entry
+          where constraint_entry.conrelid = 'app.allocations'::regclass
+            and constraint_entry.contype = 'u'
+            and pg_get_constraintdef(constraint_entry.oid) = 'UNIQUE (org_id, allocation_id)'
+        ) as canonical_allocation_key,
+        exists (
+          select 1
+          from pg_constraint constraint_entry
+          where constraint_entry.conrelid = 'app.box_transfers'::regclass
+            and constraint_entry.conname = 'box_transfers_transfer_created_allocation_fk'
+            and constraint_entry.contype = 'f'
+            and constraint_entry.confrelid = 'app.allocations'::regclass
+            and constraint_entry.condeferrable
+            and constraint_entry.condeferred
+            and constraint_entry.confupdtype = 'a'
+            and constraint_entry.confdeltype = 'a'
+            and pg_get_constraintdef(constraint_entry.oid) like
+              'FOREIGN KEY (org_id, transfer_created_allocation_id) REFERENCES app.allocations(org_id, allocation_id)%'
+        ) as safe_allocation_fk,
+        exists (
+          select 1
+          from pg_index index_entry
+          where index_entry.indexrelid = 'app.idx_box_transfers_transfer_created_allocation'::regclass
+            and index_entry.indisunique
+            and index_entry.indisvalid
+            and index_entry.indisready
+            and index_entry.indpred is not null
+            and pg_get_expr(index_entry.indpred, index_entry.indrelid) =
+              '(transfer_created_allocation_id IS NOT NULL)'
+        ) as partial_unique_link;
+    `);
+    const transferIntegrityState = transferIntegrityRows.rows[0] || {};
+    const transferIntegrityIssues = [];
+    if (transferIntegrityState.nullable_text_link !== true) {
+      transferIntegrityIssues.push(
+        '- column mismatch: app.box_transfers.transfer_created_allocation_id must be nullable text with no default'
+      );
+    }
+    if (transferIntegrityState.canonical_allocation_key !== true) {
+      transferIntegrityIssues.push(
+        '- constraint mismatch: app.allocations must retain UNIQUE (org_id, allocation_id)'
+      );
+    }
+    if (transferIntegrityState.safe_allocation_fk !== true) {
+      transferIntegrityIssues.push(
+        '- constraint mismatch: transfer allocation FK must be deferred, initially deferred, and NO ACTION'
+      );
+    }
+    if (transferIntegrityState.partial_unique_link !== true) {
+      transferIntegrityIssues.push(
+        '- index mismatch: transfer allocation link must be uniquely referenceable only when non-null'
+      );
+    }
+    if (transferIntegrityIssues.length > 0) {
+      throw new Error(
+        '[schema-check] Atomic transfer-assisted allocation schema is out of date.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          transferIntegrityIssues.join('\n')
       );
     }
 

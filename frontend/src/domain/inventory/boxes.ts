@@ -276,6 +276,7 @@ export interface BoxTransferEntry {
   sourceWarehouse: Warehouse;
   destinationWarehouse: Warehouse;
   status: BoxTransferStatus;
+  workflowKind?: 'ORDINARY' | 'ALLOCATION_ASSISTED';
   createdAt: string;
   createdBy: string;
   receivedAt: string;

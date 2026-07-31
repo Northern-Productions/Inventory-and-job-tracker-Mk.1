@@ -19,7 +19,7 @@ function totalCount(counts = {}) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || args.h) {
-    console.log('Usage: node backend/scripts/dev-fixtures/verify-dev-fixture.mjs --tag CODEX_DEV_FIXTURE_... [--expect-clean]');
+    console.log('Usage: node backend/scripts/dev-fixtures/verify-dev-fixture.mjs --tag CODEX_DEV_FIXTURE_... [--expect-clean] [--safe-output]');
     return;
   }
 
@@ -29,6 +29,7 @@ async function main() {
   const { verifyFixture } = await import('./lib/dev-fixture-scenarios.mjs');
   const result = await verifyFixture(config, { tag, manifest });
   const expectClean = Boolean(args['expect-clean']);
+  const safeOutput = args['safe-output'] === true || String(args['safe-output']).toLowerCase() === 'true';
   const remainingCount = totalCount(result.counts);
   const ok = expectClean ? remainingCount === 0 : result.ok;
 
@@ -40,10 +41,10 @@ async function main() {
     tag: result.tag,
     manifestFound: Boolean(manifest),
     manifestPath: manifestPath.replace(/\\/g, '/'),
-    ids: result.ids,
+    fixtureDealerTracked: Boolean(manifest?.fixtureDealer?.id),
     counts: result.counts,
     remainingCount,
-    boxStates: result.boxStates,
+    ...(!safeOutput ? { ids: result.ids, boxStates: result.boxStates } : {}),
   }, null, 2));
 
   if (!ok) {

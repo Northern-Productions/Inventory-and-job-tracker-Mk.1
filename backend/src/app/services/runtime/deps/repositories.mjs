@@ -10,6 +10,7 @@ export {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  loadAllocationPreviewCandidateSnapshot,
   listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,

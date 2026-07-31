@@ -1,6 +1,7 @@
 import {
   HttpError,
   ok,
+  queryRow,
   asTrimmedString,
   requireString,
   integerOrZero,
@@ -144,7 +145,7 @@ async function getBoxTransferPlan(client, orgId, payload) {
   };
 }
 
-async function startBoxTransfer(client, orgId, payload, actor) {
+async function startBoxTransferLegacy(client, orgId, payload, actor) {
   const { box, sourceWarehouse, destinationWarehouse, destinationBoxId, conflict } =
     await resolveBoxTransferPlan(client, orgId, payload);
   if (conflict) {
@@ -211,7 +212,7 @@ async function startBoxTransfer(client, orgId, payload, actor) {
   );
 }
 
-async function receiveBoxTransfer(client, orgId, payload, actor) {
+async function receiveBoxTransferLegacy(client, orgId, payload, actor) {
   const transfer = await findBoxTransferByTransferId(client, orgId, payload.transferId);
   if (!transfer) {
     throw new HttpError(404, 'Transfer not found.');
@@ -294,7 +295,7 @@ async function receiveBoxTransfer(client, orgId, payload, actor) {
   );
 }
 
-async function cancelBoxTransfer(client, orgId, payload, actor) {
+async function cancelBoxTransferLegacy(client, orgId, payload, actor) {
   const transfer = await findBoxTransferByTransferId(client, orgId, payload.transferId);
   if (!transfer) {
     throw new HttpError(404, 'Transfer not found.');
@@ -384,6 +385,68 @@ async function cancelBoxTransfer(client, orgId, payload, actor) {
       releasedFeet
     },
     []
+  );
+}
+
+async function callCanonicalBoxTransferMutation(client, orgId, actor, payload, functionName) {
+  const allowedFunctions = new Set([
+    'public.api_acl_box_transfer_start',
+    'public.api_acl_box_transfer_receive',
+    'public.api_acl_box_transfer_cancel'
+  ]);
+  if (!allowedFunctions.has(functionName)) {
+    throw new HttpError(500, 'Unsupported box transfer mutation.');
+  }
+
+  const row = await queryRow(
+    client,
+    `select ${functionName}($1::uuid, $2::text, $3::jsonb) as result`,
+    [orgId, actor, payload || {}]
+  );
+  const result = row?.result;
+  if (!result || typeof result !== 'object') {
+    throw new HttpError(500, 'Box transfer mutation did not return a result.');
+  }
+
+  return ok(
+    {
+      box: result.box,
+      transfer: result.transfer,
+      logId: asTrimmedString(result.logId),
+      cancelledAllocationCount: integerOrZero(result.cancelledAllocationCount),
+      releasedFeet: integerOrZero(result.releasedFeet)
+    },
+    Array.isArray(result.warnings) ? result.warnings : []
+  );
+}
+
+async function startBoxTransfer(client, orgId, payload, actor) {
+  return callCanonicalBoxTransferMutation(
+    client,
+    orgId,
+    actor,
+    payload,
+    'public.api_acl_box_transfer_start'
+  );
+}
+
+async function receiveBoxTransfer(client, orgId, payload, actor) {
+  return callCanonicalBoxTransferMutation(
+    client,
+    orgId,
+    actor,
+    payload,
+    'public.api_acl_box_transfer_receive'
+  );
+}
+
+async function cancelBoxTransfer(client, orgId, payload, actor) {
+  return callCanonicalBoxTransferMutation(
+    client,
+    orgId,
+    actor,
+    payload,
+    'public.api_acl_box_transfer_cancel'
   );
 }
 

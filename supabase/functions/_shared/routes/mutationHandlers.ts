@@ -667,14 +667,35 @@ const mutationHandlers: Record<string, MutationHandler> = {
       result.warnings || [],
     );
   },
-  "/boxes/transfer/start": async ({ client, identity, normalizedPayload }, deps) => {
-    return await deps.startBoxTransfer(client, identity, normalizedPayload);
+  "/boxes/transfer/start": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_acl_box_transfer_start", orgId, actor, normalizedPayload);
+    return ok({
+      box: result.box,
+      transfer: result.transfer,
+      logId: deps.asTrimmedString(result.logId),
+      cancelledAllocationCount: deps.integerOrZero(result.cancelledAllocationCount),
+      releasedFeet: deps.integerOrZero(result.releasedFeet),
+    }, result.warnings || []);
   },
-  "/boxes/transfer/receive": async ({ client, identity, normalizedPayload }, deps) => {
-    return await deps.receiveBoxTransfer(client, identity, normalizedPayload);
+  "/boxes/transfer/receive": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_acl_box_transfer_receive", orgId, actor, normalizedPayload);
+    return ok({
+      box: result.box,
+      transfer: result.transfer,
+      logId: deps.asTrimmedString(result.logId),
+      cancelledAllocationCount: deps.integerOrZero(result.cancelledAllocationCount),
+      releasedFeet: deps.integerOrZero(result.releasedFeet),
+    }, result.warnings || []);
   },
-  "/boxes/transfer/cancel": async ({ client, identity, normalizedPayload }, deps) => {
-    return await deps.cancelBoxTransfer(client, identity, normalizedPayload);
+  "/boxes/transfer/cancel": async ({ client, orgId, actor, normalizedPayload }, deps) => {
+    const result = await deps.callMutationRpc(client, "api_acl_box_transfer_cancel", orgId, actor, normalizedPayload);
+    return ok({
+      box: result.box,
+      transfer: result.transfer,
+      logId: deps.asTrimmedString(result.logId),
+      cancelledAllocationCount: deps.integerOrZero(result.cancelledAllocationCount),
+      releasedFeet: deps.integerOrZero(result.releasedFeet),
+    }, result.warnings || []);
   },
   "/allocations/add": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const jobNumber = deps.requireString(normalizedPayload.jobNumber, "JobNumber");
@@ -715,6 +736,9 @@ const mutationHandlers: Record<string, MutationHandler> = {
       allocations,
       filmOrder,
       remainingUncoveredFeet: deps.integerOrZero(result.remainingUncoveredFeet),
+      transferIds: Array.isArray(result.transferIds)
+        ? result.transferIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
+        : [],
     }, [...(result.warnings || []), ...stagedWarnings]);
   },
   "/allocations/apply": async ({ client, orgId, actor, normalizedPayload }, deps) => {
@@ -792,6 +816,9 @@ const mutationHandlers: Record<string, MutationHandler> = {
       allocations,
       filmOrder,
       remainingUncoveredFeet: deps.integerOrZero(result.remainingUncoveredFeet),
+      transferIds: Array.isArray(result.transferIds)
+        ? result.transferIds.map((value: unknown) => deps.asTrimmedString(value)).filter(Boolean)
+        : [],
     }, [...(result.warnings || []), ...stagedWarnings]);
   },
   "/allocations/remove-box": async ({ client, orgId, actor, normalizedPayload }, deps) => {

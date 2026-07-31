@@ -34,6 +34,7 @@ async function main() {
       before: result.before,
       deleted: result.deleted,
       after: result.after,
+      dealerIntegrity: result.dealerIntegrity,
     },
   };
   writeManifest(config, updatedManifest);
@@ -48,6 +49,7 @@ async function main() {
     before: result.before,
     deleted: result.deleted,
     after: result.after,
+    dealerIntegrity: result.dealerIntegrity,
   }, null, 2));
 
   if (!result.ok) {

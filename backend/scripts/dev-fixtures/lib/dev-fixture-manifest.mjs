@@ -28,10 +28,27 @@ function normalizeIdList(values = []) {
   ).sort();
 }
 
+function normalizeFixtureDealer(value = {}) {
+  return {
+    id: asText(value.id),
+    code: asText(value.code),
+    name: asText(value.name),
+  };
+}
+
+function normalizeDealerTableIntegrity(value = {}) {
+  const rowCount = Number(value.rowCount);
+  const fingerprint = asText(value.fingerprint);
+  return {
+    rowCount: Number.isSafeInteger(rowCount) && rowCount >= 0 ? rowCount : null,
+    fingerprint: /^sha256:[a-f0-9]{64}$/.test(fingerprint) ? fingerprint : '',
+  };
+}
+
 function normalizeManifest(manifest = {}) {
   const tag = normalizeFixtureTag(manifest.tag);
   return {
-    version: 1,
+    version: 2,
     tag,
     scenario: asText(manifest.scenario),
     createdAt: asText(manifest.createdAt),
@@ -47,6 +64,10 @@ function normalizeManifest(manifest = {}) {
       allocationIds: normalizeIdList(manifest.ids?.allocationIds),
       boxIds: normalizeIdList(manifest.ids?.boxIds),
       filmOrderIds: normalizeIdList(manifest.ids?.filmOrderIds),
+    },
+    fixtureDealer: normalizeFixtureDealer(manifest.fixtureDealer),
+    integrity: {
+      dealerTableBefore: normalizeDealerTableIntegrity(manifest.integrity?.dealerTableBefore),
     },
     routes: {
       jobDetails: normalizeIdList(manifest.routes?.jobDetails),
@@ -90,6 +111,8 @@ function readManifest(config, tag) {
 export {
   getManifestPath,
   normalizeIdList,
+  normalizeDealerTableIntegrity,
+  normalizeFixtureDealer,
   normalizeManifest,
   readManifest,
   writeManifest,

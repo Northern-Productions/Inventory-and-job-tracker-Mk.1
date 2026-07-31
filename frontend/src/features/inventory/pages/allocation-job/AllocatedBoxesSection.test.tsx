@@ -364,7 +364,7 @@ describe('AllocatedBoxesSection', () => {
     );
   });
 
-  it('preserves transfer-needed display and disables checkout for grouped box rows', () => {
+  it('requires review for an unlinked cross-warehouse allocation and disables checkout', () => {
     renderSection(
       [
         buildEntry({
@@ -385,7 +385,7 @@ describe('AllocatedBoxesSection', () => {
       }
     );
 
-    expect(screen.getByText('Needs Transfer')).toBeTruthy();
+    expect(screen.getByText('Needs Review')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Check Out' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
   });

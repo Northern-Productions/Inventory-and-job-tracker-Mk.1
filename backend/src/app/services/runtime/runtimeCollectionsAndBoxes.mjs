@@ -838,7 +838,7 @@ async function buildSearchBoxes(client, orgId, params) {
   let publicBoxes = filtered.map((box) => {
     const publicBox = toPublicBox(box);
     const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
-    if (!pendingTransfer || !isJobAllocationEligibleBox(box, pendingTransfer, pendingTransfer.destinationWarehouse)) {
+    if (!pendingTransfer) {
       return publicBox;
     }
 

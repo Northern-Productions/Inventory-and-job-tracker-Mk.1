@@ -8,7 +8,6 @@ interface StatusMessagesProps {
   prioritizedMatchingBoxesCount: number;
   selectedBoxCount: number;
   hasPreferredLinkedBoxes: boolean;
-  hasTransferCandidates: boolean;
   showsRemainingUncoveredNotice: boolean;
   remainingUncoveredFeet: number;
   installDate: string;
@@ -26,7 +25,6 @@ export function StatusMessages({
   prioritizedMatchingBoxesCount,
   selectedBoxCount,
   hasPreferredLinkedBoxes,
-  hasTransferCandidates,
   showsRemainingUncoveredNotice,
   remainingUncoveredFeet,
   installDate,
@@ -69,11 +67,6 @@ export function StatusMessages({
       {!isMatchingBoxesLoading && hasPreferredLinkedBoxes && prioritizedMatchingBoxesCount ? (
         <p className="muted-text">
           Boxes linked to this job&apos;s film orders are prioritized first. Select any boxes you want to use.
-        </p>
-      ) : null}
-      {!isMatchingBoxesLoading && hasTransferCandidates ? (
-        <p className="muted-text">
-          Transfer boxes already headed to this warehouse can be allocated here, but they must still be received before checkout.
         </p>
       ) : null}
       {showsRemainingUncoveredNotice ? (

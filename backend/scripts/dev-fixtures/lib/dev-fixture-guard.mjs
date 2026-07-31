@@ -69,7 +69,12 @@ function requireScenario(value) {
   if (!scenario) {
     throw new Error('--scenario is required.');
   }
-  if (!['checked-out-box-job', 'allocation-eligibility'].includes(scenario)) {
+  if (![
+    'checked-out-box-job',
+    'allocation-eligibility',
+    'atomic-transfer-assisted-allocation',
+    'allocation-timeout-remediation',
+  ].includes(scenario)) {
     throw new Error(`Unsupported fixture scenario: ${scenario}`);
   }
   return scenario;
@@ -94,6 +99,27 @@ function normalizeFixtureTag(value, scenario = '') {
 function buildFixtureTag(scenario = '') {
   const scenarioPart = normalizeTagPart(scenario || 'GENERAL') || 'GENERAL';
   return `${TAG_PREFIX}_${scenarioPart}_${randomDigits(11)}`;
+}
+
+function buildFixtureDealerIdentity(tag) {
+  const normalizedTag = normalizeFixtureTag(tag);
+  const name = `Codex Fixture Dealer ${normalizedTag}`;
+  return {
+    code: name.toLowerCase(),
+    name,
+  };
+}
+
+function assertFixtureDealerAvailable({ codeMatches = 0, nameMatches = 0 } = {}) {
+  const exactCodeMatches = Number(codeMatches);
+  const exactNameMatches = Number(nameMatches);
+  if (!Number.isInteger(exactCodeMatches) || !Number.isInteger(exactNameMatches)) {
+    throw new Error('Fixture dealer collision counts must be integers.');
+  }
+  if (exactCodeMatches !== 0 || exactNameMatches !== 0) {
+    throw new Error('Tagged fixture dealer identity already exists; use a fresh fixture tag.');
+  }
+  return true;
 }
 
 function isUuidLike(value) {
@@ -176,6 +202,7 @@ function loadDevFixtureConfig(options = {}) {
     projectRef: DEV_PROJECT_REF,
     orgId,
     databaseUrl,
+    smokeUserEmail: asText(loaded.values.SMOKE_USER_EMAIL),
     manifestDir,
     appUrl: asText(options['app-url'] || DEFAULT_APP_URL).replace(/\/+$/g, ''),
     guardReport: report,
@@ -190,6 +217,8 @@ export {
   assertIgnoredPath,
   assertNotRunlogPath,
   assertRepoRelativePath,
+  assertFixtureDealerAvailable,
+  buildFixtureDealerIdentity,
   buildFixtureTag,
   isUuidLike,
   loadDevFixtureConfig,

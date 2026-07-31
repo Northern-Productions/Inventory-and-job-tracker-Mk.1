@@ -55,6 +55,12 @@ const edgeReadHandlersPath = path.join(
   'routes',
   'readHandlers.ts'
 );
+const allocationPreviewMigrationPath = path.join(
+  repoRoot,
+  'backend',
+  'migrations',
+  '0193_allocation_preview_bounded_candidates.sql'
+);
 const allocationPageModelPath = path.join(
   repoRoot,
   'frontend',
@@ -117,7 +123,7 @@ test('schema latest guard tracks manual-only planner semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0190_calendar_cancel_service_role_grant_normalization\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
 
   assert.match(schemaLatest, /'manualOnly', true/);
   assert.match(schemaLatest, /insert into app\.allocations/);
@@ -137,21 +143,28 @@ test('row-level film Auto Allocate uses only the job warehouse', async () => {
 });
 
 test('local and Edge allocation routes defensively scope explicit Auto Allocate by job warehouse', async () => {
-  const [localApply, edgeMutations, edgeReads] = await Promise.all([
+  const [localApply, edgeMutations, edgeReads, previewMigration] = await Promise.all([
     readFile(localAllocationApplyPath, 'utf8'),
     readFile(edgeMutationHandlersPath, 'utf8'),
     readFile(edgeReadHandlersPath, 'utf8'),
+    readFile(allocationPreviewMigrationPath, 'utf8'),
   ]);
 
-  for (const source of [localApply, edgeMutations, edgeReads]) {
+  for (const source of [localApply, edgeMutations, previewMigration]) {
     assert.match(source, /autoAllocate/);
     assert.match(source, /Assign a warehouse to this job before auto-allocating material\./);
     assert.match(source, /Auto Allocate only uses material from the job warehouse/);
-    assert.match(source, /crossWarehouse = autoAllocate \? false : requestedCrossWarehouse|rpcPayload\.crossWarehouse = false/);
+    assert.match(
+      source,
+      /crossWarehouse = autoAllocate \? false : requestedCrossWarehouse|rpcPayload\.crossWarehouse = false|v_cross_warehouse := case when v_auto_allocate then false else v_requested_cross_warehouse end/
+    );
   }
-  assert.match(localApply, /listBoxesByWarehouses\(client, orgId, \[jobWarehouse\]\)/);
+  assert.match(previewMigration, /v_cross_warehouse := case when v_auto_allocate then false else v_requested_cross_warehouse end/);
+  assert.match(previewMigration, /and \(v_cross_warehouse or b\.warehouse = v_source\.warehouse\)/);
+  assert.match(localApply, /loadAllocationPreviewCandidateSnapshot\(/);
+  assert.match(edgeReads, /deps\.loadAllocationPreviewCandidateSnapshot\(/);
+  assert.doesNotMatch(edgeReads, /deps\.listBoxesByWarehouses\(client, orgId, \[jobWarehouse\]\)/);
   assert.match(localApply, /hasExplicitSuggestionSelection/);
   assert.match(localApply, /: autoAllocate\s+\?\s+plan\.suggestions\.map/);
-  assert.match(edgeReads, /deps\.listBoxesByWarehouses\(client, orgId, \[jobWarehouse\]\)/);
   assert.match(edgeMutations, /rpcPayload\.jobWarehouse = jobWarehouse/);
 });

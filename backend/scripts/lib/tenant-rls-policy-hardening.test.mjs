@@ -99,7 +99,7 @@ test('tenant RLS hardening migration enables RLS and revokes direct non-service 
 test('schema latest guard enforces tenant RLS policy hardening', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
+  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
   assert.match(schemaCheck, /app\.is_org_owner\(uuid\)/);
   assert.match(schemaCheck, /ORG_TABLE_RLS_ALLOWLIST = new Set\(\[\]\)/);
   assert.match(schemaCheck, /ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set\(\[\]\)/);
