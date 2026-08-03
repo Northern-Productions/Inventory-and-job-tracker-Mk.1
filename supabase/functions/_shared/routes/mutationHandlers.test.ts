@@ -1,4 +1,5 @@
 import { dispatchMutationWithHandlers } from "./mutationHandlers.ts";
+import { HttpError } from "../http.ts";
 import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 function assertEquals(actual: unknown, expected: unknown, message: string) {
@@ -1698,6 +1699,46 @@ Deno.test("/jobs/checkout-all reloads canonical job detail by jobId and keeps SQ
       warnings: ["Checkout SQL planner completed."],
     },
     "Expected canonical checkout-all response to preserve job detail and warnings.",
+  );
+});
+
+Deno.test("/jobs/checkout-all propagates the sanitized pending-transfer denial without reloading detail", async () => {
+  const denial = new HttpError(
+    409,
+    "Checkout is blocked while material is pending transfer. Receive or cancel the transfer, then retry.",
+    [],
+    { code: "PENDING_TRANSFER_CHECKOUT_BLOCKED" },
+  );
+  let detailCallCount = 0;
+
+  let caught: unknown;
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/jobs/checkout-all",
+      { jobId: "11111111-1111-4111-8111-111111111111", jobNumber: "81234" },
+      buildDeps({
+        checkoutAllJobMaterials: async () => {
+          throw denial;
+        },
+        buildJobDetailById: async () => {
+          detailCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    caught = error;
+  }
+
+  assertEquals(caught, denial, "Expected the checkout denial to reach the HTTP boundary unchanged.");
+  assertEquals(detailCallCount, 0, "Expected denied checkout-all not to reload or wrap job detail.");
+  assertEquals((caught as HttpError).warnings, [], "Expected the denial to discard accumulated warnings.");
+  assertEquals(
+    (caught as HttpError).details,
+    { code: "PENDING_TRANSFER_CHECKOUT_BLOCKED" },
+    "Expected the safe denial code to remain available to the HTTP envelope.",
   );
 });
 

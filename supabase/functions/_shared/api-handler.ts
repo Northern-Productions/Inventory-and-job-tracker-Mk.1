@@ -61,6 +61,8 @@ import { requiresNoStoreResponse } from "../../../shared/domain/runtimeContract.
 import {
   buildCurrentCheckedOutAllocationIdSet,
   buildFilmCheckoutActionPlan,
+  getPendingTransferCheckoutDenial,
+  isPendingTransferCheckoutConflict,
 } from "../../../shared/checkoutSemantics.mjs";
 import { normalizeSchedulePayloadAliases } from "../../../shared/schedulePayloadAliases.mjs";
 import type { AuthIdentity } from "./types.ts";
@@ -8018,6 +8020,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
   );
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
+  let successfullyHandledCount = 0;
   let skippedFilmTransferCount = 0;
   let skippedOrderedFilmCount = 0;
   let skippedUnavailableFilmCount = 0;
@@ -8062,16 +8065,26 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
     }
 
     if (step.action === "RESOLVE_ONLY" || sameJobCheckedOut) {
-      const allocationResolution = await resolveAllocationsForCheckoutWithoutBoxMutation(
-        serviceClient,
-        client,
-        orgId,
-        box.boxId,
-        jobNumber,
-        actor,
-        targetJobId,
-      );
+      let allocationResolution;
+      try {
+        allocationResolution = await resolveAllocationsForCheckoutWithoutBoxMutation(
+          serviceClient,
+          client,
+          orgId,
+          box.boxId,
+          jobNumber,
+          actor,
+          targetJobId,
+        );
+      } catch (error) {
+        if (!isPendingTransferCheckoutConflict(error)) {
+          throw error;
+        }
+        skippedFilmTransferCount += 1;
+        continue;
+      }
       if (allocationResolution.fulfilledCount > 0) {
+        successfullyHandledCount += 1;
         warnings.push(
           `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? "" : "s"} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${jobNumber} after checkout.`,
         );
@@ -8082,20 +8095,32 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       continue;
     }
 
-    const checkoutResult = await rpcOrThrow<any>(client, "api_acl_boxes_set_status", {
-      p_org_id: orgId,
-      p_actor: actor,
-      p_payload: {
-        boxId: box.boxId,
-        status: "CHECKED_OUT",
-        ...(target.usedJobId ? { jobId: targetJobId, jobNumber } : {}),
-        auditNote: `Checked out for job ${jobNumber}`,
-      },
-    });
+    let checkoutResult;
+    try {
+      checkoutResult = await rpcOrThrow<any>(client, "api_acl_boxes_set_status", {
+        p_org_id: orgId,
+        p_actor: actor,
+        p_payload: {
+          boxId: box.boxId,
+          status: "CHECKED_OUT",
+          ...(target.usedJobId ? { jobId: targetJobId, jobNumber } : {}),
+          auditNote: `Checked out for job ${jobNumber}`,
+        },
+      });
+    } catch (error) {
+      if (!isPendingTransferCheckoutConflict(error)) {
+        throw error;
+      }
+      skippedFilmTransferCount += 1;
+      continue;
+    }
     if (checkoutResult && Array.isArray((checkoutResult as Record<string, unknown>).warnings)) {
       warnings.push(...((checkoutResult as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
     }
-    checkedOutBoxCount += 1;
+    if (checkoutResult) {
+      successfullyHandledCount += 1;
+      checkedOutBoxCount += 1;
+    }
   }
 
   for (const allocation of preCheckoutState.caulkAllocations) {
@@ -8119,21 +8144,45 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       continue;
     }
 
-    const result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
-      p_org_id: orgId,
-      p_actor: actor,
-      p_payload: {
-        caulkAllocationId: allocation.caulkAllocationId,
-        checkoutTubes: remaining,
-        notes: `Checked out all remaining caulk for job ${jobNumber}.`,
-      },
-    });
+    let result;
+    try {
+      result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
+        p_org_id: orgId,
+        p_actor: actor,
+        p_payload: {
+          caulkAllocationId: allocation.caulkAllocationId,
+          checkoutTubes: remaining,
+          notes: `Checked out all remaining caulk for job ${jobNumber}.`,
+        },
+      });
+    } catch (error) {
+      if (!isPendingTransferCheckoutConflict(error)) {
+        throw error;
+      }
+      skippedCaulkTransferCount += 1;
+      continue;
+    }
     if (result) {
       if (Array.isArray((result as Record<string, unknown>).warnings)) {
         warnings.push(...((result as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
       }
+      successfullyHandledCount += 1;
       checkedOutCaulkCount += 1;
     }
+  }
+
+  const pendingTransferDenial = getPendingTransferCheckoutDenial({
+    successfullyHandledCount,
+    blockedFilmCount: skippedFilmTransferCount,
+    blockedCaulkCount: skippedCaulkTransferCount,
+  });
+  if (pendingTransferDenial) {
+    throw new HttpError(
+      pendingTransferDenial.statusCode,
+      pendingTransferDenial.message,
+      [],
+      { code: pendingTransferDenial.code },
+    );
   }
 
   const refreshedState = await loadJobStagingValidationState(
