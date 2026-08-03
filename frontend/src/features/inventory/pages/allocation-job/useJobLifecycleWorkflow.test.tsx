@@ -334,6 +334,44 @@ describe('useJobLifecycleWorkflow checkout-all identity', () => {
       jobNumber: '000123'
     });
   });
+
+  it('shows only the sanitized error toast when pending transfer rejects checkout-all', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+    workflow.checkoutAllJobMaterials.mockRejectedValueOnce(
+      new Error('Checkout is blocked while material is pending transfer. Receive or cancel the transfer, then retry.')
+    );
+
+    await act(async () => {
+      await workflow.result.current.handleCheckoutAllMaterials();
+    });
+
+    expect(workflow.pushToast).toHaveBeenCalledTimes(1);
+    expect(workflow.pushToast).toHaveBeenCalledWith({
+      title: 'Unable to check out all materials',
+      description: 'Checkout is blocked while material is pending transfer. Receive or cancel the transfer, then retry.',
+      variant: 'error'
+    });
+    expect(workflow.pushToast).not.toHaveBeenCalledWith(expect.objectContaining({ variant: 'success' }));
+  });
+
+  it('keeps the existing success toast for ordinary checkout-all', async () => {
+    const workflow = buildWorkflow({
+      canonicalJobId: '11111111-1111-4111-8111-111111111111',
+      summary: { lifecycleStatus: 'ACTIVE', status: 'READY' }
+    });
+
+    await act(async () => {
+      await workflow.result.current.handleCheckoutAllMaterials();
+    });
+
+    expect(workflow.pushToast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Checked out all materials',
+      variant: 'success'
+    }));
+  });
 });
 
 describe('useJobLifecycleWorkflow complete job identity', () => {
