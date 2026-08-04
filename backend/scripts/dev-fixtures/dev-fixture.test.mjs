@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import {
   FixtureSafetyError,
   PENDING_TRANSFER_CHECKOUT_SCENARIO,
@@ -70,8 +71,63 @@ const FIXTURE_GUARD_SOURCE_PATH = new URL('./lib/dev-fixture-guard.mjs', import.
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const PRIVATE_TEST_ROOT = path.resolve(REPO_ROOT, '.secrets', 'dev-fixtures');
 
+function loadPendingBaselineExclusionBuilder() {
+  const source = fs.readFileSync(FIXTURE_SOURCE_PATH, 'utf8');
+  const start = source.indexOf('function buildPendingBaselineExclusion');
+  const endMarker = '\n}\n\nasync function captureTableProjection';
+  const end = source.indexOf(endMarker, start);
+  if (start < 0 || end < 0) {
+    throw new Error('Pending baseline exclusion builder source is unavailable.');
+  }
+  const functionSource = source.slice(start, end + 2);
+  return vm.runInNewContext(`(${functionSource})`, {
+    quoteIdentifier: (value) => `"${String(value).replaceAll('"', '""')}"`,
+  });
+}
+
+const buildPendingBaselineExclusion = loadPendingBaselineExclusionBuilder();
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function sqlEqualsAny(value, candidates) {
+  if (candidates.length === 0) {
+    return false;
+  }
+  let sawUnknown = value === null;
+  for (const candidate of candidates) {
+    if (value === null || candidate === null) {
+      sawUnknown = true;
+    } else if (value === candidate) {
+      return true;
+    }
+  }
+  return sawUnknown ? null : false;
+}
+
+function sqlOr(values) {
+  if (values.includes(true)) {
+    return true;
+  }
+  return values.includes(null) ? null : false;
+}
+
+function legacyExclusionRetains(matchResults) {
+  const match = sqlOr(matchResults);
+  return match === null ? null : !match;
+}
+
+function nullSafeExclusionRetains(matchResults) {
+  return sqlOr(matchResults) !== true;
+}
+
+function deterministicProjection(rows, retain) {
+  const retained = rows.filter(retain).map((row) => JSON.stringify(row)).sort();
+  return {
+    count: retained.length,
+    digest: createHash('sha256').update(retained.join('')).digest('hex'),
+  };
 }
 
 function createPrivateHarness() {
@@ -556,6 +612,186 @@ test('baseline evidence is ordered, versioned, deterministic, and immutable', ()
   const malformed = clone(baseline);
   malformed.projections[0].digest = `sha256:${'A'.repeat(64)}`;
   assert.throws(() => normalizeBaselineEvidence(malformed), /digest/i);
+});
+
+test('legacy baseline exclusion drops SQL NULL while the null-safe predicate retains it', () => {
+  const cases = [
+    {
+      label: 'NULL source value',
+      matches: [sqlEqualsAny(null, ['fixture'])],
+      legacy: null,
+      corrected: true,
+    },
+    {
+      label: 'matching fixture value',
+      matches: [sqlEqualsAny('fixture', ['fixture'])],
+      legacy: false,
+      corrected: false,
+    },
+    {
+      label: 'nonmatching value',
+      matches: [sqlEqualsAny('other', ['fixture'])],
+      legacy: true,
+      corrected: true,
+    },
+    {
+      label: 'empty exclusion values',
+      matches: [sqlEqualsAny('other', [])],
+      legacy: true,
+      corrected: true,
+    },
+    {
+      label: 'zero match clauses',
+      matches: [],
+      legacy: true,
+      corrected: true,
+    },
+    {
+      label: 'duplicate fixture values',
+      matches: [sqlEqualsAny('fixture', ['fixture', 'fixture'])],
+      legacy: false,
+      corrected: false,
+    },
+    {
+      label: 'NULL exclusion member with unrelated value',
+      matches: [sqlEqualsAny('other', ['fixture', null])],
+      legacy: null,
+      corrected: true,
+    },
+    {
+      label: 'mixed nonmatch and nullable clause',
+      matches: [sqlEqualsAny('other', ['fixture']), sqlEqualsAny(null, ['job'])],
+      legacy: null,
+      corrected: true,
+    },
+    {
+      label: 'mixed fixture match and nullable clause',
+      matches: [sqlEqualsAny('fixture', ['fixture']), sqlEqualsAny(null, ['job'])],
+      legacy: false,
+      corrected: false,
+    },
+  ];
+
+  for (const entry of cases) {
+    assert.equal(legacyExclusionRetains(entry.matches), entry.legacy, `${entry.label} legacy result`);
+    assert.equal(nullSafeExclusionRetains(entry.matches), entry.corrected, `${entry.label} corrected result`);
+  }
+});
+
+test('all nullable v3 projection exclusions use the shared null-safe SQL builder', () => {
+  const fixtureSource = fs.readFileSync(FIXTURE_SOURCE_PATH, 'utf8');
+  assert.match(
+    fixtureSource,
+    /async function captureTableProjection[\s\S]*?const exclusion = buildPendingBaselineExclusion\(spec, ids, params\);/
+  );
+  const orgId = '11111111-1111-4111-8111-111111111111';
+  const jobId = '22222222-2222-4222-8222-222222222222';
+  const requirementId = '33333333-3333-4333-8333-333333333333';
+  const ids = {
+    allocationIds: ['11111111111111111-111'],
+    boxIds: ['IL1-FIXTURE'],
+    jobIds: [jobId, jobId, null],
+    jobNumbers: ['70000001'],
+    requirementIds: [requirementId],
+  };
+  const cases = [
+    {
+      name: 'nonfixture.app.roll_weight_log',
+      spec: { exclusions: [['box_id', 'boxIds', 'text'], ['job_id', 'jobIds', 'uuid']] },
+      declaration: "{ name: 'nonfixture.app.roll_weight_log', table: 'roll_weight_log', exclusions: [['box_id', 'boxIds', 'text'], ['job_id', 'jobIds', 'uuid']] }",
+      expected: 'and (source_row."box_id" = any($2::text[]) or source_row."job_id" = any($3::uuid[])) is not true',
+      values: [ids.boxIds, ids.jobIds],
+    },
+    {
+      name: 'nonfixture.app.film_orders',
+      spec: { exclusions: [['job_id', 'jobIds', 'uuid'], ['job_number', 'jobNumbers', 'text']] },
+      declaration: "{ name: 'nonfixture.app.film_orders', table: 'film_orders', exclusions: [['job_id', 'jobIds', 'uuid'], ['job_number', 'jobNumbers', 'text']] }",
+      expected: 'and (source_row."job_id" = any($2::uuid[]) or source_row."job_number" = any($3::text[])) is not true',
+      values: [ids.jobIds, ids.jobNumbers],
+    },
+    {
+      name: 'nonfixture.app.film_order_events',
+      spec: { exclusions: [['related_box_id', 'boxIds', 'text'], ['related_requirement_id', 'requirementIds', 'uuid']] },
+      declaration: "{ name: 'nonfixture.app.film_order_events', table: 'film_order_events', exclusions: [['related_box_id', 'boxIds', 'text'], ['related_requirement_id', 'requirementIds', 'uuid']] }",
+      expected: 'and (source_row."related_box_id" = any($2::text[]) or source_row."related_requirement_id" = any($3::uuid[])) is not true',
+      values: [ids.boxIds, ids.requirementIds],
+    },
+    {
+      name: 'nonfixture.app.allocation_planner_suppressions',
+      spec: { exclusions: [['job_id', 'jobIds', 'uuid'], ['requirement_id', 'requirementIds', 'uuid'], ['source_allocation_id', 'allocationIds', 'text']] },
+      declaration: "{ name: 'nonfixture.app.allocation_planner_suppressions', table: 'allocation_planner_suppressions', exclusions: [['job_id', 'jobIds', 'uuid'], ['requirement_id', 'requirementIds', 'uuid'], ['source_allocation_id', 'allocationIds', 'text']] }",
+      expected: 'and (source_row."job_id" = any($2::uuid[]) or source_row."requirement_id" = any($3::uuid[]) or source_row."source_allocation_id" = any($4::text[])) is not true',
+      values: [ids.jobIds, ids.requirementIds, ids.allocationIds],
+    },
+  ];
+
+  for (const entry of cases) {
+    const params = [orgId];
+    assert.ok(fixtureSource.includes(entry.declaration), `${entry.name} projection declaration`);
+    assert.equal(buildPendingBaselineExclusion(entry.spec, ids, params), entry.expected, entry.name);
+    assert.deepEqual(params, [orgId, ...entry.values], `${entry.name} parameter order`);
+  }
+
+  const zeroClauseParams = [orgId];
+  assert.equal(
+    buildPendingBaselineExclusion({ exclusions: [] }, ids, zeroClauseParams),
+    'and false is not true'
+  );
+  assert.deepEqual(zeroClauseParams, [orgId]);
+});
+
+test('null-safe exclusion keeps projection counts and digests deterministic', () => {
+  const rows = [
+    { id: 'nullable', boxId: 'OTHER', jobId: null },
+    { id: 'fixture', boxId: 'FIXTURE', jobId: null },
+    { id: 'other', boxId: 'OTHER-2', jobId: 'OTHER-JOB' },
+  ];
+  const project = (boxCandidates, jobCandidates) => deterministicProjection(
+    rows,
+    (row) => nullSafeExclusionRetains([
+      sqlEqualsAny(row.boxId, boxCandidates),
+      sqlEqualsAny(row.jobId, jobCandidates),
+    ])
+  );
+  const first = project(['FIXTURE'], ['FIXTURE-JOB']);
+  const second = project(['FIXTURE', 'FIXTURE', null], ['FIXTURE-JOB', null]);
+  assert.deepEqual(first, second);
+  assert.equal(first.count, 2);
+  assert.equal(first.digest, project(['FIXTURE'], ['FIXTURE-JOB']).digest);
+});
+
+test('null-safe comparison construction leaves baseline, manifest, and artifacts untouched', () => {
+  const harness = createPrivateHarness();
+  const manifest = syntheticV3Manifest({
+    state: { setup: 'ready', runtime: 'initial', cleanup: 'not_started' },
+  });
+  const paths = getV3ArtifactPaths(harness.config, manifest.tag);
+  const manifestBytes = serializeManifest(manifest);
+  const baselineBytes = Buffer.from(JSON.stringify(manifest.baseline), 'utf8');
+  try {
+    fs.writeFileSync(paths.manifestPath, manifestBytes, { flag: 'wx', mode: 0o600 });
+    const beforeEntries = fs.readdirSync(harness.directory).sort();
+    const params = [manifest.orgId];
+    buildPendingBaselineExclusion(
+      { exclusions: [['job_id', 'jobIds', 'uuid']] },
+      manifest.ids,
+      params
+    );
+
+    assert.deepEqual(fs.readFileSync(paths.manifestPath), manifestBytes);
+    assert.deepEqual(Buffer.from(JSON.stringify(manifest.baseline), 'utf8'), baselineBytes);
+    assert.deepEqual(fs.readdirSync(harness.directory).sort(), beforeEntries);
+    assert.equal(fs.existsSync(paths.lifecycleLockPath), false);
+    assert.equal(fs.existsSync(paths.cleanupMarkerPath), false);
+    assert.equal(fs.existsSync(paths.recoveryMarkerPath), false);
+    assert.equal(fs.existsSync(paths.ambiguityMarkerPath), false);
+    assert.equal(
+      beforeEntries.some((name) => name.startsWith(paths.publicationPrefix) || name.startsWith(paths.replacementPrefix)),
+      false
+    );
+  } finally {
+    removePrivateHarness(harness.directory);
+  }
 });
 
 test('manifest v3 allows only the explicit state matrix and adjacent transitions', () => {
