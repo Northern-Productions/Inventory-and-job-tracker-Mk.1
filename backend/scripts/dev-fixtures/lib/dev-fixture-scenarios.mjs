@@ -169,6 +169,17 @@ async function listProjectionColumns(client, table) {
   return columns;
 }
 
+function buildPendingBaselineExclusion(spec, ids, params) {
+  const matchClauses = [];
+  for (const [column, group, cast] of spec.exclusions) {
+    const values = Array.isArray(ids[group]) ? ids[group] : [];
+    params.push(values);
+    matchClauses.push(`source_row.${quoteIdentifier(column)} = any($${params.length}::${cast}[])`);
+  }
+  const matchExpression = matchClauses.length ? `(${matchClauses.join(' or ')})` : 'false';
+  return `and ${matchExpression} is not true`;
+}
+
 async function captureTableProjection(client, orgId, ids, spec, digestFunction) {
   const columns = await listProjectionColumns(client, spec.table);
   const canonicalExpression = buildCanonicalRowExpression(
@@ -176,13 +187,7 @@ async function captureTableProjection(client, orgId, ids, spec, digestFunction) 
     columns
   );
   const params = [orgId];
-  const matchClauses = [];
-  for (const [column, group, cast] of spec.exclusions) {
-    const values = Array.isArray(ids[group]) ? ids[group] : [];
-    params.push(values);
-    matchClauses.push(`source_row.${quoteIdentifier(column)} = any($${params.length}::${cast}[])`);
-  }
-  const exclusion = matchClauses.length ? `and not (${matchClauses.join(' or ')})` : '';
+  const exclusion = buildPendingBaselineExclusion(spec, ids, params);
   const result = await client.query(
     `
       with canonical_rows as (
