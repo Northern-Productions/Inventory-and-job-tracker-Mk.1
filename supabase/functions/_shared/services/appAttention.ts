@@ -34,6 +34,7 @@ export async function buildAppAttentionSummary(
       orgId: string,
     ) => Promise<boolean>;
     buildFilmOrdersList: (client: any, orgId: string) => Promise<Record<string, unknown>[]>;
+    hasFilmOrdersNeedingAttention?: (client: any, orgId: string) => Promise<boolean>;
     countOpenFilmWeightPendingReviews?: (client: any, orgId: string) => Promise<number>;
     rpcOrThrow: <T>(client: any, fn: string, params?: Record<string, unknown>) => Promise<T>;
   },
@@ -43,9 +44,13 @@ export async function buildAppAttentionSummary(
   const canReadInventory = canReadFeature(identity, "inventory");
   const canReviewAccessRequests = identity.role === "owner";
 
-  const [hasJobsNeedingAllocation, filmOrders, pendingWeightReviews, accessRequests] = await Promise.all([
+  const [hasJobsNeedingAllocation, hasFilmOrdersNeedingAttention, pendingWeightReviews, accessRequests] = await Promise.all([
     canReadJobs ? deps.hasActiveJobsNeedingAllocation(client, orgId) : Promise.resolve(false),
-    canReadFilmOrders ? deps.buildFilmOrdersList(client, orgId) : Promise.resolve([]),
+    canReadFilmOrders
+      ? deps.hasFilmOrdersNeedingAttention
+        ? deps.hasFilmOrdersNeedingAttention(client, orgId)
+        : deps.buildFilmOrdersList(client, orgId).then((orders) => orders.some((entry) => isFilmOrderNeedingAttention(entry)))
+      : Promise.resolve(false),
     canReadInventory
       ? deps.countOpenFilmWeightPendingReviews
         ? deps.countOpenFilmWeightPendingReviews(client, orgId)
@@ -63,7 +68,7 @@ export async function buildAppAttentionSummary(
 
   return {
     hasJobsNeedingAllocation,
-    hasFilmOrdersNeedingAttention: filmOrders.some((entry) => isFilmOrderNeedingAttention(entry)),
+    hasFilmOrdersNeedingAttention,
     hasFilmWeightPendingReviews: Number(pendingWeightReviews || 0) > 0,
     filmWeightPendingReviewCount: Math.max(0, Number(pendingWeightReviews || 0) || 0),
     pendingAccessRequests: accessRequests.length > 0,

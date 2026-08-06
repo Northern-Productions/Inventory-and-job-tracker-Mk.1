@@ -102,6 +102,8 @@ export type ReadHandlerDeps = {
   buildCapacityAllocationsByBoxIndex: (entries: any[]) => Record<string, any[]>;
   listActiveAllocations: (client: any, orgId: string) => Promise<any[]>;
   listJobs: (client: any, orgId: string, options?: { warehouse?: unknown }) => Promise<any[]>;
+  listJobsByIds?: (client: any, orgId: string, jobIds: string[]) => Promise<any[]>;
+  listJobsByNumbers?: (client: any, orgId: string, jobNumbers: string[]) => Promise<any[]>;
   buildJobsList: (
     client: any,
     orgId: string,
@@ -191,7 +193,9 @@ async function assertLegacyJobNumberReadIsUnambiguous(
   deps: ReadHandlerDeps,
 ) {
   const normalizedJobNumber = deps.requireString(jobNumber, "jobNumber");
-  const jobs = await deps.listJobs(client, orgId);
+  const jobs = deps.listJobsByNumbers
+    ? await deps.listJobsByNumbers(client, orgId, [normalizedJobNumber])
+    : await deps.listJobs(client, orgId);
   const target = resolveLegacyJobNumberReadTargetFromHeaders(jobs, normalizedJobNumber);
 
   if (target.kind === "ambiguous") {
@@ -423,9 +427,18 @@ async function buildJobScopeFieldsByJobId(
     ),
   ];
   const scopeFieldsByJobId = new Map<string, Record<string, unknown>>();
-
-  for (const jobId of jobIds) {
-    scopeFieldsByJobId.set(jobId, asOptionalScopeFields((await deps.findJobById(client, orgId, jobId)) || null, deps));
+  if (deps.listJobsByIds) {
+    for (const header of await deps.listJobsByIds(client, orgId, jobIds)) {
+      const jobId = deps.asTrimmedString(header?.id || header?.jobId);
+      if (jobId) {
+        scopeFieldsByJobId.set(jobId, asOptionalScopeFields(header, deps));
+      }
+    }
+  } else {
+    for (const jobId of jobIds) {
+      const header = await deps.findJobById(client, orgId, jobId);
+      scopeFieldsByJobId.set(jobId, asOptionalScopeFields(header, deps));
+    }
   }
 
   return scopeFieldsByJobId;
@@ -474,8 +487,17 @@ async function enrichAuditEntriesWithCheckoutJobIdentity(
   }
 
   const jobHeaderById = new Map<string, any | null>();
-  for (const jobId of jobIds) {
-    jobHeaderById.set(jobId, (await deps.findJobById(client, orgId, jobId)) || null);
+  if (deps.listJobsByIds) {
+    for (const header of await deps.listJobsByIds(client, orgId, Array.from(jobIds))) {
+      const jobId = deps.asTrimmedString(header?.id || header?.jobId);
+      if (jobId) {
+        jobHeaderById.set(jobId, header);
+      }
+    }
+  } else {
+    for (const jobId of jobIds) {
+      jobHeaderById.set(jobId, (await deps.findJobById(client, orgId, jobId)) || null);
+    }
   }
 
   return rows.map((entry) => {
