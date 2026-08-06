@@ -95,6 +95,11 @@ import {
 } from "../../../shared/domain/filmAllocationReservations.mjs";
 import { getFilmBoxAllocationEligibility } from "../../../shared/domain/filmBoxAllocationEligibility.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
+import {
+  DELETE_JOB_FAILURE_MESSAGE,
+  isCheckedOutBoxAssignedToJob,
+  isExpectedDeleteJobHttpStatus,
+} from "../../../shared/domain/jobDeleteContract.mjs";
 
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -8710,6 +8715,43 @@ async function cancelBoxTransfer(client: any, identity: AuthIdentity, payload: R
   );
 }
 
+export async function loadCheckedOutJobBoxRows(serviceClient: any, orgId: string) {
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("box_id, status, last_checkout_job, last_checkout_job_id")
+    .eq("org_id", orgId)
+    .eq("status", "CHECKED_OUT");
+  throwOnSupabaseError(error, "Unable to load checked-out job boxes");
+  return Array.isArray(data) ? data : [];
+}
+
+async function listCheckedOutBoxesForJobMutation(
+  serviceClient: any,
+  orgId: string,
+  targetJobId: string,
+  jobNumber: string,
+) {
+  return (await loadCheckedOutJobBoxRows(serviceClient, orgId)).filter((entry) =>
+    isCheckedOutBoxAssignedToJob(entry, { jobId: targetJobId, jobNumber })
+  );
+}
+
+export function toSafeDeleteJobError(error: unknown): HttpError {
+  if (error instanceof HttpError && isExpectedDeleteJobHttpStatus(error.statusCode)) {
+    return error;
+  }
+
+  return new DeleteJobOperationError();
+}
+
+class DeleteJobOperationError extends HttpError {
+  constructor() {
+    super(500, DELETE_JOB_FAILURE_MESSAGE);
+    this.name = "DeleteJobOperationError";
+  }
+}
+
 async function completeJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const warnings: string[] = [];
   const orgId = identity.orgId;
@@ -8997,7 +9039,7 @@ function formatDeletedJobCleanupWarning({
   );
 }
 
-async function deleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+async function executeDeleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const warnings: string[] = [];
   const orgId = identity.orgId;
   const actor = identity.actor;
@@ -9054,26 +9096,21 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
   const existingRollHistory = target.usedJobId
     ? await listRollHistoryForJobAllocations(client, orgId, existingAllocations)
     : await listRollHistoryByJob(client, orgId, jobNumber, existingAllocations);
-  const normalizedTargetJobId = targetJobId.toLowerCase();
-  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
-  const checkedOutBoxes = (await listBoxes(client, orgId)).filter((box) => {
-    if (box.status !== "CHECKED_OUT") {
-      return false;
-    }
-    if (!target.usedJobId) {
-      return normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber;
-    }
-
-    const boxJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
-    return (
-      boxJobId === normalizedTargetJobId ||
-      (!boxJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber)
-    );
-  });
+  const serviceClient = requireServiceRoleClientForJobs();
+  const checkedOutBoxes = await listCheckedOutBoxesForJobMutation(
+    serviceClient,
+    orgId,
+    targetJobId,
+    jobNumber,
+  );
   if (checkedOutBoxes.length) {
     const listedBoxes = checkedOutBoxes
       .slice(0, 5)
-      .map((box) => box.boxId)
+      .map((box) =>
+        asTrimmedString(
+          (box as Record<string, unknown>).box_id ?? (box as Record<string, unknown>).boxId,
+        )
+      )
       .join(", ");
     const suffix = checkedOutBoxes.length > 5 ? ", ..." : "";
     throw new HttpError(
@@ -9090,7 +9127,6 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     );
   }
 
-  const serviceClient = requireServiceRoleClientForJobs();
   const cancelReason = asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`;
   const nowIso = new Date().toISOString();
 
@@ -9286,6 +9322,14 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
   );
 
   return ok(target.usedJobId ? { jobId: targetJobId, jobNumber } : { jobNumber }, warnings);
+}
+
+async function deleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  try {
+    return await executeDeleteJob(client, identity, payload);
+  } catch (error) {
+    throw toSafeDeleteJobError(error);
+  }
 }
 
 async function recalculateFilmOrderAfterAllocationMutation(
