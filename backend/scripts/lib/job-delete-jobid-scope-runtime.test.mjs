@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { test } from 'node:test';
 
@@ -56,6 +56,7 @@ const runtimeCleanupPath = path.join(
 );
 const jobsRepositoryPath = path.join(repoRoot, 'backend', 'src', 'app', 'repositories', 'jobsRepository.mjs');
 const edgeHandlerPath = path.join(repoRoot, 'supabase', 'functions', '_shared', 'api-handler.ts');
+const deleteContractPath = path.join(repoRoot, 'shared', 'domain', 'jobDeleteContract.mjs');
 
 function normalizeNewlines(source) {
   return source.replace(/\r\n/g, '\n');
@@ -122,7 +123,8 @@ test('backend local job delete resolves selected job before scoped side effects'
     readFile(runtimeCleanupPath, 'utf8'),
     readFile(jobsRepositoryPath, 'utf8'),
   ]);
-  const deleteBody = extractBetween(runtime, 'async function deleteJob', 'async function createFilmOrder');
+  const deleteBody = extractBetween(runtime, 'async function executeDeleteJob', 'async function deleteJob');
+  const deleteBoundary = extractBetween(runtime, 'async function deleteJob', 'async function createFilmOrder');
   const helperBody = extractBetween(cleanup, 'async function prepareDeletedJobCleanupByJobId', 'async function removeAllocationFromJob');
 
   assert.match(deleteBody, /requireUuid\(suppliedJobId, 'jobId'\);/);
@@ -130,9 +132,12 @@ test('backend local job delete resolves selected job before scoped side effects'
   assert.match(deleteBody, /resolveJobMutationTargetById\(client, orgId, \{\s+\.\.\.payload,\s+jobNumber: suppliedJobNumber\s+\}\)/);
   assert.ok(
     deleteBody.indexOf('resolveJobMutationTargetById(client, orgId, {') <
-      deleteBody.indexOf('listBoxes(client, orgId)'),
+      deleteBody.indexOf('listCheckedOutBoxesForJobMutation(client, orgId, target, jobNumber)'),
     'Expected selected job validation before checked-out box blocker.'
   );
+  assert.doesNotMatch(deleteBody, /listBoxes\(client, orgId\)/);
+  assert.match(runtime, /where org_id = \$1\s+and status = 'CHECKED_OUT'/);
+  assert.match(deleteBoundary, /throw toSafeDeleteJobError\(error\);/);
   assert.match(deleteBody, /listCaulkJobCheckoutsByJobId\(client, orgId, target\.jobId\)/);
   assert.match(deleteBody, /listJobRequirementsByJobId\(client, orgId, target\.jobId\)/);
   assert.match(deleteBody, /listJobCaulkRequirementsByJobId\(client, orgId, target\.jobId\)/);
@@ -151,16 +156,20 @@ test('backend local job delete resolves selected job before scoped side effects'
 
 test('Edge job delete validates canonical identity before selected-job scoped deletion', async () => {
   const edge = await readFile(edgeHandlerPath, 'utf8');
-  const deleteBody = extractBetween(edge, 'async function deleteJob', 'async function recalculateFilmOrderAfterAllocationMutation');
+  const deleteBody = extractBetween(edge, 'async function executeDeleteJob', 'async function deleteJob');
+  const deleteBoundary = extractBetween(edge, 'async function deleteJob', 'async function recalculateFilmOrderAfterAllocationMutation');
 
   assert.match(deleteBody, /JOB_ID_PATTERN\.test\(suppliedJobId\)/);
   assert.match(deleteBody, /const suppliedJobNumber = normalizeJobNumberDigits\(requireString\(payload\.jobNumber, "Job ID number"\)\);/);
   assert.match(deleteBody, /resolveEdgeJobMutationTargetById\(client, orgId, \{\s+\.\.\.payload,\s+jobNumber: suppliedJobNumber,\s+\},/);
   assert.ok(
     deleteBody.indexOf('resolveEdgeJobMutationTargetById(client, orgId, {') <
-      deleteBody.indexOf('listBoxes(client, orgId)'),
+      deleteBody.indexOf('listCheckedOutBoxesForJobMutation('),
     'Expected Edge selected job validation before checked-out box blocker.'
   );
+  assert.doesNotMatch(deleteBody, /listBoxes\(client, orgId\)/);
+  assert.match(edge, /\.from\("boxes"\)\s+\.select\("box_id, status, last_checkout_job, last_checkout_job_id"\)\s+\.eq\("org_id", orgId\)\s+\.eq\("status", "CHECKED_OUT"\)/);
+  assert.match(deleteBoundary, /throw toSafeDeleteJobError\(error\);/);
   assert.match(deleteBody, /listAllocationsByJobIdDirect\(orgId, targetJobId\)/);
   assert.match(deleteBody, /listFilmOrdersByJobIdDirect\(orgId, targetJobId\)/);
   assert.match(deleteBody, /listJobRequirementsByJobIdDirect\(orgId, canonicalHeader\)/);
@@ -172,4 +181,51 @@ test('Edge job delete validates canonical identity before selected-job scoped de
   assert.match(deleteBody, /\.eq\("job_id", targetJobId\)/);
   assert.match(deleteBody, /\.is\("job_id", null\)\s+\.eq\("job_number", jobNumber\)/);
   assert.match(deleteBody, /return ok\(target\.usedJobId \? \{ jobId: targetJobId, jobNumber \} : \{ jobNumber \}, warnings\);/);
+});
+
+test('job delete contract preserves canonical and legacy checkout blockers with a safe storage failure', async () => {
+  const contract = await import(pathToFileURL(deleteContractPath).href);
+
+  assert.equal(
+    contract.DELETE_JOB_FAILURE_MESSAGE,
+    'The job could not be deleted. Refresh the job and try again.'
+  );
+  assert.equal(
+    contract.isCheckedOutBoxAssignedToJob(
+      {
+        status: 'CHECKED_OUT',
+        last_checkout_job_id: '11111111-1111-4111-8111-111111111111',
+        last_checkout_job: '000123',
+      },
+      { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '000123' }
+    ),
+    true
+  );
+  assert.equal(
+    contract.isCheckedOutBoxAssignedToJob(
+      { status: 'CHECKED_OUT', lastCheckoutJobId: '', lastCheckoutJob: ' 000123 ' },
+      { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '000123' }
+    ),
+    true
+  );
+  assert.equal(
+    contract.isCheckedOutBoxAssignedToJob(
+      { status: 'IN_STOCK', lastCheckoutJobId: '11111111-1111-4111-8111-111111111111' },
+      { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '000123' }
+    ),
+    false
+  );
+  assert.equal(
+    contract.isCheckedOutBoxAssignedToJob(
+      {
+        status: 'CHECKED_OUT',
+        lastCheckoutJobId: '22222222-2222-4222-8222-222222222222',
+        lastCheckoutJob: '000123',
+      },
+      { jobId: '11111111-1111-4111-8111-111111111111', jobNumber: '000123' }
+    ),
+    false
+  );
+  assert.equal(contract.isExpectedDeleteJobHttpStatus(409), true);
+  assert.equal(contract.isExpectedDeleteJobHttpStatus(500), false);
 });

@@ -7,11 +7,14 @@ import {
   buildJobDetailById,
   canonicalizeMutationPayloadForRoute,
   fetchWarehouseBoxRowsForInventory,
+  loadCheckedOutJobBoxRows,
   loadCaulkPlanningByJobContexts,
   maybeLogCaulkFallbackCoverageDecision,
   shouldUseCache,
   statusFromRpcError,
+  toSafeDeleteJobError,
 } from "./api-handler.ts";
+import { HttpError } from "./http.ts";
 import { createInventoryRepositories } from "./repositories/inventoryRepositories.ts";
 import { dispatchReadWithHandlers } from "./routes/readHandlers.ts";
 
@@ -140,6 +143,77 @@ Deno.test("Edge RPC status parser preserves app_api.raise_http business denial s
     500,
     "Expected unclassified RPC errors to remain 500.",
   );
+});
+
+Deno.test("Delete Job preflight loads only tenant-scoped checked-out box identity columns", async () => {
+  const calls: Array<[string, ...unknown[]]> = [];
+  const rows = [{
+    box_id: "box-category-only",
+    status: "CHECKED_OUT",
+    last_checkout_job: "000123",
+    last_checkout_job_id: null,
+  }];
+  const query = {
+    select(columns: string) {
+      calls.push(["select", columns]);
+      return this;
+    },
+    eq(column: string, value: unknown) {
+      calls.push(["eq", column, value]);
+      return this;
+    },
+    then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
+      return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+    },
+  };
+  const serviceClient = {
+    schema(schemaName: string) {
+      calls.push(["schema", schemaName]);
+      return {
+        from(tableName: string) {
+          calls.push(["from", tableName]);
+          return query;
+        },
+      };
+    },
+  };
+
+  const result = await loadCheckedOutJobBoxRows(serviceClient, "tenant-category-only");
+
+  assertEquals(result, rows, "Expected the bounded preflight rows to pass through unchanged.");
+  assertEquals(calls, [
+    ["schema", "app"],
+    ["from", "boxes"],
+    ["select", "box_id, status, last_checkout_job, last_checkout_job_id"],
+    ["eq", "org_id", "tenant-category-only"],
+    ["eq", "status", "CHECKED_OUT"],
+  ], "Expected Delete Job preflight to avoid the full box-list projection.");
+});
+
+Deno.test("Delete Job failure boundary preserves business denials and redacts storage details", () => {
+  const businessDenial = new HttpError(400, "Checked-out material must be accounted for first.");
+  assertEquals(
+    toSafeDeleteJobError(businessDenial),
+    businessDenial,
+    "Expected intentional 4xx denials to retain their public contract.",
+  );
+
+  const storageFailure = new HttpError(500, "canceling statement due to statement timeout");
+  const safeFailure = toSafeDeleteJobError(storageFailure);
+  assertEquals(safeFailure.statusCode, 500, "Expected unexpected Delete Job failures to remain HTTP 500.");
+  assertEquals(
+    safeFailure.message,
+    "The job could not be deleted. Refresh the job and try again.",
+    "Expected a stable public Delete Job failure message.",
+  );
+  assertEquals(
+    safeFailure.name,
+    "DeleteJobOperationError",
+    "Expected categorical internal timing evidence without storage details.",
+  );
+  if (safeFailure.message.includes("statement timeout")) {
+    throw new Error("Delete Job storage details must not cross the public error boundary.");
+  }
 });
 
 Deno.test("Edge film weight chart read routes delegate to read-model dependencies", async () => {
