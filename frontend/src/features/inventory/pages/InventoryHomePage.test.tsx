@@ -195,6 +195,59 @@ describe('InventoryHomePage search performance behavior', () => {
     });
   });
 
+  it('preserves every character and focus while typing across route debounce boundaries', async () => {
+    const { router } = renderPage();
+    await expectMobileCardCount(100);
+    const input = screen.getByLabelText('Search') as HTMLInputElement;
+    input.focus();
+
+    for (const value of ['I', 'IL', 'IL1', 'IL1-', 'IL1-1', 'IL1-10', 'IL1-109', 'IL1-1098']) {
+      fireEvent.change(input, { target: { value } });
+      expect(input.value).toBe(value);
+      expect(document.activeElement).toBe(input);
+      await waitFor(() => {
+        expect(new URLSearchParams(router.state.location.search).get('q')).toBe(value);
+      });
+      expect(input.value).toBe(value);
+      expect(document.activeElement).toBe(input);
+    }
+
+    await expectMobileCardCount(1);
+    expect(screen.getByRole('link', { name: 'IL1-1098' })).toBeTruthy();
+  });
+
+  it('keeps backspace, clear, and external route restoration synchronized without stale overwrites', async () => {
+    const { router } = renderPage();
+    await expectMobileCardCount(100);
+    const input = screen.getByLabelText('Search') as HTMLInputElement;
+    input.focus();
+
+    fireEvent.change(input, { target: { value: 'IL1-1098' } });
+    await waitFor(() => {
+      expect(new URLSearchParams(router.state.location.search).get('q')).toBe('IL1-1098');
+    });
+
+    fireEvent.change(input, { target: { value: 'IL1-109' } });
+    expect(input.value).toBe('IL1-109');
+    expect(document.activeElement).toBe(input);
+    await waitFor(() => {
+      expect(new URLSearchParams(router.state.location.search).get('q')).toBe('IL1-109');
+    });
+
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input.value).toBe('');
+    expect(document.activeElement).toBe(input);
+    await waitFor(() => {
+      expect(new URLSearchParams(router.state.location.search).has('q')).toBe(false);
+    });
+
+    await router.navigate('/?q=IL1-1098');
+    await waitFor(() => {
+      expect(input.value).toBe('IL1-1098');
+    });
+    await expectMobileCardCount(1);
+  });
+
   it('supports paste, clear, cached return, and active filters without changing search data loading', async () => {
     const { router } = renderPage();
     await expectMobileCardCount(100);

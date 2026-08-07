@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0195_residual_efficiency_scoped_reads.sql';
+const LATEST_MIGRATION = '0196_film_order_effective_list_status.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -231,6 +231,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_caulk_transfers(uuid, text, uuid)' },
   { kind: 'function', signature: 'public.api_acl_list_caulk_transactions(uuid, text, uuid, integer)' },
   { kind: 'function', signature: 'public.api_acl_list_film_orders(uuid, text)' },
+  { kind: 'function', signature: 'public.api_list_film_orders(uuid, text)' },
   { kind: 'function', signature: 'public.api_acl_list_jobs(uuid, text)' },
   { kind: 'function', signature: 'public.api_jobs_calendar(uuid, text, text)' },
   { kind: 'function', signature: 'public.api_acl_list_jobs_calendar(uuid, text, text)' },
@@ -1783,6 +1784,25 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);'
     ],
     excludes: []
+  },
+  {
+    signature: 'public.api_list_film_orders(uuid, text)',
+    includes: [
+      'perform app_api.require_org_member(p_org_id);',
+      'with scoped_orders as materialized',
+      'where f.org_id = p_org_id',
+      'linked_box_coverage as materialized',
+      'latest_manual_fulfill as materialized',
+      'removed_requirement_events as materialized',
+      'app_api.film_order_matches_requirement(',
+      "when effective.need_source = 'NO_LONGER_NEEDED' then 'NO_LONGER_NEEDED'",
+      "then 'MANUALLY_FULFILLED'",
+      "then 'INCOMPLETE'",
+      "then 'FULFILLED_COVERED'",
+      "'display_status', effective.display_status",
+      "'remaining_feet', effective.remaining_feet"
+    ],
+    excludes: ['insert into', 'update app.', 'delete from', "'film_orders', 'write'"]
   },
   {
     signature: 'public.api_jobs_calendar(uuid, text, text)',

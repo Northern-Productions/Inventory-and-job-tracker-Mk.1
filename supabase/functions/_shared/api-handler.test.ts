@@ -667,6 +667,13 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     ordered_feet: 0,
     remaining_to_order_feet: 100,
     status: "FILM_ORDER",
+    stored_status: "FILM_ORDER",
+    display_status: "FULFILLED_COVERED",
+    need_source: "CURRENT_REQUIREMENT",
+    needed_feet: 100,
+    fulfilled_feet: 125,
+    remaining_feet: 0,
+    overage_feet: 25,
     source_box_id: "",
     created_at: "2026-04-16T15:47:48.884Z",
     created_by: "tester",
@@ -707,6 +714,27 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     "Expected Edge public film order mapper to expose sections when present.",
   );
   assertEquals(
+    {
+      storedStatus: repositories.toPublicFilmOrder(canonicalEntry, []).storedStatus,
+      displayStatus: repositories.toPublicFilmOrder(canonicalEntry, []).displayStatus,
+      needSource: repositories.toPublicFilmOrder(canonicalEntry, []).needSource,
+      neededFeet: repositories.toPublicFilmOrder(canonicalEntry, []).neededFeet,
+      fulfilledFeet: repositories.toPublicFilmOrder(canonicalEntry, []).fulfilledFeet,
+      remainingFeet: repositories.toPublicFilmOrder(canonicalEntry, []).remainingFeet,
+      overageFeet: repositories.toPublicFilmOrder(canonicalEntry, []).overageFeet,
+    },
+    {
+      storedStatus: "FILM_ORDER",
+      displayStatus: "FULFILLED_COVERED",
+      needSource: "CURRENT_REQUIREMENT",
+      neededFeet: 100,
+      fulfilledFeet: 125,
+      remainingFeet: 0,
+      overageFeet: 25,
+    },
+    "Expected Edge public film order mapper to preserve canonical list coverage fields.",
+  );
+  assertEquals(
     Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "jobId"),
     false,
     "Expected Edge public film order mapper to omit jobId for legacy rows.",
@@ -720,6 +748,11 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "sections"),
     false,
     "Expected Edge public film order mapper to omit sections for legacy rows.",
+  );
+  assertEquals(
+    Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "displayStatus"),
+    false,
+    "Expected Edge public film order mapper to preserve legacy rows without canonical list fields.",
   );
 });
 

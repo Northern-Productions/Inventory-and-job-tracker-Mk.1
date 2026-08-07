@@ -4,9 +4,13 @@ import {
   deriveFilmOrderStatusFromLinkedBoxes,
   formatFilmOrderDealerLabel,
   formatFilmOrderLinkedBoxIds,
+  canManuallyFulfillFilmOrder,
+  canOrderMoreFilmForFilmOrder,
   getFilmOrderDealerNames,
+  getFilmOrderDisplayStatus,
   getFilmOrderLinkedBoxes,
   getFilmOrderLinkedBoxIds,
+  getFilmOrderRemainingFeet,
   getNextFilmOrderLinkedBoxToReceive,
   hasFilmOrdersNeedingAttention,
   hasFilmOrderInstallDate,
@@ -15,6 +19,29 @@ import {
 } from './filmOrders';
 
 describe('filmOrders helpers', () => {
+  it('prefers canonical effective status and remaining LF over stored shortage fields', () => {
+    const coveredOrder = {
+      status: 'FILM_ORDER' as const,
+      displayStatus: 'FULFILLED_COVERED' as const,
+      remainingFeet: 0,
+      remainingToOrderFeet: 60
+    };
+
+    expect(getFilmOrderDisplayStatus(coveredOrder)).toBe('FULFILLED_COVERED');
+    expect(getFilmOrderRemainingFeet(coveredOrder)).toBe(0);
+    expect(canOrderMoreFilmForFilmOrder(coveredOrder)).toBe(false);
+    expect(canManuallyFulfillFilmOrder(coveredOrder)).toBe(false);
+
+    const incompleteOrder = {
+      ...coveredOrder,
+      displayStatus: 'INCOMPLETE' as const,
+      remainingFeet: 40
+    };
+    expect(getFilmOrderRemainingFeet(incompleteOrder)).toBe(40);
+    expect(canOrderMoreFilmForFilmOrder(incompleteOrder)).toBe(true);
+    expect(canManuallyFulfillFilmOrder(incompleteOrder)).toBe(true);
+  });
+
   it('treats scheduled film orders that still need ordering as needing attention', () => {
     expect(
       isFilmOrderNeedingAttention({

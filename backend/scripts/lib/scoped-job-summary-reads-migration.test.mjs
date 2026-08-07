@@ -71,7 +71,7 @@ test('scoped job summary RPCs are authenticated-only', async () => {
 test('latest schema guard retains every migration 0194 scoped read RPC', async () => {
   const schemaGuard = await readFile(schemaGuardUrl, 'utf8');
 
-  assert.match(schemaGuard, /const LATEST_MIGRATION = '0195_residual_efficiency_scoped_reads\.sql';/);
+  assert.match(schemaGuard, /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/);
   for (const signature of [
     'public.api_acl_list_jobs_by_ids(uuid, uuid[])',
     'public.api_acl_list_jobs_by_numbers(uuid, text[])',

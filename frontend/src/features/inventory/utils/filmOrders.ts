@@ -1,10 +1,26 @@
-import type { FilmOrderEntry, FilmOrderLinkedBox, FilmOrderStatus } from '../../../domain';
+import type {
+  FilmOrderDisplayStatus,
+  FilmOrderEntry,
+  FilmOrderLinkedBox,
+  FilmOrderStatus
+} from '../../../domain';
 
 type FilmOrderAttentionEntry = Pick<FilmOrderEntry, 'status'> &
-  Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet' | 'installDate'>>;
+  Partial<
+    Pick<FilmOrderEntry, 'displayStatus' | 'remainingFeet' | 'remainingToOrderFeet' | 'installDate'>
+  >;
 type FilmOrderLinkedBoxesEntry = Partial<Pick<FilmOrderEntry, 'linkedBoxes'>>;
 
 export const FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL = '--';
+
+const FILM_ORDER_DISPLAY_STATUS_SET = new Set<FilmOrderDisplayStatus>([
+  'FILM_ORDER',
+  'INCOMPLETE',
+  'FULFILLED_COVERED',
+  'MANUALLY_FULFILLED',
+  'CANCELLED',
+  'NO_LONGER_NEEDED'
+]);
 
 export interface FilmOrderLinkedBoxDisplayEntry {
   boxId: string;
@@ -199,6 +215,43 @@ export function deriveFilmOrderStatusFromLinkedBoxes(
   };
 }
 
+export function getFilmOrderDisplayStatus(
+  order: Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>
+): FilmOrderDisplayStatus | FilmOrderStatus {
+  const displayStatus = String(order.displayStatus || '').trim().toUpperCase();
+  if (FILM_ORDER_DISPLAY_STATUS_SET.has(displayStatus as FilmOrderDisplayStatus)) {
+    return displayStatus as FilmOrderDisplayStatus;
+  }
+
+  return order.status;
+}
+
+export function getFilmOrderRemainingFeet(
+  order: Partial<Pick<FilmOrderEntry, 'remainingFeet' | 'remainingToOrderFeet'>>
+): number {
+  const effectiveRemainingFeet = Number(order.remainingFeet);
+  if (Number.isFinite(effectiveRemainingFeet)) {
+    return Math.max(effectiveRemainingFeet, 0);
+  }
+
+  const storedRemainingFeet = Number(order.remainingToOrderFeet);
+  return Number.isFinite(storedRemainingFeet) ? Math.max(storedRemainingFeet, 0) : 0;
+}
+
+export function canOrderMoreFilmForFilmOrder(
+  order: Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>
+): boolean {
+  const displayStatus = getFilmOrderDisplayStatus(order);
+  return order.status === 'FILM_ORDER' && (displayStatus === 'FILM_ORDER' || displayStatus === 'INCOMPLETE');
+}
+
+export function canManuallyFulfillFilmOrder(
+  order: Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>
+): boolean {
+  const displayStatus = getFilmOrderDisplayStatus(order);
+  return displayStatus === 'FILM_ORDER' || displayStatus === 'INCOMPLETE';
+}
+
 export function addOptimisticLinkedBoxToFilmOrder(
   order: FilmOrderEntry,
   linkedBox: FilmOrderLinkedBoxMutationEntry,
@@ -300,17 +353,22 @@ export function hasFilmOrderInstallDate(
   return Boolean(String(order?.installDate || '').trim());
 }
 
-function hasRemainingFilmToOrder(
-  order: Partial<Pick<FilmOrderEntry, 'remainingToOrderFeet'>> | null | undefined
-): boolean {
-  const remainingToOrderFeet = Number(order?.remainingToOrderFeet);
-  return Number.isFinite(remainingToOrderFeet) ? remainingToOrderFeet > 0 : true;
-}
-
 export function isUnresolvedFilmOrder(
-  order: Pick<FilmOrderEntry, 'status'> | null | undefined
+  order:
+    | (Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>)
+    | null
+    | undefined
 ): boolean {
-  return Boolean(order && isUnresolvedFilmOrderStatus(order.status));
+  if (!order) {
+    return false;
+  }
+
+  const displayStatus = getFilmOrderDisplayStatus(order);
+  return (
+    displayStatus === 'FILM_ORDER' ||
+    displayStatus === 'INCOMPLETE' ||
+    displayStatus === 'FILM_ON_THE_WAY'
+  );
 }
 
 export function isFilmOrderNeedingAttention(
@@ -320,16 +378,19 @@ export function isFilmOrderNeedingAttention(
     return false;
   }
 
-  const normalizedStatus = String(order.status || '').trim().toUpperCase();
+  const normalizedStatus = getFilmOrderDisplayStatus(order);
   return (
     normalizedStatus === 'FILM_ORDER' &&
     hasFilmOrderInstallDate(order) &&
-    hasRemainingFilmToOrder(order)
+    getFilmOrderRemainingFeet(order) > 0
   );
 }
 
 export function countUnresolvedFilmOrders(
-  entries: ReadonlyArray<Pick<FilmOrderEntry, 'status'>> | null | undefined
+  entries:
+    | ReadonlyArray<Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>>
+    | null
+    | undefined
 ): number {
   if (!entries?.length) {
     return 0;
@@ -346,7 +407,10 @@ export function countUnresolvedFilmOrders(
 }
 
 export function hasUnresolvedFilmOrders(
-  entries: ReadonlyArray<Pick<FilmOrderEntry, 'status'>> | null | undefined
+  entries:
+    | ReadonlyArray<Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>>
+    | null
+    | undefined
 ): boolean {
   return countUnresolvedFilmOrders(entries) > 0;
 }
