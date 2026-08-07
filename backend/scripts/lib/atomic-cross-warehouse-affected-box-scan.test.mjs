@@ -125,6 +125,20 @@ test('0192 preserves live same-warehouse planning, phase, extras, and response s
 test('0192 preserves the canonical public contract and private helper grants', async () => {
   const migration = await readFile(backendMigrationPath, 'utf8');
 
+  const legacyGrantNormalization =
+    'revoke execute on function public.api_allocations_apply(uuid, text, jsonb)\n' +
+    '  from service_role;';
+  const preconditionStart = migration.indexOf('do $$');
+
+  assert.notEqual(preconditionStart, -1);
+  assert.ok(migration.indexOf(legacyGrantNormalization) < preconditionStart);
+  assert.equal(
+    migration.match(
+      /revoke execute on function public\.api_allocations_apply\(uuid, text, jsonb\)\s+from service_role;/g,
+    )?.length,
+    1,
+  );
+  assert.doesNotMatch(migration, /grant execute on function public\.api_allocations_apply/i);
   assert.match(migration, /create or replace function public\.api_allocations_apply\(\s*p_org_id uuid,\s*p_actor text,\s*p_payload jsonb\s*\)/s);
   assert.match(migration, /language plpgsql\s+security definer\s+set search_path = public, app, app_api/s);
   assert.match(migration, /alter function public\.api_allocations_apply\(uuid, text, jsonb\) owner to postgres/);
