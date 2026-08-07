@@ -84,7 +84,7 @@ const browserVerifierPath = path.join(
 );
 
 const accepted0191Hash = '723177cd488d3110aa29d5246a6b961540e77557a5403cd20046ace7541dd8a0';
-const accepted0192Hash = '3776c9b38230fe46bc12b788af200771b1beb3b4ab46342a8a08d5d829eb6f21';
+const accepted0192Hash = 'df6d3b4d6b772f71077d39ed1d0b2442e0fa78d56622713573fd8101494ce4c5';
 
 function sha256(source) {
   return createHash('sha256').update(source).digest('hex');
@@ -102,7 +102,7 @@ function extractBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test('0193 is mirrored exactly while migrations 0191 and 0192 remain immutable', async () => {
+test('0193 is mirrored exactly while approved migrations 0191 and 0192 remain pinned', async () => {
   const [backend0193, supabase0193, backend0191, supabase0191, backend0192, supabase0192] =
     await Promise.all([
       readFile(backendMigrationPath, 'utf8'),

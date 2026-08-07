@@ -8,6 +8,12 @@
  * pending-transfer guards, and migration 0191 remain unchanged.
  */
 
+-- Compatibility normalization for environments that retained this historical
+-- direct grant. The public worker remains private; authenticated callers use
+-- public.api_acl_allocations_apply.
+revoke execute on function public.api_allocations_apply(uuid, text, jsonb)
+  from service_role;
+
 do $$
 declare
   v_apply_owner text;
