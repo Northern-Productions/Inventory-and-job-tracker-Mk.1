@@ -50,6 +50,10 @@ export function buildFilmTransferCheckoutMessage(alert: JobFilmTransferAlert) {
     return `Box ${alert.boxId} is transferring from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}. Receive it there before checking it out for this job.`;
   }
 
+  if (alert.state === 'TRANSFER_REVIEW_REQUIRED') {
+    return `Box ${alert.boxId} is still physically transferring from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}. Receive or cancel that transfer before checkout.`;
+  }
+
   return `Box ${alert.boxId} must be transferred from ${alert.sourceWarehouse} to ${alert.destinationWarehouse} before it can be checked out for this job.`;
 }
 
@@ -107,11 +111,18 @@ export function describeFilmTransferAlert(alert: JobFilmTransferAlert) {
     return `Transfer in progress from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}.`;
   }
 
-  return `Send this box from ${alert.sourceWarehouse} to ${alert.destinationWarehouse}.`;
+  if (alert.state === 'TRANSFER_REVIEW_REQUIRED') {
+    return `Physical transfer remains pending after the linked allocation was released. Receive or cancel it separately.`;
+  }
+
+  return `This historical cross-warehouse allocation needs review; start a new transfer only from an unallocated in-stock box.`;
 }
 
 export function formatFilmTransferStateLabel(alert: JobFilmTransferAlert) {
-  return alert.state === 'TRANSFER_PENDING' ? 'Transfer Pending' : 'Needs Transfer';
+  if (alert.state === 'TRANSFER_PENDING') {
+    return 'Transfer Pending';
+  }
+  return alert.state === 'TRANSFER_REVIEW_REQUIRED' ? 'Transfer Review' : 'Needs Review';
 }
 
 export function describeCaulkTransferAlert(alert: JobCaulkTransferAlert) {

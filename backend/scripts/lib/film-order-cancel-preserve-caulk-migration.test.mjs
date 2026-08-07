@@ -48,7 +48,7 @@ test('latest schema check tracks film-order cancel caulk preservation semantics'
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
+  assert.match(schemaCheck, /0196_film_order_effective_list_status\.sql/);
 
   assert.match(schemaCheck, /public\.api_film_orders_cancel\(uuid, text, jsonb\)/);
   assert.match(schemaCheck, /app_api\.cancel_active_caulk_allocations_for_job\(/);

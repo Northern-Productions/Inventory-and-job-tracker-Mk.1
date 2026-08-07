@@ -227,43 +227,17 @@ async function listActiveAllocationTransferTargetsForBox(client, orgId, boxId) {
 }
 
 function getTransferStartGuardForBox(box, activeTargets) {
-  const sourceWarehouse = asTrimmedString(box?.warehouse).toUpperCase();
   const normalizedTargets = Array.isArray(activeTargets) ? activeTargets : [];
-  const distinctDestinations = new Set();
-  let hasSameWarehouseAllocation = false;
-
-  for (let index = 0; index < normalizedTargets.length; index += 1) {
-    const destinationWarehouse = asTrimmedString(normalizedTargets[index]?.jobWarehouse).toUpperCase();
-    if (!destinationWarehouse) {
-      continue;
-    }
-
-    if (destinationWarehouse === sourceWarehouse) {
-      hasSameWarehouseAllocation = true;
-      continue;
-    }
-
-    distinctDestinations.add(destinationWarehouse);
-  }
-
-  if (hasSameWarehouseAllocation) {
+  if (normalizedTargets.length > 0) {
     return {
       suggestedDestinationWarehouse: '',
       blockingMessage:
-        `Box ${box.boxId} still has active allocations for jobs in ${sourceWarehouse}. Remove those same-warehouse allocations before starting a transfer.`
-    };
-  }
-
-  if (distinctDestinations.size > 1) {
-    return {
-      suggestedDestinationWarehouse: '',
-      blockingMessage:
-        `Box ${box.boxId} has active allocations for multiple destination warehouses. Clear the conflicting allocations before starting a transfer.`
+        `Box ${box.boxId} has active allocations. Release them before starting an ordinary transfer.`
     };
   }
 
   return {
-    suggestedDestinationWarehouse: Array.from(distinctDestinations)[0] || '',
+    suggestedDestinationWarehouse: '',
     blockingMessage: ''
   };
 }
@@ -552,7 +526,7 @@ function buildJobFilmTransferAlerts(jobWarehouse, allocations, boxById, pendingT
 
   for (let index = 0; index < entries.length; index += 1) {
     const allocation = entries[index];
-    if (!allocation || allocation.status !== 'ACTIVE' || !allocation.boxId) {
+    if (!allocation || !allocation.boxId) {
       continue;
     }
 
@@ -567,10 +541,22 @@ function buildJobFilmTransferAlerts(jobWarehouse, allocations, boxById, pendingT
     }
 
     const pendingTransfer = box.id ? pendingTransferByBoxRecordId[box.id] || null : null;
-    const state =
+    const allocationStatus = asTrimmedString(allocation.status).toUpperCase();
+    const isLinkedTransferAllocation = Boolean(
+      pendingTransfer?.transferCreatedAllocationId &&
+      pendingTransfer.transferCreatedAllocationId === asTrimmedString(allocation.allocationId)
+    );
+    if (allocationStatus !== 'ACTIVE' && !isLinkedTransferAllocation) {
+      continue;
+    }
+    const hasMatchingPendingTransfer = Boolean(
       pendingTransfer && pendingTransfer.destinationWarehouse === normalizedJobWarehouse
+    );
+    const state = hasMatchingPendingTransfer
+      ? allocationStatus === 'ACTIVE'
         ? 'TRANSFER_PENDING'
-        : 'NEEDS_TRANSFER';
+        : 'TRANSFER_REVIEW_REQUIRED'
+      : 'NEEDS_TRANSFER';
     const dedupeKey = `${box.boxId}:${normalizedJobWarehouse}:${state}`;
     if (seen.has(dedupeKey)) {
       continue;
@@ -582,9 +568,9 @@ function buildJobFilmTransferAlerts(jobWarehouse, allocations, boxById, pendingT
       sourceWarehouse,
       destinationWarehouse: normalizedJobWarehouse,
       state,
-      transferId: pendingTransfer ? pendingTransfer.transferId : '',
-      startedAt: pendingTransfer ? pendingTransfer.createdAt : '',
-      startedBy: pendingTransfer ? pendingTransfer.createdBy : ''
+      transferId: hasMatchingPendingTransfer ? pendingTransfer.transferId : '',
+      startedAt: hasMatchingPendingTransfer ? pendingTransfer.createdAt : '',
+      startedBy: hasMatchingPendingTransfer ? pendingTransfer.createdBy : ''
     });
   }
 

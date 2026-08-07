@@ -73,3 +73,37 @@ Deno.test("buildAppAttentionSummary includes film weight pending review attentio
   assert(summary.hasFilmWeightPendingReviews === true, "Expected pending film weight attention.");
   assert(summary.filmWeightPendingReviewCount === 3, "Expected pending film weight count.");
 });
+
+Deno.test("buildAppAttentionSummary uses the boolean film-order attention read when available", async () => {
+  let booleanCalls = 0;
+  let listCalls = 0;
+  const summary = await buildAppAttentionSummary(
+    {},
+    "org-1",
+    {
+      role: "member",
+      permissions: {
+        inventory: { read: false },
+        jobs: { read: false },
+        allocations: { read: false },
+        film_orders: { read: true },
+      },
+    } as any,
+    {
+      hasActiveJobsNeedingAllocation: async () => false,
+      hasFilmOrdersNeedingAttention: async () => {
+        booleanCalls += 1;
+        return true;
+      },
+      buildFilmOrdersList: async () => {
+        listCalls += 1;
+        return [];
+      },
+      rpcOrThrow: async <T>() => [] as T,
+    },
+  );
+
+  assert(booleanCalls === 1, "Expected one boolean film-order attention read.");
+  assert(listCalls === 0, "Expected attention summary not to load the film-order collection.");
+  assert(summary.hasFilmOrdersNeedingAttention === true, "Expected the lightweight boolean result.");
+});

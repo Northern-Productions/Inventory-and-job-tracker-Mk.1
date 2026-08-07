@@ -41,7 +41,7 @@ test('latest schema check points to the authenticated app schema usage revoke', 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
+  assert.match(schemaCheck, /0196_film_order_effective_list_status\.sql/);
 
   assert.match(schemaCheck, /authenticated_app_schema_usage/);
   assert.match(schemaCheck, /service_role_app_schema_usage/);

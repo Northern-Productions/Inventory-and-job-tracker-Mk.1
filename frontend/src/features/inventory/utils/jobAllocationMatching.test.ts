@@ -13,6 +13,8 @@ function buildBox(overrides: Partial<Box> & Pick<Box, 'boxId' | 'manufacturer' |
     feetAvailable: overrides.feetAvailable ?? 100,
     allocatableNowFeet: overrides.allocatableNowFeet ?? overrides.feetAvailable ?? 100,
     allocationPlanningFeet: overrides.allocationPlanningFeet ?? overrides.feetAvailable ?? 100,
+    allocatedWithInstallDateFeet: overrides.allocatedWithInstallDateFeet ?? 0,
+    allocatedWithoutInstallDateFeet: overrides.allocatedWithoutInstallDateFeet ?? 0,
     lotRun: overrides.lotRun || '',
     status: overrides.status || 'IN_STOCK',
     orderDate: overrides.orderDate || '',
@@ -148,7 +150,7 @@ describe('findMatchingBoxesForRequirement', () => {
     expect(matching.map((box) => box.boxId)).toEqual(['IL1-CHECKED-RAW']);
   });
 
-  it('includes transfer boxes between in-stock and ordered candidates', () => {
+  it('includes unreserved cross-warehouse in-stock boxes for transfer assist', () => {
     const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
     const matching = findMatchingBoxesForRequirement(
       [
@@ -163,20 +165,14 @@ describe('findMatchingBoxesForRequirement', () => {
           allocationPlanningFeet: 40
         }),
         buildBox({
-          boxId: 'IL1-TRANSFER',
+          boxId: 'IL1-IN-STOCK',
           warehouse: 'IL1',
           manufacturer: 'SOLYX',
           filmName: 'Whiteout SXWF-WO',
           widthIn: 72,
-          status: 'TRANSFER',
+          status: 'IN_STOCK',
           feetAvailable: 96,
-          allocationPlanningFeet: 96,
-          pendingTransfer: {
-            transferId: 'TRF-1',
-            status: 'PENDING',
-            sourceWarehouse: 'IL1',
-            destinationWarehouse: 'MS1'
-          }
+          allocationPlanningFeet: 96
         }),
         buildBox({
           boxId: 'MS1-ORDERED',
@@ -194,10 +190,10 @@ describe('findMatchingBoxesForRequirement', () => {
       'MS1'
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['MS1-IN-STOCK', 'IL1-TRANSFER', 'MS1-ORDERED']);
+    expect(matching.map((box) => box.boxId)).toEqual(['MS1-IN-STOCK', 'IL1-IN-STOCK', 'MS1-ORDERED']);
   });
 
-  it('keeps transfer boxes allocatable even without matching transfer metadata', () => {
+  it('excludes pending-transfer boxes and reserved cross-warehouse boxes', () => {
     const requirement = buildRequirement({ manufacturer: 'SOLYX', filmName: 'Whiteout SXWF-WO', widthIn: 72 });
     const matching = findMatchingBoxesForRequirement(
       [
@@ -218,21 +214,22 @@ describe('findMatchingBoxesForRequirement', () => {
           }
         }),
         buildBox({
-          boxId: 'IL1-TRANSFER-MISSING',
+          boxId: 'IL1-RESERVED',
           warehouse: 'IL1',
           manufacturer: 'SOLYX',
           filmName: 'Whiteout SXWF-WO',
           widthIn: 72,
-          status: 'TRANSFER',
+          status: 'IN_STOCK',
           feetAvailable: 96,
-          allocationPlanningFeet: 96
+          allocationPlanningFeet: 80,
+          allocatedWithInstallDateFeet: 16
         })
       ],
       requirement,
       'MS1'
     );
 
-    expect(matching.map((box) => box.boxId)).toEqual(['IL1-TRANSFER-MISSING', 'IL1-TRANSFER-WRONG']);
+    expect(matching).toHaveLength(0);
   });
 
   it('still excludes zeroed transfer-family matches', () => {

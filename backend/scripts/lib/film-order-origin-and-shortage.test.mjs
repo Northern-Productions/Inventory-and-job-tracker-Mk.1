@@ -112,6 +112,13 @@ test('toPublicFilmOrder exposes additive jobId when the row has job_id', () => {
     ordered_feet: 0,
     remaining_to_order_feet: 100,
     status: 'FILM_ORDER',
+    stored_status: 'FILM_ORDER',
+    display_status: 'FULFILLED_COVERED',
+    need_source: 'CURRENT_REQUIREMENT',
+    needed_feet: 100,
+    fulfilled_feet: 125,
+    remaining_feet: 0,
+    overage_feet: 25,
     source_box_id: '',
     created_at: '2026-04-16T15:47:48.884Z',
     created_by: 'tester',
@@ -120,6 +127,26 @@ test('toPublicFilmOrder exposes additive jobId when the row has job_id', () => {
 
   assert.equal(publicEntry.jobId, '11111111-1111-4111-8111-111111111111');
   assert.equal(publicEntry.jobNumber, '4447');
+  assert.deepEqual(
+    {
+      storedStatus: publicEntry.storedStatus,
+      displayStatus: publicEntry.displayStatus,
+      needSource: publicEntry.needSource,
+      neededFeet: publicEntry.neededFeet,
+      fulfilledFeet: publicEntry.fulfilledFeet,
+      remainingFeet: publicEntry.remainingFeet,
+      overageFeet: publicEntry.overageFeet,
+    },
+    {
+      storedStatus: 'FILM_ORDER',
+      displayStatus: 'FULFILLED_COVERED',
+      needSource: 'CURRENT_REQUIREMENT',
+      neededFeet: 100,
+      fulfilledFeet: 125,
+      remainingFeet: 0,
+      overageFeet: 25,
+    },
+  );
 });
 
 test('toPublicFilmOrder exposes additive Work Scope fields when the row has sections', () => {
@@ -174,6 +201,7 @@ test('toPublicFilmOrder preserves legacy records without jobId', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'jobId'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'workScope'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'sections'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'displayStatus'), false);
   assert.equal(publicEntry.jobNumber, '4447');
 });
 

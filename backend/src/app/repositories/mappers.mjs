@@ -234,6 +234,7 @@ function mapDbBoxTransferRow(row) {
     destinationBoxId: asTrimmedString(row.destination_box_id).toUpperCase(),
     sourceWarehouse: asTrimmedString(row.source_warehouse).toUpperCase(),
     destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
+    transferCreatedAllocationId: asTrimmedString(row.transfer_created_allocation_id),
     status: asTrimmedString(row.status).toUpperCase() || 'PENDING',
     notes: asTrimmedString(row.notes),
     autoPlanningSuppressed: row.auto_planning_suppressed === true,
@@ -261,6 +262,7 @@ function toPublicBoxTransfer(transfer) {
     sourceWarehouse: transfer.sourceWarehouse,
     destinationWarehouse: transfer.destinationWarehouse,
     status: transfer.status,
+    workflowKind: transfer.transferCreatedAllocationId ? 'ALLOCATION_ASSISTED' : 'ORDINARY',
     createdAt: transfer.createdAt,
     createdBy: transfer.createdBy,
     receivedAt: transfer.receivedAt,
@@ -368,6 +370,9 @@ function mapDbFilmOrderRow(row) {
   }
 
   const sourceBoxId = asTrimmedString(row.source_box_id);
+  const status = asTrimmedString(row.status) || 'FILM_ORDER';
+  const displayStatus = asTrimmedString(row.display_status ?? row.displayStatus);
+  const needSource = asTrimmedString(row.need_source ?? row.needSource);
 
   return {
     id: row.id,
@@ -388,7 +393,20 @@ function mapDbFilmOrderRow(row) {
     remainingToOrderFeet: integerOrZero(row.remaining_to_order_feet),
     installDate: formatDateValue(row.job_date),
     crewLeader: asTrimmedString(row.crew_leader),
-    status: asTrimmedString(row.status) || 'FILM_ORDER',
+    status,
+    ...(displayStatus
+      ? {
+          storedStatus: asTrimmedString(row.stored_status ?? row.storedStatus) || status,
+          displayStatus,
+          needSource,
+          neededFeet: integerOrZero(row.needed_feet ?? row.neededFeet),
+          fulfilledFeet: integerOrZero(row.fulfilled_feet ?? row.fulfilledFeet),
+          remainingFeet: integerOrZero(row.remaining_feet ?? row.remainingFeet),
+          overageFeet: integerOrZero(row.overage_feet ?? row.overageFeet),
+          manualFulfilledAt: formatTimestamp(row.manual_fulfilled_at ?? row.manualFulfilledAt),
+          manualFulfilledBy: asTrimmedString(row.manual_fulfilled_by ?? row.manualFulfilledBy)
+        }
+      : {}),
     sourceBoxId,
     origin: deriveFilmOrderOrigin(sourceBoxId),
     createdAt: formatTimestamp(row.created_at),
@@ -403,6 +421,7 @@ function toPublicFilmOrder(entry, linkedBoxes) {
   const jobId = asTrimmedString(entry.jobId);
   const workScope = asTrimmedString(entry.workScope || entry.sections);
   const sections = asTrimmedString(entry.sections || entry.workScope);
+  const displayStatus = asTrimmedString(entry.displayStatus);
 
   return {
     filmOrderId: entry.filmOrderId,
@@ -422,6 +441,23 @@ function toPublicFilmOrder(entry, linkedBoxes) {
     installDate: entry.installDate,
     crewLeader: entry.crewLeader,
     status: entry.status,
+    ...(displayStatus
+      ? {
+          storedStatus: asTrimmedString(entry.storedStatus) || entry.status,
+          displayStatus,
+          needSource: asTrimmedString(entry.needSource),
+          neededFeet: integerOrZero(entry.neededFeet),
+          fulfilledFeet: integerOrZero(entry.fulfilledFeet),
+          remainingFeet: integerOrZero(entry.remainingFeet),
+          overageFeet: integerOrZero(entry.overageFeet),
+          ...(asTrimmedString(entry.manualFulfilledAt)
+            ? { manualFulfilledAt: entry.manualFulfilledAt }
+            : {}),
+          ...(asTrimmedString(entry.manualFulfilledBy)
+            ? { manualFulfilledBy: entry.manualFulfilledBy }
+            : {})
+        }
+      : {}),
     sourceBoxId: entry.sourceBoxId,
     origin: deriveFilmOrderOrigin(entry.sourceBoxId),
     createdAt: entry.createdAt,

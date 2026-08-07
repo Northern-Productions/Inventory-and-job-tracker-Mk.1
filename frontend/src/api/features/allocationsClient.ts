@@ -193,6 +193,7 @@ function normalizeAllocationPreview(preview: AllocationPreview): AllocationPrevi
       )
     ),
     sourceBoxStatus: preview.sourceBoxStatus || 'ORDERED',
+    sourceRequiresTransfer: Boolean(preview.sourceRequiresTransfer),
     suggestions: (preview.suggestions || []).map((suggestion) => ({
       ...suggestion,
       availableFeet: Math.max(0, Number(suggestion.availableFeet || 0)),
@@ -204,7 +205,8 @@ function normalizeAllocationPreview(preview: AllocationPreview): AllocationPrevi
             : suggestion.planningFeet
         )
       ),
-      boxStatus: suggestion.boxStatus || 'ORDERED'
+      boxStatus: suggestion.boxStatus || 'ORDERED',
+      requiresTransfer: Boolean(suggestion.requiresTransfer)
     }))
   };
 }

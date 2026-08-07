@@ -12,7 +12,7 @@ import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../lib/url';
 import { inventoryKeys, useFilmOrderDetail } from '../hooks/useInventoryQueries';
 import { useManualFulfillFilmOrder } from '../hooks/mutations/planning/filmOrderMutations';
-import { formatFilmOrderDealerLabel } from '../utils/filmOrders';
+import { canManuallyFulfillFilmOrder, formatFilmOrderDealerLabel } from '../utils/filmOrders';
 
 function buildJobHref(order: Pick<FilmOrderDetail, 'jobId' | 'jobNumber'>) {
   return order.jobId
@@ -191,7 +191,7 @@ export default function FilmOrderDetailsPage() {
           <Button type="button" variant="secondary" onClick={() => navigate('/film-orders')}>
             Back
           </Button>
-          {order ? (
+          {order && canManuallyFulfillFilmOrder(order) ? (
             <Button
               type="button"
               variant="primary"

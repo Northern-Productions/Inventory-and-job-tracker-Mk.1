@@ -212,6 +212,47 @@ async function listBoxes(client, orgId) {
   return rows.map(mapDbBoxRow);
 }
 
+async function loadAllocationPreviewCandidateSnapshot(client, orgId, payload) {
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_allocation_preview_candidates(
+        $1::uuid,
+        $2::jsonb
+      ) as result
+    `,
+    [orgId, payload || {}]
+  );
+  const result = row?.result;
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new HttpError(500, 'Allocation preview candidates did not return a valid snapshot.');
+  }
+
+  const source = mapDbBoxRow(result.source);
+  if (!source) {
+    throw new HttpError(409, 'The allocation source changed while preview was loading. Reload and retry.');
+  }
+
+  return {
+    source,
+    boxes: (Array.isArray(result.boxes) ? result.boxes : []).map(mapDbBoxRow).filter(Boolean),
+    allocations: Array.isArray(result.allocations) ? result.allocations : [],
+    pendingTransfersByBoxRecordId:
+      result.pendingTransfersByBoxRecordId &&
+      typeof result.pendingTransfersByBoxRecordId === 'object' &&
+      !Array.isArray(result.pendingTransfersByBoxRecordId)
+        ? result.pendingTransfersByBoxRecordId
+        : {},
+    candidateMetadata: Array.isArray(result.candidateMetadata) ? result.candidateMetadata : [],
+    context: result.context && typeof result.context === 'object' && !Array.isArray(result.context)
+      ? result.context
+      : {},
+    scope: result.scope && typeof result.scope === 'object' && !Array.isArray(result.scope)
+      ? result.scope
+      : {}
+  };
+}
+
 async function listBoxesByWarehouses(client, orgId, warehouses) {
   const normalizedWarehouses = Array.from(
     new Set(
@@ -632,14 +673,15 @@ async function saveBoxTransferRecord(client, orgId, transfer) {
         cancelled_at,
         cancelled_by,
         updated_at,
-        updated_by
+        updated_by,
+        transfer_created_allocation_id
       )
       values (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,
         $10::timestamptz,$11,
         nullif($12, '')::timestamptz,$13,
         nullif($14, '')::timestamptz,$15,
-        $16::timestamptz,$17
+        $16::timestamptz,$17,$18
       )
       on conflict (org_id, transfer_id) do update set
         destination_box_id = excluded.destination_box_id,
@@ -650,7 +692,8 @@ async function saveBoxTransferRecord(client, orgId, transfer) {
         cancelled_at = excluded.cancelled_at,
         cancelled_by = excluded.cancelled_by,
         updated_at = excluded.updated_at,
-        updated_by = excluded.updated_by
+        updated_by = excluded.updated_by,
+        transfer_created_allocation_id = excluded.transfer_created_allocation_id
       returning *
     `,
     [
@@ -671,6 +714,7 @@ async function saveBoxTransferRecord(client, orgId, transfer) {
       asTrimmedString(transfer.cancelledBy),
       transfer.updatedAt || new Date().toISOString(),
       asTrimmedString(transfer.updatedBy || transfer.createdBy),
+      asTrimmedString(transfer.transferCreatedAllocationId) || null,
     ]
   );
 
@@ -717,6 +761,7 @@ export {
   resolveWarehouseFromBoxId,
   buildBoxSelectColumns,
   listBoxes,
+  loadAllocationPreviewCandidateSnapshot,
   listBoxesByWarehouses,
   listBoxesByIds,
   findBoxById,

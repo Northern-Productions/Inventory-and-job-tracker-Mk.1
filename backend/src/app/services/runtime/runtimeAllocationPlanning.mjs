@@ -1,5 +1,6 @@
 // Purpose: Allocation preview, film-order recalculation, and shortage planning helpers.
 import { getSameDayCrewConflictJobs } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
+import { getFilmBoxAllocationEligibility } from '../../../../../shared/domain/filmBoxAllocationEligibility.mjs';
 import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
@@ -208,6 +209,7 @@ import {
 } from './runtimeAllocationCoverage.mjs';
 import { deriveBoxPhysicalFeetAvailable } from './runtimeAllocationReservations.mjs';
 import {
+  allocationReservesCapacity,
   isOrderedFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
 } from '../../../../../shared/domain/filmAllocationReservations.mjs';
@@ -320,19 +322,25 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
   if (sourceBox.widthIn < minimumWidthIn) {
     throw new HttpError(400, 'Source box width must meet or exceed the requested width.');
   }
+  const activeAllocationsByBox = (options && options.activeAllocationsByBox) || {};
   const sourcePendingTransfer = findPendingTransferForBox(sourceBox, pendingTransfersByBoxRecordId);
-  const sourceTransferBlockReason = getTransferAllocationBlockReason(
+  const sourceEligibility = getFilmBoxAllocationEligibility(
     sourceBox,
     sourcePendingTransfer,
-    preferredWarehouse
+    preferredWarehouse,
+    {
+      allowTransferAssist: useCrossWarehouse,
+      hasReservations: (activeAllocationsByBox[sourceBox.boxId] || []).some((allocation) =>
+        allocationReservesCapacity(allocation, sourceBox)
+      )
+    }
   );
-  if (sourceTransferBlockReason) {
-    throw new HttpError(400, sourceTransferBlockReason);
+  if (sourceEligibility.reason) {
+    throw new HttpError(400, sourceEligibility.reason);
   }
-  if (!isJobAllocationEligibleBox(sourceBox, sourcePendingTransfer, preferredWarehouse)) {
+  if (!sourceEligibility.eligible) {
     throw new HttpError(400, `Box ${sourceBox.boxId} is no longer allocatable.`);
   }
-  const activeAllocationsByBox = (options && options.activeAllocationsByBox) || {};
   const sourcePlanningFeet = getBoxAllocationPlanningFeet(sourceBox, activeAllocationsByBox);
   const sourceConflicts = getDateConflictJobsForBox(sourceBox.boxId, jobContext, activeAllocationsByBox);
   const sourcePlan = sourceConflicts.length
@@ -351,9 +359,20 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     const candidate = candidateBoxes[index];
     const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, activeAllocationsByBox);
     const candidatePendingTransfer = findPendingTransferForBox(candidate, pendingTransfersByBoxRecordId);
+    const candidateEligibility = getFilmBoxAllocationEligibility(
+      candidate,
+      candidatePendingTransfer,
+      preferredWarehouse,
+      {
+        allowTransferAssist: useCrossWarehouse,
+        hasReservations: (activeAllocationsByBox[candidate.boxId] || []).some((allocation) =>
+          allocationReservesCapacity(allocation, candidate)
+        )
+      }
+    );
     if (
       candidate.boxId === sourceBox.boxId ||
-      !isJobAllocationEligibleBox(candidate, candidatePendingTransfer, preferredWarehouse) ||
+      !candidateEligibility.eligible ||
       candidatePlanningFeet <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
@@ -380,7 +399,8 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
 
     filteredCandidates.push({
       candidate,
-      filmMatch
+      filmMatch,
+      eligibility: candidateEligibility
     });
   }
 
@@ -455,6 +475,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
       availableFeet: candidate.feetAvailable,
       planningFeet: candidatePlanningFeet,
       boxStatus: candidate.status,
+      requiresTransfer: filteredCandidates[index].eligibility.requiresTransfer,
       suggestedFeet: candidatePlan.allocatedFeet,
       suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
@@ -478,6 +499,7 @@ function buildAllocationPreviewPlan(sourceBox, requestedFeet, jobContext, option
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
     sourceBoxPlanningFeet: sourcePlanningFeet,
     sourceBoxStatus: sourceBox.status,
+    sourceRequiresTransfer: sourceEligibility.requiresTransfer,
     sourceSuggestedFeet,
     sourceSuggestedCoveredFeet,
     sourceConflicts,

@@ -101,6 +101,7 @@ export interface ApplyAllocationPlanResult {
   allocations: AllocationEntry[];
   filmOrder: FilmOrderEntry | null;
   remainingUncoveredFeet: number;
+  transferIds?: string[];
 }
 
 export interface FilmOrderListResult {

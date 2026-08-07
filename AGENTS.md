@@ -18,6 +18,17 @@
 - Do not open a PR by default.
 - Do not merge, push `main`, release, deploy, or clean up branches unless Rob/Sage explicitly approve that action.
 
+## Codex End-to-End Task Ownership
+
+Codex owns the technical method and task-scoped DEV execution of assigned work end to end. Rob and Sage retain product intent, acceptance criteria, material scope decisions, destructive or irreversible exceptions, and the final PROD approval gate.
+
+- Independently inspect the implementation and evidence, choose the safest canonical method, implement the coherent work required, diagnose failures, run required verification, clean up temporary and fixture state, and return a complete report.
+- A suggested method may be replaced when repository evidence supports a safer, more accurate, maintainable, efficient, or canonical approach. Preserve the approved product outcome, respect explicit safety boundaries, and explain the decision.
+- Stop only for a genuine blocker after exhausting safe canonical diagnostics. Never weaken tests, authorization, integrity checks, cleanup controls, or product behavior to manufacture a pass.
+- Standing DEV authority does not authorize PROD access, releases, destructive exceptions, broad cleanup, secrets or auth changes, or bypassing target guards and quiet-window requirements.
+
+See `docs/automation/codex-operating-manual.md#codex-end-to-end-task-ownership` for the detailed ownership, blocker, tooling, completion, and PROD-gate policy. Stricter security, mutation, release, and cleanup rules remain controlling.
+
 ## Safe Routine Commands
 
 Codex may run local-safe commands such as `git status`, `git diff`, `git log`, `git fetch`, branch checkouts/creation for the task, tests, builds, lint/format checks, local browser checks, and guarded DEV fixture checks after the DEV target is verified.

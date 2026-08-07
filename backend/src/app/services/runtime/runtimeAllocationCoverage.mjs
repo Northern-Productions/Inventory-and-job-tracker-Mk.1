@@ -213,6 +213,29 @@ function buildActiveAllocationsByBoxIndex(entries) {
   return grouped;
 }
 
+function buildCapacityAllocationsByBoxIndex(entries) {
+  const grouped = {};
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const status = asTrimmedString(entry?.status).toUpperCase();
+    if (status !== 'ACTIVE' && status !== 'FULFILLED') {
+      continue;
+    }
+
+    const boxId = asTrimmedString(entry?.boxId);
+    if (!boxId) {
+      continue;
+    }
+    if (!grouped[boxId]) {
+      grouped[boxId] = [];
+    }
+    grouped[boxId].push(entry);
+  }
+
+  return grouped;
+}
+
 function getActiveAllocationsForBox(boxId, activeAllocationsByBox) {
   return activeAllocationsByBox && activeAllocationsByBox[boxId] ? activeAllocationsByBox[boxId] : [];
 }
@@ -1313,6 +1336,7 @@ function buildAllocationJobSummary(
 
 export {
   buildActiveAllocationsByBoxIndex,
+  buildCapacityAllocationsByBoxIndex,
   getActiveAllocationsForBox,
   getActiveAllocatedFeetForBox,
   buildJobRequirementsByLookupKey,

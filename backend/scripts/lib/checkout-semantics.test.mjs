@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildPublicAllocationEntriesForJob } from '../../src/app/services/runtime/runtimeJobSummaries.mjs';
-import { buildFilmCheckoutActionPlan } from '../../../shared/checkoutSemantics.mjs';
+import {
+  PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE,
+  PENDING_TRANSFER_CHECKOUT_BLOCKED_MESSAGE,
+  buildFilmCheckoutActionPlan,
+  getPendingTransferCheckoutDenial,
+  isPendingTransferCheckoutConflict,
+} from '../../../shared/checkoutSemantics.mjs';
 
 function buildAllocation(overrides = {}) {
   return {
@@ -178,4 +184,74 @@ test('buildFilmCheckoutActionPlan ignores stale resolved rows and keeps resolve-
       boxId: 'IL1-101',
     },
   ]);
+});
+
+test('pending-transfer checkout denial applies only when no requested work was handled', () => {
+  assert.deepEqual(
+    getPendingTransferCheckoutDenial({
+      successfullyHandledCount: 0,
+      blockedFilmCount: 1,
+      blockedCaulkCount: 0,
+    }),
+    {
+      statusCode: 409,
+      code: PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE,
+      message: PENDING_TRANSFER_CHECKOUT_BLOCKED_MESSAGE,
+    },
+  );
+  assert.deepEqual(
+    getPendingTransferCheckoutDenial({
+      successfullyHandledCount: 0,
+      blockedFilmCount: 0,
+      blockedCaulkCount: 2,
+    }),
+    {
+      statusCode: 409,
+      code: PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE,
+      message: PENDING_TRANSFER_CHECKOUT_BLOCKED_MESSAGE,
+    },
+  );
+  assert.equal(
+    getPendingTransferCheckoutDenial({
+      successfullyHandledCount: 1,
+      blockedFilmCount: 1,
+      blockedCaulkCount: 1,
+    }),
+    null,
+  );
+  assert.equal(
+    getPendingTransferCheckoutDenial({
+      successfullyHandledCount: 0,
+      blockedFilmCount: 0,
+      blockedCaulkCount: 0,
+    }),
+    null,
+  );
+});
+
+test('pending-transfer checkout conflict recognition is limited to reviewed structured outcomes and exact messages', () => {
+  const reviewedErrors = [
+    { statusCode: 400, message: 'Box BOX-1 is pending transfer and must be received before it can be checked out.' },
+    { statusCode: 400, message: 'Box BOX-1 has a pending transfer and can only be received or have the transfer cancelled.' },
+    { statusCode: 409, message: 'Box BOX-1 has a pending transfer and can only be received, cancelled, or have its linked claim released.' },
+    { statusCode: 409, message: 'A pending-transfer allocation cannot be fulfilled before receipt.' },
+    { statusCode: 400, message: 'Receive or cancel transfer TRANSFER-1 before checking out this allocation.' },
+    { details: { code: PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE } },
+  ];
+
+  for (const error of reviewedErrors) {
+    assert.equal(isPendingTransferCheckoutConflict(error), true);
+  }
+
+  const unrelatedErrors = [
+    { statusCode: 409, message: 'Concurrent update conflict. Retry the request.' },
+    { statusCode: 409, message: 'A pending transfer exists.' },
+    { statusCode: 500, message: 'A pending-transfer allocation cannot be fulfilled before receipt.' },
+    { statusCode: 400, message: 'Receive or cancel transfer before checking out this allocation.' },
+    { statusCode: 400, message: 'Receive or cancel transfer TRANSFER-1 before editing this allocation.' },
+  ];
+
+  for (const error of unrelatedErrors) {
+    assert.equal(isPendingTransferCheckoutConflict(error), false);
+  }
 });

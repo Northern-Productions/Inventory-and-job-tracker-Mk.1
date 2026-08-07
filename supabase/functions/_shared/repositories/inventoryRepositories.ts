@@ -402,6 +402,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       return null;
     }
     const sourceBoxId = deps.asTrimmedString(row.source_box_id);
+    const status = deps.asTrimmedString(row.status) || "FILM_ORDER";
+    const displayStatus = deps.asTrimmedString(row.display_status ?? row.displayStatus);
+    const needSource = deps.asTrimmedString(row.need_source ?? row.needSource);
     return {
       id: row.id,
       orgId: row.org_id,
@@ -421,7 +424,20 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       remainingToOrderFeet: deps.integerOrZero(row.remaining_to_order_feet),
       installDate: deps.formatDateValue(row.job_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
-      status: deps.asTrimmedString(row.status) || "FILM_ORDER",
+      status,
+      ...(displayStatus
+        ? {
+            storedStatus: deps.asTrimmedString(row.stored_status ?? row.storedStatus) || status,
+            displayStatus,
+            needSource,
+            neededFeet: deps.integerOrZero(row.needed_feet ?? row.neededFeet),
+            fulfilledFeet: deps.integerOrZero(row.fulfilled_feet ?? row.fulfilledFeet),
+            remainingFeet: deps.integerOrZero(row.remaining_feet ?? row.remainingFeet),
+            overageFeet: deps.integerOrZero(row.overage_feet ?? row.overageFeet),
+            manualFulfilledAt: deps.formatTimestamp(row.manual_fulfilled_at ?? row.manualFulfilledAt),
+            manualFulfilledBy: deps.asTrimmedString(row.manual_fulfilled_by ?? row.manualFulfilledBy),
+          }
+        : {}),
       sourceBoxId,
       origin: deriveFilmOrderOrigin(sourceBoxId),
       createdAt: deps.formatTimestamp(row.created_at),
@@ -436,6 +452,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const jobId = deps.asTrimmedString(entry.jobId);
     const workScope = deps.asTrimmedString(entry.workScope || entry.sections);
     const sections = deps.asTrimmedString(entry.sections || entry.workScope);
+    const displayStatus = deps.asTrimmedString(entry.displayStatus);
 
     return {
       filmOrderId: entry.filmOrderId,
@@ -455,6 +472,23 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       installDate: entry.installDate,
       crewLeader: entry.crewLeader,
       status: entry.status,
+      ...(displayStatus
+        ? {
+            storedStatus: deps.asTrimmedString(entry.storedStatus) || entry.status,
+            displayStatus,
+            needSource: deps.asTrimmedString(entry.needSource),
+            neededFeet: deps.integerOrZero(entry.neededFeet),
+            fulfilledFeet: deps.integerOrZero(entry.fulfilledFeet),
+            remainingFeet: deps.integerOrZero(entry.remainingFeet),
+            overageFeet: deps.integerOrZero(entry.overageFeet),
+            ...(deps.asTrimmedString(entry.manualFulfilledAt)
+              ? { manualFulfilledAt: entry.manualFulfilledAt }
+              : {}),
+            ...(deps.asTrimmedString(entry.manualFulfilledBy)
+              ? { manualFulfilledBy: entry.manualFulfilledBy }
+              : {}),
+          }
+        : {}),
       sourceBoxId: entry.sourceBoxId,
       origin: deriveFilmOrderOrigin(entry.sourceBoxId),
       createdAt: entry.createdAt,
@@ -714,6 +748,50 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return await enrichBoxesWithInternalIds(orgId, mapRows(rows, mapDbBoxRow));
   }
 
+  async function loadAllocationPreviewCandidateSnapshot(
+    client: any,
+    orgId: string,
+    payload: Record<string, unknown>,
+  ) {
+    const result = await deps.rpcOrThrow<Record<string, unknown>>(
+      client,
+      "api_acl_allocation_preview_candidates",
+      {
+        p_org_id: orgId,
+        p_payload: payload,
+      },
+    );
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      throw new Error("Allocation preview candidates did not return a valid snapshot.");
+    }
+
+    const source = mapDbBoxRow(result.source);
+    if (!source) {
+      throw new Error("The allocation source changed while preview was loading. Reload and retry.");
+    }
+
+    return {
+      source,
+      boxes: mapRows(Array.isArray(result.boxes) ? result.boxes : [], mapDbBoxRow),
+      allocations: Array.isArray(result.allocations) ? result.allocations : [],
+      pendingTransfersByBoxRecordId:
+        result.pendingTransfersByBoxRecordId &&
+        typeof result.pendingTransfersByBoxRecordId === "object" &&
+        !Array.isArray(result.pendingTransfersByBoxRecordId)
+          ? result.pendingTransfersByBoxRecordId
+          : {},
+      candidateMetadata: Array.isArray(result.candidateMetadata) ? result.candidateMetadata : [],
+      context:
+        result.context && typeof result.context === "object" && !Array.isArray(result.context)
+          ? result.context
+          : {},
+      scope:
+        result.scope && typeof result.scope === "object" && !Array.isArray(result.scope)
+          ? result.scope
+          : {},
+    };
+  }
+
   async function findBoxById(client: any, orgId: string, boxId: string) {
     const row = await deps.rpcOrThrow<any | null>(client, "api_acl_find_box_by_id", {
       p_org_id: orgId,
@@ -820,6 +898,177 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       p_warehouse: deps.asTrimmedString(options.warehouse) || null,
     });
     return mapRows(rows, mapDbJobRow);
+  }
+
+  async function listJobsByIds(client: any, orgId: string, jobIds: string[]) {
+    const normalizedJobIds = Array.from(
+      new Set((Array.isArray(jobIds) ? jobIds : []).map((entry) => deps.asTrimmedString(entry)).filter(Boolean)),
+    );
+    if (!normalizedJobIds.length) {
+      return [];
+    }
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs_by_ids", {
+      p_org_id: orgId,
+      p_job_ids: normalizedJobIds,
+    });
+    return mapRows(rows, mapDbJobRow);
+  }
+
+  async function listJobsByNumbers(client: any, orgId: string, jobNumbers: string[]) {
+    const normalizedJobNumbers = Array.from(
+      new Set((Array.isArray(jobNumbers) ? jobNumbers : []).map((entry) => deps.asTrimmedString(entry)).filter(Boolean)),
+    );
+    if (!normalizedJobNumbers.length) {
+      return [];
+    }
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs_by_numbers", {
+      p_org_id: orgId,
+      p_job_numbers: normalizedJobNumbers,
+    });
+    return mapRows(rows, mapDbJobRow);
+  }
+
+  function mapJobNumberCandidates(value: unknown) {
+    return Array.from(
+      new Set(
+        (Array.isArray(value) ? value : [])
+          .map((entry) => deps.asTrimmedString(entry))
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  async function listJobSearchCandidateNumbers(
+    client: any,
+    orgId: string,
+    query: string,
+    lifecycleStatus: string,
+    warehouse?: unknown,
+  ) {
+    return mapJobNumberCandidates(
+      await deps.rpcOrThrow<unknown>(client, "api_acl_job_search_candidate_numbers", {
+        p_org_id: orgId,
+        p_query: query,
+        p_lifecycle_status: lifecycleStatus,
+        p_warehouse: deps.asTrimmedString(warehouse) || null,
+      }),
+    );
+  }
+
+  async function listJobCalendarCandidateNumbers(
+    client: any,
+    orgId: string,
+    rangeStart: string,
+    rangeEnd: string,
+    lifecycleStatus: string,
+    warehouse?: unknown,
+  ) {
+    return mapJobNumberCandidates(
+      await deps.rpcOrThrow<unknown>(client, "api_acl_job_calendar_candidate_numbers", {
+        p_org_id: orgId,
+        p_range_start: rangeStart,
+        p_range_end: rangeEnd,
+        p_lifecycle_status: lifecycleStatus,
+        p_warehouse: deps.asTrimmedString(warehouse) || null,
+      }),
+    );
+  }
+
+  async function listJobAttentionCandidateNumbers(client: any, orgId: string) {
+    return mapJobNumberCandidates(
+      await deps.rpcOrThrow<unknown>(client, "api_acl_job_attention_candidate_numbers", {
+        p_org_id: orgId,
+      }),
+    );
+  }
+
+  async function loadJobSummarySnapshot(
+    client: any,
+    orgId: string,
+    jobIds: string[],
+    options: { includeLegacy?: boolean; legacyJobNumbers?: string[]; includePhases?: boolean } = {},
+  ) {
+    const normalizedJobIds = Array.from(
+      new Set((Array.isArray(jobIds) ? jobIds : []).map((entry) => deps.asTrimmedString(entry)).filter(Boolean)),
+    );
+    const normalizedLegacyJobNumbers = Array.from(
+      new Set(
+        (Array.isArray(options.legacyJobNumbers) ? options.legacyJobNumbers : [])
+          .map((entry) => deps.asTrimmedString(entry))
+          .filter(Boolean),
+      ),
+    );
+    const snapshot = await deps.rpcOrThrow<Record<string, unknown>>(client, "api_acl_job_summary_snapshot", {
+      p_org_id: orgId,
+      p_job_ids: normalizedJobIds,
+      p_include_legacy: options.includeLegacy !== false,
+      p_legacy_job_numbers: normalizedLegacyJobNumbers,
+      p_include_phases: options.includePhases !== false,
+    });
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new Error("Job summary snapshot did not return a valid object.");
+    }
+
+    return {
+      allocations: mapRows(Array.isArray(snapshot.allocations) ? snapshot.allocations : [], mapDbAllocationRow),
+      filmOrders: mapRows(Array.isArray(snapshot.filmOrders) ? snapshot.filmOrders : [], mapDbFilmOrderRow),
+      phases: mapRows(Array.isArray(snapshot.phases) ? snapshot.phases : [], mapDbJobPhaseRow),
+      requirements: mapRows(Array.isArray(snapshot.requirements) ? snapshot.requirements : [], mapDbRequirementRow),
+    };
+  }
+
+  async function loadBoxReservationSnapshot(
+    client: any,
+    orgId: string,
+    options: { boxIds?: string[]; allocationIds?: string[] } = {},
+  ) {
+    const boxIds = Array.from(
+      new Set(
+        (Array.isArray(options.boxIds) ? options.boxIds : [])
+          .map((entry) => deps.asTrimmedString(entry).toUpperCase())
+          .filter(Boolean),
+      ),
+    );
+    const allocationIds = Array.from(
+      new Set(
+        (Array.isArray(options.allocationIds) ? options.allocationIds : [])
+          .map((entry) => deps.asTrimmedString(entry))
+          .filter(Boolean),
+      ),
+    );
+    if (!boxIds.length && !allocationIds.length) {
+      return { selectedAllocations: [], allocations: [], boxes: [], jobs: [] };
+    }
+
+    const snapshot = await deps.rpcOrThrow<Record<string, unknown>>(client, "api_acl_box_reservation_snapshot", {
+      p_org_id: orgId,
+      p_box_ids: boxIds,
+      p_allocation_ids: allocationIds,
+    });
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new Error("Box reservation snapshot did not return a valid object.");
+    }
+
+    return {
+      selectedAllocations: mapRows(
+        Array.isArray(snapshot.selectedAllocations) ? snapshot.selectedAllocations : [],
+        mapDbAllocationRow,
+      ),
+      allocations: mapRows(Array.isArray(snapshot.allocations) ? snapshot.allocations : [], mapDbAllocationRow),
+      boxes: await enrichBoxesWithInternalIds(
+        orgId,
+        mapRows(Array.isArray(snapshot.boxes) ? snapshot.boxes : [], mapDbBoxRow),
+      ),
+      jobs: mapRows(Array.isArray(snapshot.jobs) ? snapshot.jobs : [], mapDbJobRow),
+    };
+  }
+
+  async function hasFilmOrdersNeedingAttention(client: any, orgId: string) {
+    return Boolean(
+      await deps.rpcOrThrow<boolean>(client, "api_acl_has_film_orders_needing_attention", {
+        p_org_id: orgId,
+      }),
+    );
   }
 
   async function listJobsCalendar(client: any, orgId: string, month: string, lifecycleStatus?: unknown) {
@@ -956,6 +1205,14 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     findFilmOrderById,
     listFilmOrderLinksByFilmOrderId,
     listJobs,
+    listJobsByIds,
+    listJobsByNumbers,
+    listJobSearchCandidateNumbers,
+    listJobCalendarCandidateNumbers,
+    listJobAttentionCandidateNumbers,
+    loadJobSummarySnapshot,
+    loadBoxReservationSnapshot,
+    hasFilmOrdersNeedingAttention,
     listJobsCalendar,
     findJobByNumber,
     findJobById,
@@ -970,5 +1227,6 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     listAuditEntries,
     listAuditEntriesByBox,
     listRollHistoryByBox,
+    loadAllocationPreviewCandidateSnapshot,
   };
 }

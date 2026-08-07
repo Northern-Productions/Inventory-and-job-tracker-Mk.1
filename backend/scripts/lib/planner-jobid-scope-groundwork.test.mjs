@@ -65,7 +65,7 @@ test('planner jobId scope groundwork preserves legacy jobNumber planner behavior
   assert.doesNotMatch(migration, /drop function/i);
   assert.doesNotMatch(migration, /create or replace function app_api\.auto_planner_scope_job_numbers/);
 
-  assert.match(schemaCheck, /0190_calendar_cancel_service_role_grant_normalization\.sql/);
+  assert.match(schemaCheck, /0196_film_order_effective_list_status\.sql/);
 
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_numbers\(uuid, jsonb\)/);
   assert.match(schemaCheck, /app_api\.auto_planner_scope_job_ids\(uuid, jsonb\)/);

@@ -16,6 +16,18 @@ const BACKEND_DIR = path.resolve(REPO_ROOT, 'backend');
 const DEFAULT_ENV_PATH = path.resolve(BACKEND_DIR, '.env.dev');
 const DEFAULT_APP_URL = 'http://127.0.0.1:5173';
 const TAG_PREFIX = 'CODEX_DEV_FIXTURE';
+const PENDING_TRANSFER_CHECKOUT_SCENARIO = 'pending-transfer-checkout-denial';
+const PRIVATE_ALLOCATION_ID_PATTERN = /^\d{17}-\d{3}$/;
+const PRIVATE_STDIN_BYTE_LIMIT = 64;
+const PRIVATE_STDIN_TIMEOUT_MS = 5_000;
+
+class FixtureSafetyError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'FixtureSafetyError';
+    this.code = code;
+  }
+}
 
 function asText(value) {
   return String(value ?? '').trim();
@@ -69,10 +81,165 @@ function requireScenario(value) {
   if (!scenario) {
     throw new Error('--scenario is required.');
   }
-  if (!['checked-out-box-job', 'allocation-eligibility'].includes(scenario)) {
+  if (![
+    'checked-out-box-job',
+    'allocation-eligibility',
+    'atomic-transfer-assisted-allocation',
+    'allocation-timeout-remediation',
+    PENDING_TRANSFER_CHECKOUT_SCENARIO,
+  ].includes(scenario)) {
     throw new Error(`Unsupported fixture scenario: ${scenario}`);
   }
   return scenario;
+}
+
+function isPendingTransferCheckoutScenario(value) {
+  const normalized = normalizeTagPart(value);
+  return (
+    asText(value) === PENDING_TRANSFER_CHECKOUT_SCENARIO ||
+    normalized.startsWith(`${TAG_PREFIX}_PENDING_TRANSFER_CHECKOUT_DENIAL_`)
+  );
+}
+
+function hasExplicitNonblankEnvOption(options = {}) {
+  return (
+    Object.prototype.hasOwnProperty.call(options, 'env') &&
+    typeof options.env === 'string' &&
+    options.env.trim().length > 0
+  );
+}
+
+function assertExplicitPendingTransferEnv(options = {}) {
+  if (
+    (
+      isPendingTransferCheckoutScenario(options.scenario) ||
+      isPendingTransferCheckoutScenario(options.tag)
+    ) &&
+    !hasExplicitNonblankEnvOption(options)
+  ) {
+    throw new FixtureSafetyError(
+      'EXPLICIT_ENV_REQUIRED',
+      'The pending-transfer fixture requires an explicit nonblank --env argument.'
+    );
+  }
+  return true;
+}
+
+function readAllocationIdFromStdin({
+  input = process.stdin,
+  timeoutMs = PRIVATE_STDIN_TIMEOUT_MS,
+  byteLimit = PRIVATE_STDIN_BYTE_LIMIT,
+} = {}) {
+  if (input?.isTTY === true) {
+    throw new FixtureSafetyError(
+      'PRIVATE_INPUT_TTY_REFUSED',
+      'Private allocation input requires noninteractive stdin.'
+    );
+  }
+  if (!input || typeof input.on !== 'function') {
+    throw new FixtureSafetyError(
+      'PRIVATE_INPUT_UNAVAILABLE',
+      'Private allocation input is unavailable.'
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let totalBytes = 0;
+    let settled = false;
+    let decoded = '';
+
+    const zeroBuffers = () => {
+      for (const chunk of chunks) {
+        chunk.fill(0);
+      }
+      chunks.length = 0;
+    };
+    const removeListeners = () => {
+      clearTimeout(timer);
+      input.removeListener('data', onData);
+      input.removeListener('end', onEnd);
+      input.removeListener('error', onError);
+      input.pause?.();
+    };
+    const finishFailure = (code, message) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      removeListeners();
+      zeroBuffers();
+      decoded = '';
+      reject(new FixtureSafetyError(code, message));
+    };
+    const finishSuccess = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      removeListeners();
+      zeroBuffers();
+      decoded = '';
+      resolve(value);
+    };
+    const onData = (value) => {
+      if (settled) {
+        if (Buffer.isBuffer(value)) {
+          value.fill(0);
+        }
+        return;
+      }
+      const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
+      if (Buffer.isBuffer(value)) {
+        value.fill(0);
+      }
+      totalBytes += chunk.byteLength;
+      if (totalBytes > byteLimit) {
+        chunk.fill(0);
+        finishFailure(
+          'PRIVATE_INPUT_TOO_LARGE',
+          'Private allocation input exceeded the permitted byte limit.'
+        );
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onError = () => {
+      finishFailure('PRIVATE_INPUT_READ_FAILED', 'Private allocation input could not be read.');
+    };
+    const onEnd = () => {
+      if (settled) {
+        return;
+      }
+      let bytes;
+      try {
+        bytes = Buffer.concat(chunks, totalBytes);
+        decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch (_error) {
+        bytes?.fill(0);
+        finishFailure('PRIVATE_INPUT_INVALID_UTF8', 'Private allocation input was rejected.');
+        return;
+      } finally {
+        bytes?.fill(0);
+      }
+
+      const match = decoded.match(/^(\d{17}-\d{3})(?:\n|\r\n)?$/);
+      if (!match || !PRIVATE_ALLOCATION_ID_PATTERN.test(match[1])) {
+        finishFailure('PRIVATE_INPUT_INVALID', 'Private allocation input was rejected.');
+        return;
+      }
+      const allocationId = match[1];
+      finishSuccess(allocationId);
+    };
+    const timer = setTimeout(() => {
+      finishFailure('PRIVATE_INPUT_TIMEOUT', 'Private allocation input timed out.');
+    }, timeoutMs);
+
+    input.on('data', onData);
+    input.once('end', onEnd);
+    input.once('error', onError);
+    input.resume?.();
+  });
 }
 
 function normalizeFixtureTag(value, scenario = '') {
@@ -88,12 +255,42 @@ function normalizeFixtureTag(value, scenario = '') {
   if (normalized.length < `${TAG_PREFIX}_X_0000`.length) {
     throw new Error('Fixture tag is too short to be safe.');
   }
+  if (
+    isPendingTransferCheckoutScenario(scenario) &&
+    !normalized.startsWith(`${TAG_PREFIX}_PENDING_TRANSFER_CHECKOUT_DENIAL_`)
+  ) {
+    throw new FixtureSafetyError(
+      'V3_NAMESPACE_INVALID',
+      'The pending-transfer fixture requires its dedicated namespace shape.'
+    );
+  }
   return normalized;
 }
 
 function buildFixtureTag(scenario = '') {
   const scenarioPart = normalizeTagPart(scenario || 'GENERAL') || 'GENERAL';
   return `${TAG_PREFIX}_${scenarioPart}_${randomDigits(11)}`;
+}
+
+function buildFixtureDealerIdentity(tag) {
+  const normalizedTag = normalizeFixtureTag(tag);
+  const name = `Codex Fixture Dealer ${normalizedTag}`;
+  return {
+    code: name.toLowerCase(),
+    name,
+  };
+}
+
+function assertFixtureDealerAvailable({ codeMatches = 0, nameMatches = 0 } = {}) {
+  const exactCodeMatches = Number(codeMatches);
+  const exactNameMatches = Number(nameMatches);
+  if (!Number.isInteger(exactCodeMatches) || !Number.isInteger(exactNameMatches)) {
+    throw new Error('Fixture dealer collision counts must be integers.');
+  }
+  if (exactCodeMatches !== 0 || exactNameMatches !== 0) {
+    throw new Error('Tagged fixture dealer identity already exists; use a fresh fixture tag.');
+  }
+  return true;
 }
 
 function isUuidLike(value) {
@@ -131,12 +328,14 @@ function assertIgnoredPath(filePath) {
 }
 
 function loadDevFixtureConfig(options = {}) {
+  assertExplicitPendingTransferEnv(options);
   const envPath = path.resolve(BACKEND_DIR, asText(options.env || '.env.dev'));
   assertRepoRelativePath(envPath, 'env path');
   if (path.basename(envPath).toLowerCase().includes('prod')) {
     throw new Error('Refusing to load a PROD-looking env file for DEV fixtures.');
   }
 
+  assertExplicitPendingTransferEnv(options);
   const loaded = loadEnvFile(envPath);
   const report = buildTargetEnvReport({
     envPath: loaded.path,
@@ -176,24 +375,43 @@ function loadDevFixtureConfig(options = {}) {
     projectRef: DEV_PROJECT_REF,
     orgId,
     databaseUrl,
+    smokeUserEmail: asText(loaded.values.SMOKE_USER_EMAIL),
     manifestDir,
     appUrl: asText(options['app-url'] || DEFAULT_APP_URL).replace(/\/+$/g, ''),
+    scenario: asText(options.scenario),
+    edgeMetadata: {
+      version: asText(options['edge-version']),
+      status: asText(options['edge-status']).toUpperCase(),
+      verifyJwt: asText(options['edge-verify-jwt']).toLowerCase(),
+      bodyDigest: asText(options['edge-body-digest']).toLowerCase(),
+    },
     guardReport: report,
   };
 }
 
 export {
   DEV_PROJECT_REF,
+  FixtureSafetyError,
+  PENDING_TRANSFER_CHECKOUT_SCENARIO,
+  PRIVATE_ALLOCATION_ID_PATTERN,
+  PRIVATE_STDIN_BYTE_LIMIT,
+  PRIVATE_STDIN_TIMEOUT_MS,
   REPO_ROOT,
   TAG_PREFIX,
   asText,
+  assertExplicitPendingTransferEnv,
   assertIgnoredPath,
   assertNotRunlogPath,
   assertRepoRelativePath,
+  assertFixtureDealerAvailable,
+  buildFixtureDealerIdentity,
   buildFixtureTag,
+  hasExplicitNonblankEnvOption,
   isUuidLike,
+  isPendingTransferCheckoutScenario,
   loadDevFixtureConfig,
   normalizeFixtureTag,
   parseArgs,
+  readAllocationIdFromStdin,
   requireScenario,
 };

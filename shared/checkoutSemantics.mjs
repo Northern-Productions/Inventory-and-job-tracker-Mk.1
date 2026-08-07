@@ -6,6 +6,71 @@ function trimString(value) {
   return String(value ?? '').trim();
 }
 
+export const PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE = 'PENDING_TRANSFER_CHECKOUT_BLOCKED';
+export const PENDING_TRANSFER_CHECKOUT_BLOCKED_MESSAGE =
+  'Checkout is blocked while material is pending transfer. Receive or cancel the transfer, then retry.';
+export const PENDING_TRANSFER_CHECKOUT_BLOCKED_STATUS = 409;
+
+const PENDING_TRANSFER_CHECKOUT_ERROR_PATTERNS = [
+  /^Box \S+ is pending transfer and must be received before it can be checked out\.$/,
+  /^Box \S+ has a pending transfer and can only be received or have the transfer cancelled\.$/,
+  /^Box \S+ has a pending transfer and can only be received, cancelled, or have its linked claim released\.$/,
+  /^A pending-transfer allocation cannot be fulfilled before receipt\.$/,
+  /^Receive or cancel transfer \S+ before checking out this allocation\.$/,
+];
+
+function readErrorField(error, field) {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  if (Object.prototype.hasOwnProperty.call(error, field)) {
+    return error[field];
+  }
+  const details = error.details;
+  return details && typeof details === 'object' ? details[field] : undefined;
+}
+
+function nonNegativeInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 0;
+}
+
+export function isPendingTransferCheckoutConflict(error) {
+  const code = trimString(readErrorField(error, 'code'));
+  if (code === PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE) {
+    return true;
+  }
+
+  const statusCode = Number(
+    readErrorField(error, 'statusCode') ?? readErrorField(error, 'status'),
+  );
+  if (statusCode !== 400 && statusCode !== 409) {
+    return false;
+  }
+
+  const message = trimString(readErrorField(error, 'message'));
+  return PENDING_TRANSFER_CHECKOUT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export function getPendingTransferCheckoutDenial({
+  successfullyHandledCount,
+  blockedFilmCount,
+  blockedCaulkCount,
+}) {
+  const handledCount = nonNegativeInteger(successfullyHandledCount);
+  const blockedCount =
+    nonNegativeInteger(blockedFilmCount) + nonNegativeInteger(blockedCaulkCount);
+  if (handledCount > 0 || blockedCount === 0) {
+    return null;
+  }
+
+  return {
+    statusCode: PENDING_TRANSFER_CHECKOUT_BLOCKED_STATUS,
+    code: PENDING_TRANSFER_CHECKOUT_BLOCKED_CODE,
+    message: PENDING_TRANSFER_CHECKOUT_BLOCKED_MESSAGE,
+  };
+}
+
 export function isCurrentOperationalFilmAllocation(entry) {
   return normalizeKey(entry?.status) === 'ACTIVE' && trimString(entry?.resolvedAt) === '';
 }

@@ -293,9 +293,12 @@ describe('FilmOrdersPage', () => {
     expect(options.map((option) => option.textContent)).toEqual([
       'All statuses',
       'Film Order',
-      'Film On The Way',
-      'Fulfilled',
-      'Canceled'
+      'Incomplete',
+      'Needs Receiving',
+      'Fulfilled / Covered',
+      'Manually Fulfilled',
+      'Canceled',
+      'No Longer Needed'
     ]);
   });
 
@@ -359,7 +362,7 @@ describe('FilmOrdersPage', () => {
       'Job ID',
       'Film',
       'Width',
-      'Need To Order',
+      'Remaining LF',
       'Ordered Box ID',
       'Install Date',
       'Created',
@@ -400,6 +403,77 @@ describe('FilmOrdersPage', () => {
     expect(detailLink.getAttribute('href')).toBe('/film-orders/FO-DETAIL');
     expect(detailLink.textContent).toBe('Film Order');
     expect(screen.queryByRole('link', { name: 'FO-DETAIL' })).toBeNull();
+  });
+
+  it('uses canonical effective status, remaining LF, filters, and actions for list rows', () => {
+    const fulfilledOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-COVERED',
+      filmName: 'Covered Roll',
+      status: 'FILM_ORDER',
+      storedStatus: 'FILM_ORDER',
+      displayStatus: 'FULFILLED_COVERED',
+      neededFeet: 60,
+      fulfilledFeet: 60,
+      remainingFeet: 0,
+      remainingToOrderFeet: 60
+    });
+    const incompleteOrder = buildFilmOrderEntry({
+      filmOrderId: 'FO-INCOMPLETE',
+      filmName: 'Partial Roll',
+      status: 'FILM_ORDER',
+      storedStatus: 'FILM_ORDER',
+      displayStatus: 'INCOMPLETE',
+      neededFeet: 60,
+      fulfilledFeet: 20,
+      remainingFeet: 40,
+      remainingToOrderFeet: 60
+    });
+
+    const { container } = renderPage([fulfilledOrder, incompleteOrder], {
+      route: '/film-orders?status=all'
+    });
+    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    const fulfilledRow = rows.find((row) => row.textContent?.includes('Covered Roll'));
+    const incompleteRow = rows.find((row) => row.textContent?.includes('Partial Roll'));
+
+    expect(fulfilledRow).toBeTruthy();
+    expect(incompleteRow).toBeTruthy();
+    expect(within(fulfilledRow as HTMLTableRowElement).getByText('Fulfilled / Covered')).toBeTruthy();
+    expect(within(fulfilledRow as HTMLTableRowElement).getByText('0')).toBeTruthy();
+    expect(
+      within(fulfilledRow as HTMLTableRowElement).queryByRole('button', { name: 'FILM ORDERED' })
+    ).toBeNull();
+    expect(within(incompleteRow as HTMLTableRowElement).getByText('Incomplete')).toBeTruthy();
+    expect(within(incompleteRow as HTMLTableRowElement).getByText('40')).toBeTruthy();
+    expect(
+      within(incompleteRow as HTMLTableRowElement).getByRole('button', { name: 'FILM ORDERED' })
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status' }), {
+      target: { value: 'FULFILLED_COVERED' }
+    });
+    expect(screen.getByText(/Covered Roll/, { selector: 'td' })).toBeTruthy();
+    expect(screen.queryByText(/Partial Roll/, { selector: 'td' })).toBeNull();
+  });
+
+  it('maps the legacy fulfilled route filter to the canonical covered status', () => {
+    renderPage(
+      [
+        buildFilmOrderEntry({
+          filmOrderId: 'FO-COVERED',
+          filmName: 'Covered Roll',
+          status: 'FILM_ORDER',
+          displayStatus: 'FULFILLED_COVERED',
+          remainingFeet: 0
+        })
+      ],
+      { route: '/film-orders?status=FULFILLED' }
+    );
+
+    expect((screen.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe(
+      'FULFILLED_COVERED'
+    );
+    expect(screen.getByText(/Covered Roll/, { selector: 'td' })).toBeTruthy();
   });
 
   it('filters film orders by status without changing warehouse query behavior', async () => {

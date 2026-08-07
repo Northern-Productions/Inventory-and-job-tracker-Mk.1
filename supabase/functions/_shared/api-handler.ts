@@ -61,6 +61,8 @@ import { requiresNoStoreResponse } from "../../../shared/domain/runtimeContract.
 import {
   buildCurrentCheckedOutAllocationIdSet,
   buildFilmCheckoutActionPlan,
+  getPendingTransferCheckoutDenial,
+  isPendingTransferCheckoutConflict,
 } from "../../../shared/checkoutSemantics.mjs";
 import { normalizeSchedulePayloadAliases } from "../../../shared/schedulePayloadAliases.mjs";
 import type { AuthIdentity } from "./types.ts";
@@ -85,12 +87,19 @@ import {
 } from "../../../shared/domain/jobPlanningFilmMatcher.mjs";
 import { rankJobNumberSearchCandidates } from "../../../shared/domain/jobNumberSearchMatcher.mjs";
 import {
+  allocationReservesCapacity,
   buildBoxReservationSnapshot,
   getAllocationReservationState,
   isOrderedFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
 } from "../../../shared/domain/filmAllocationReservations.mjs";
+import { getFilmBoxAllocationEligibility } from "../../../shared/domain/filmBoxAllocationEligibility.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
+import {
+  DELETE_JOB_FAILURE_MESSAGE,
+  isCheckedOutBoxAssignedToJob,
+  isExpectedDeleteJobHttpStatus,
+} from "../../../shared/domain/jobDeleteContract.mjs";
 
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1465,6 +1474,7 @@ export async function fetchWarehouseBoxRowsForInventory(
   orgId: string,
   normalizedWarehouses: string[],
   pageSize = WAREHOUSE_BOX_READ_PAGE_SIZE,
+  options: { status?: string; excludeStatuses?: string[] } = {},
 ) {
   /**
    * PURPOSE:
@@ -1485,12 +1495,23 @@ export async function fetchWarehouseBoxRowsForInventory(
     let pageStart = 0;
     while (true) {
       const pageEnd = pageStart + normalizedPageSize - 1;
-      const { data, error } = await serviceClient
+      let query = serviceClient
         .schema("app")
         .from("boxes")
         .select("*")
         .eq("org_id", orgId)
-        .in("warehouse", warehouseBatch)
+        .in("warehouse", warehouseBatch);
+      const normalizedStatus = asTrimmedString(options.status).toUpperCase();
+      if (normalizedStatus) {
+        query = query.eq("status", normalizedStatus);
+      } else {
+        for (const excludedStatus of Array.from(
+          new Set((options.excludeStatuses || []).map((entry) => asTrimmedString(entry).toUpperCase()).filter(Boolean)),
+        )) {
+          query = query.neq("status", excludedStatus);
+        }
+      }
+      const { data, error } = await query
         .order("box_id", { ascending: true })
         .range(pageStart, pageEnd);
       throwOnSupabaseError(error, "Unable to load warehouse box snapshots");
@@ -1508,7 +1529,12 @@ export async function fetchWarehouseBoxRowsForInventory(
   return rows;
 }
 
-async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: string[]) {
+async function listBoxesByWarehouses(
+  _client: any,
+  orgId: string,
+  warehouses: string[],
+  options: { status?: string; excludeStatuses?: string[] } = {},
+) {
   const normalizedWarehouses = Array.from(
     new Set(warehouses.map((warehouse) => asTrimmedString(warehouse).toUpperCase()).filter(Boolean)),
   );
@@ -1520,6 +1546,8 @@ async function listBoxesByWarehouses(_client: any, orgId: string, warehouses: st
     requireServiceRoleClient(),
     orgId,
     normalizedWarehouses,
+    WAREHOUSE_BOX_READ_PAGE_SIZE,
+    options,
   );
   const mappedBoxes: any[] = [];
   for (const row of rows) {
@@ -1655,6 +1683,7 @@ const inventoryRepositories = createInventoryRepositories({
 });
 const {
   mapDbBoxRow,
+  mapDbJobRow,
   mapDbAllocationRow,
   mapDbFilmOrderRow,
   mapDbJobPhaseRow,
@@ -1667,6 +1696,7 @@ const {
   toPublicAllocation,
   toPublicFilmOrder,
   listBoxes,
+  loadAllocationPreviewCandidateSnapshot,
   findBoxById,
   listFilmCatalog,
   listAllocations,
@@ -1680,6 +1710,14 @@ const {
   findFilmOrderById,
   listFilmOrderLinksByFilmOrderId,
   listJobs,
+  listJobsByIds,
+  listJobsByNumbers,
+  listJobSearchCandidateNumbers,
+  listJobCalendarCandidateNumbers,
+  listJobAttentionCandidateNumbers,
+  loadJobSummarySnapshot,
+  loadBoxReservationSnapshot,
+  hasFilmOrdersNeedingAttention,
   listJobsCalendar,
   findJobByNumber,
   findJobById,
@@ -1883,6 +1921,30 @@ async function listBoxesByIds(orgId: string, boxIds: string[]) {
       .eq("org_id", orgId)
       .in("box_id", batchIds);
     throwOnSupabaseError(error, "Unable to load job detail boxes");
+    rows.push(...(Array.isArray(data) ? data : []));
+  }
+
+  return rows.map((row) => mapDbBoxRow(row)).filter(isPresent);
+}
+
+async function listPlanningBoxesByIds(orgId: string, boxIds: string[]) {
+  const normalizedBoxIds = Array.from(
+    new Set((Array.isArray(boxIds) ? boxIds : []).map((boxId) => asTrimmedString(boxId).toUpperCase()).filter(Boolean)),
+  );
+  if (!normalizedBoxIds.length) {
+    return [];
+  }
+
+  const serviceClient = requireServiceRoleClient();
+  const rows: any[] = [];
+  for (const batchIds of chunkValues(normalizedBoxIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+    const { data, error } = await serviceClient
+      .schema("app")
+      .from("boxes")
+      .select("id, org_id, box_id, warehouse, dealer, manufacturer, film_name, width_in, initial_feet, feet_available, status, film_key")
+      .eq("org_id", orgId)
+      .in("box_id", batchIds);
+    throwOnSupabaseError(error, "Unable to load job planning boxes");
     rows.push(...(Array.isArray(data) ? data : []));
   }
 
@@ -2692,6 +2754,7 @@ function mapDbBoxTransferRow(row: any) {
     destinationBoxId: asTrimmedString(row.destination_box_id).toUpperCase(),
     sourceWarehouse: asTrimmedString(row.source_warehouse).toUpperCase(),
     destinationWarehouse: asTrimmedString(row.destination_warehouse).toUpperCase(),
+    transferCreatedAllocationId: asTrimmedString(row.transfer_created_allocation_id),
     status: asTrimmedString(row.status).toUpperCase() || "PENDING",
     notes: asTrimmedString(row.notes),
     createdAt: formatTimestamp(row.created_at),
@@ -2718,6 +2781,7 @@ function toPublicBoxTransfer(transfer: any) {
     sourceWarehouse: transfer.sourceWarehouse,
     destinationWarehouse: transfer.destinationWarehouse,
     status: transfer.status,
+    workflowKind: transfer.transferCreatedAllocationId ? "ALLOCATION_ASSISTED" : "ORDINARY",
     createdAt: transfer.createdAt,
     createdBy: transfer.createdBy,
     receivedAt: transfer.receivedAt,
@@ -3033,6 +3097,7 @@ async function saveBoxTransferRecord(client: any, orgId: string, transfer: Recor
     cancelled_by: asTrimmedString(transfer.cancelledBy),
     updated_at: asTrimmedString(transfer.updatedAt) || new Date().toISOString(),
     updated_by: asTrimmedString(transfer.updatedBy || transfer.createdBy),
+    transfer_created_allocation_id: asTrimmedString(transfer.transferCreatedAllocationId) || null,
   };
 
   const { data, error } = await serviceClient
@@ -3092,42 +3157,16 @@ async function listActiveAllocationTransferTargetsForBox(client: any, orgId: str
 }
 
 function getTransferStartGuardForBox(box: any, activeTargets: any[]) {
-  const sourceWarehouse = asTrimmedString(box?.warehouse).toUpperCase();
-  const distinctDestinations = new Set<string>();
-  let hasSameWarehouseAllocation = false;
-
-  for (const target of Array.isArray(activeTargets) ? activeTargets : []) {
-    const destinationWarehouse = asTrimmedString(target?.jobWarehouse).toUpperCase();
-    if (!destinationWarehouse) {
-      continue;
-    }
-
-    if (destinationWarehouse === sourceWarehouse) {
-      hasSameWarehouseAllocation = true;
-      continue;
-    }
-
-    distinctDestinations.add(destinationWarehouse);
-  }
-
-  if (hasSameWarehouseAllocation) {
+  if ((Array.isArray(activeTargets) ? activeTargets : []).length > 0) {
     return {
       suggestedDestinationWarehouse: "",
       blockingMessage:
-        `Box ${box.boxId} still has active allocations for jobs in ${sourceWarehouse}. Remove those same-warehouse allocations before starting a transfer.`,
-    };
-  }
-
-  if (distinctDestinations.size > 1) {
-    return {
-      suggestedDestinationWarehouse: "",
-      blockingMessage:
-        `Box ${box.boxId} has active allocations for multiple destination warehouses. Clear the conflicting allocations before starting a transfer.`,
+        `Box ${box.boxId} has active allocations. Release them before starting an ordinary transfer.`,
     };
   }
 
   return {
-    suggestedDestinationWarehouse: Array.from(distinctDestinations)[0] || "",
+    suggestedDestinationWarehouse: "",
     blockingMessage: "",
   };
 }
@@ -3370,7 +3409,7 @@ function buildJobFilmTransferAlerts(
   const seen = new Set<string>();
 
   for (const allocation of Array.isArray(allocations) ? allocations : []) {
-    if (!allocation || allocation.status !== "ACTIVE" || !allocation.boxId) {
+    if (!allocation || !allocation.boxId) {
       continue;
     }
 
@@ -3385,10 +3424,22 @@ function buildJobFilmTransferAlerts(
     }
 
     const pendingTransfer = box.id ? pendingTransferByBoxRecordId[box.id] || null : null;
-    const state =
+    const allocationStatus = asTrimmedString(allocation.status).toUpperCase();
+    const isLinkedTransferAllocation = Boolean(
+      pendingTransfer?.transferCreatedAllocationId &&
+      pendingTransfer.transferCreatedAllocationId === asTrimmedString(allocation.allocationId)
+    );
+    if (allocationStatus !== "ACTIVE" && !isLinkedTransferAllocation) {
+      continue;
+    }
+    const hasMatchingPendingTransfer = Boolean(
       pendingTransfer && pendingTransfer.destinationWarehouse === normalizedJobWarehouse
+    );
+    const state = hasMatchingPendingTransfer
+      ? allocationStatus === "ACTIVE"
         ? "TRANSFER_PENDING"
-        : "NEEDS_TRANSFER";
+        : "TRANSFER_REVIEW_REQUIRED"
+      : "NEEDS_TRANSFER";
     const dedupeKey = `${box.boxId}:${normalizedJobWarehouse}:${state}`;
     if (seen.has(dedupeKey)) {
       continue;
@@ -3400,9 +3451,9 @@ function buildJobFilmTransferAlerts(
       sourceWarehouse,
       destinationWarehouse: normalizedJobWarehouse,
       state,
-      transferId: pendingTransfer ? pendingTransfer.transferId : "",
-      startedAt: pendingTransfer ? pendingTransfer.createdAt : "",
-      startedBy: pendingTransfer ? pendingTransfer.createdBy : "",
+      transferId: hasMatchingPendingTransfer ? pendingTransfer.transferId : "",
+      startedAt: hasMatchingPendingTransfer ? pendingTransfer.createdAt : "",
+      startedBy: hasMatchingPendingTransfer ? pendingTransfer.createdBy : "",
     });
   }
 
@@ -4170,6 +4221,25 @@ function buildActiveAllocationsByBoxIndex(entries: any[]) {
   return grouped;
 }
 
+function buildCapacityAllocationsByBoxIndex(entries: any[]) {
+  const grouped: Record<string, any[]> = {};
+  for (const entry of entries) {
+    const status = asTrimmedString(entry?.status).toUpperCase();
+    if (status !== "ACTIVE" && status !== "FULFILLED") {
+      continue;
+    }
+    const boxId = asTrimmedString(entry?.boxId);
+    if (!boxId) {
+      continue;
+    }
+    if (!grouped[boxId]) {
+      grouped[boxId] = [];
+    }
+    grouped[boxId].push(entry);
+  }
+  return grouped;
+}
+
 function getActiveAllocationsForBox(boxId: string, activeAllocationsByBox: Record<string, any[]>) {
   return activeAllocationsByBox && activeAllocationsByBox[boxId] ? activeAllocationsByBox[boxId] : [];
 }
@@ -4193,33 +4263,11 @@ function findPendingTransferForBox(box: any, pendingTransfersByBoxRecordId: Reco
 }
 
 function getTransferAllocationBlockReason(box: any, pendingTransfer: any, jobWarehouse: unknown) {
-  if (asTrimmedString(box?.status).toUpperCase() !== "TRANSFER") {
-    return "";
-  }
-
-  const normalizedJobWarehouse = asTrimmedString(jobWarehouse).toUpperCase();
-  if (!normalizedJobWarehouse) {
-    return `Box ${asTrimmedString(box?.boxId) || "this box"} is in transfer status and needs a job warehouse before it can be allocated.`;
-  }
-
-  if (!pendingTransfer || asTrimmedString(pendingTransfer.status).toUpperCase() !== "PENDING") {
-    return `Box ${asTrimmedString(box?.boxId) || "this box"} is in transfer status but no pending transfer was found.`;
-  }
-
-  const destinationWarehouse = asTrimmedString(pendingTransfer.destinationWarehouse).toUpperCase();
-  if (destinationWarehouse !== normalizedJobWarehouse) {
-    return `Box ${asTrimmedString(box?.boxId) || "this box"} is transferring to ${destinationWarehouse || "another warehouse"} and cannot be allocated to a job in ${normalizedJobWarehouse}.`;
-  }
-
-  return "";
+  return getFilmBoxAllocationEligibility(box, pendingTransfer, jobWarehouse).reason;
 }
 
 function isJobAllocationEligibleBox(box: any, pendingTransfer: any, jobWarehouse: unknown) {
-  if (isAllocatableBoxStatus(box?.status)) {
-    return true;
-  }
-
-  return getTransferAllocationBlockReason(box, pendingTransfer, jobWarehouse) === "";
+  return getFilmBoxAllocationEligibility(box, pendingTransfer, jobWarehouse).eligible;
 }
 
 function getAllocationCandidateStatusRank(box: any) {
@@ -5781,6 +5829,7 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
   orgId: string,
   filmOrderIds: string[],
   initialBoxById: Record<string, any> = {},
+  initialFilmOrders: any[] = [],
 ) {
   const normalizedFilmOrderIds = Array.from(
     new Set((Array.isArray(filmOrderIds) ? filmOrderIds : []).map((filmOrderId) => asTrimmedString(filmOrderId)).filter(Boolean)),
@@ -5801,7 +5850,14 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
 
   const serviceClient = requireServiceRoleClient();
   const filmOrderById: Record<string, any> = {};
-  for (const batchIds of chunkValues(normalizedFilmOrderIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
+  for (const order of Array.isArray(initialFilmOrders) ? initialFilmOrders : []) {
+    const filmOrderId = asTrimmedString(order?.filmOrderId);
+    if (filmOrderId && normalizedFilmOrderIds.includes(filmOrderId)) {
+      filmOrderById[filmOrderId] = order;
+    }
+  }
+  const missingFilmOrderIds = normalizedFilmOrderIds.filter((filmOrderId) => !filmOrderById[filmOrderId]);
+  for (const batchIds of chunkValues(missingFilmOrderIds, BOX_TRANSFER_QUERY_BATCH_SIZE)) {
     const { data, error } = await serviceClient
       .schema("app")
       .from("film_orders")
@@ -5828,7 +5884,7 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     ),
   );
   if (missingBoxIds.length) {
-    const fetchedBoxes = await listBoxesByIds(orgId, missingBoxIds);
+    const fetchedBoxes = await listPlanningBoxesByIds(orgId, missingBoxIds);
     Object.assign(boxById, indexBoxesById(fetchedBoxes));
   }
 
@@ -6062,10 +6118,13 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
         .filter(Boolean),
     ),
   );
-  const idHeaderEntries = await Promise.all(
-    jobIdsNeedingHeaders.map(async (jobId) => [jobId, (await findJobById(client, orgId, jobId)) || null]),
-  );
-  const jobHeaderById = new Map<string, any | null>(idHeaderEntries as Array<[string, any | null]>);
+  const jobHeaderById = new Map<string, any | null>();
+  for (const header of await listJobsByIds(client, orgId, jobIdsNeedingHeaders)) {
+    const jobId = asTrimmedString(header?.id);
+    if (jobId) {
+      jobHeaderById.set(jobId, header);
+    }
+  }
   const jobNumbersNeedingHeaders = Array.from(
     new Set(
       entries
@@ -6076,10 +6135,21 @@ async function enrichOpenFilmOrdersWithJobSchedule(client: any, orgId: string, f
         .filter(Boolean),
     ),
   );
-  const headerEntries = await Promise.all(
-    jobNumbersNeedingHeaders.map(async (jobNumber) => [jobNumber, (await findJobByNumber(client, orgId, jobNumber)) || null]),
-  );
-  const jobHeaderCache = new Map<string, any | null>(headerEntries as Array<[string, any | null]>);
+  const headersByJobNumber = new Map<string, any[]>();
+  for (const header of await listJobsByNumbers(client, orgId, jobNumbersNeedingHeaders)) {
+    const jobNumber = asTrimmedString(header?.jobNumber);
+    if (!jobNumber) {
+      continue;
+    }
+    const headers = headersByJobNumber.get(jobNumber) || [];
+    headers.push(header);
+    headersByJobNumber.set(jobNumber, headers);
+  }
+  const jobHeaderCache = new Map<string, any | null>();
+  for (const jobNumber of jobNumbersNeedingHeaders) {
+    const headers = headersByJobNumber.get(jobNumber) || [];
+    jobHeaderCache.set(jobNumber, headers.length === 1 ? headers[0] : null);
+  }
   const response = [];
 
   for (const entry of entries) {
@@ -6157,6 +6227,7 @@ async function buildPublicFilmOrdersForJob(
     orgId,
     sorted.map((entry) => asTrimmedString(entry.filmOrderId)),
     options.boxById || {},
+    sorted,
   );
 
   return sorted.map((entry) =>
@@ -6235,6 +6306,7 @@ function buildAllocationPreviewPlan(
   type CandidatePreviewEntry = {
     candidate: any;
     filmMatch: ReturnType<typeof getPlanningFilmMatch>;
+    eligibility: ReturnType<typeof getFilmBoxAllocationEligibility>;
   };
 
   const requested = coerceFeetValue(requestedFeet, "RequestedFeet", [], true);
@@ -6262,15 +6334,21 @@ function buildAllocationPreviewPlan(
     throw new HttpError(400, "Source box width must meet or exceed the requested width.");
   }
   const sourcePendingTransfer = findPendingTransferForBox(sourceBox, pendingTransfersByBoxRecordId);
-  const sourceTransferBlockReason = getTransferAllocationBlockReason(
+  const sourceEligibility = getFilmBoxAllocationEligibility(
     sourceBox,
     sourcePendingTransfer,
     preferredWarehouse,
+    {
+      allowTransferAssist: options.crossWarehouse,
+      hasReservations: (options.activeAllocationsByBox[sourceBox.boxId] || []).some((allocation) =>
+        allocationReservesCapacity(allocation, sourceBox)
+      ),
+    },
   );
-  if (sourceTransferBlockReason) {
-    throw new HttpError(400, sourceTransferBlockReason);
+  if (sourceEligibility.reason) {
+    throw new HttpError(400, sourceEligibility.reason);
   }
-  if (!isJobAllocationEligibleBox(sourceBox, sourcePendingTransfer, preferredWarehouse)) {
+  if (!sourceEligibility.eligible) {
     throw new HttpError(400, `Box ${sourceBox.boxId} is no longer allocatable.`);
   }
   const sourcePlanningFeet = getBoxAllocationPlanningFeet(sourceBox, options.activeAllocationsByBox);
@@ -6288,9 +6366,20 @@ function buildAllocationPreviewPlan(
   for (const candidate of candidateBoxes) {
     const candidatePlanningFeet = getBoxAllocationPlanningFeet(candidate, options.activeAllocationsByBox);
     const candidatePendingTransfer = findPendingTransferForBox(candidate, pendingTransfersByBoxRecordId);
+    const candidateEligibility = getFilmBoxAllocationEligibility(
+      candidate,
+      candidatePendingTransfer,
+      preferredWarehouse,
+      {
+        allowTransferAssist: options.crossWarehouse,
+        hasReservations: (options.activeAllocationsByBox[candidate.boxId] || []).some((allocation) =>
+          allocationReservesCapacity(allocation, candidate)
+        ),
+      },
+    );
     if (
       candidate.boxId === sourceBox.boxId ||
-      !isJobAllocationEligibleBox(candidate, candidatePendingTransfer, preferredWarehouse) ||
+      !candidateEligibility.eligible ||
       candidatePlanningFeet <= 0 ||
       candidate.widthIn < minimumWidthIn
     ) {
@@ -6308,7 +6397,7 @@ function buildAllocationPreviewPlan(
       if (!filmMatch) {
         continue;
       }
-      filteredCandidates.push({ candidate, filmMatch });
+      filteredCandidates.push({ candidate, filmMatch, eligibility: candidateEligibility });
       continue;
     }
 
@@ -6316,7 +6405,7 @@ function buildAllocationPreviewPlan(
       normalizePlanningFilmKey(candidate.manufacturer, candidate.filmName) ===
       normalizePlanningFilmKey(sourceBox.manufacturer, sourceBox.filmName)
     ) {
-      filteredCandidates.push({ candidate, filmMatch });
+      filteredCandidates.push({ candidate, filmMatch, eligibility: candidateEligibility });
     }
   }
   filteredCandidates.sort((leftEntry, rightEntry) => {
@@ -6387,6 +6476,7 @@ function buildAllocationPreviewPlan(
       availableFeet: candidate.feetAvailable,
       planningFeet: candidatePlanningFeet,
       boxStatus: candidate.status,
+      requiresTransfer: entry.eligibility.requiresTransfer,
       suggestedFeet: candidatePlan.allocatedFeet,
       suggestedCoveredFeet: candidatePlan.coveredFeet,
       receivedDate: candidate.receivedDate,
@@ -6409,6 +6499,7 @@ function buildAllocationPreviewPlan(
     sourceBoxFeetAvailable: sourceBox.feetAvailable,
     sourceBoxPlanningFeet: sourcePlanningFeet,
     sourceBoxStatus: sourceBox.status,
+    sourceRequiresTransfer: sourceEligibility.requiresTransfer,
     sourceSuggestedFeet,
     sourceSuggestedCoveredFeet,
     sourceConflicts,
@@ -6687,7 +6778,10 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   const film = asTrimmedString(params.film).toLowerCase();
   const width = asTrimmedString(params.width);
   const showRetired = String(params.showRetired) === "true";
-  const boxes = await listBoxesByWarehouses(client, orgId, Array.from(warehouseFilterSet));
+  const boxes = await listBoxesByWarehouses(client, orgId, Array.from(warehouseFilterSet), {
+    ...(status ? { status } : {}),
+    ...(!showRetired && !status ? { excludeStatuses: ["ZEROED", "RETIRED"] } : {}),
+  });
   const activeAllocations = await listActiveAllocations(client, orgId);
   const activeAllocationsByBoxId: Record<string, any[]> = {};
   for (const entry of activeAllocations) {
@@ -6740,7 +6834,7 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
       allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
     });
     const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
-    if (!pendingTransfer || !isJobAllocationEligibleBox(box, pendingTransfer, pendingTransfer.destinationWarehouse)) {
+    if (!pendingTransfer) {
       return publicBox;
     }
 
@@ -6779,48 +6873,17 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   return filtered;
 }
 
-const SUMMARY_SNAPSHOT_READ_CONCURRENCY = 2;
-
-async function runBoundedSnapshotReads(
-  taskFactories: Array<() => Promise<any>>,
-  maxConcurrency = SUMMARY_SNAPSHOT_READ_CONCURRENCY,
-): Promise<any[]> {
-  if (!taskFactories.length) {
-    return [];
-  }
-
-  const workerCount = Math.max(1, Math.min(taskFactories.length, Math.floor(maxConcurrency)));
-  const results = new Array(taskFactories.length);
-  let nextIndex = 0;
-
-  async function runWorker() {
-    while (nextIndex < taskFactories.length) {
-      const taskIndex = nextIndex;
-      nextIndex += 1;
-      results[taskIndex] = await taskFactories[taskIndex]();
-    }
-  }
-
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  return results;
-}
-
 export async function buildAllocationJobList(client: any, orgId: string) {
-  const [
-    jobs,
-    allAllocations,
-    allFilmOrders,
-    allRequirements,
-    allBoxes,
-    allCaulkStock,
-  ] = await runBoundedSnapshotReads([
-    () => listJobs(client, orgId),
-    () => listAllocations(client, orgId),
-    () => listFilmOrders(client, orgId),
-    () => listJobRequirements(client, orgId),
-    () => listBoxes(client, orgId),
-    () => listCaulkStockEntries(client, orgId),
-  ]);
+  const jobs = await listJobs(client, orgId);
+  const jobIds = jobs.map((job) => getEntryJobId(job)).filter(Boolean);
+  const snapshot = await loadJobSummarySnapshot(client, orgId, jobIds, {
+    includeLegacy: true,
+    includePhases: false,
+  });
+  const allAllocations = snapshot.allocations;
+  const allFilmOrders = snapshot.filmOrders;
+  const allRequirements = snapshot.requirements;
+  const allBoxes = await listPlanningBoxesByIds(orgId, collectAllocationBoxIds(allAllocations));
   const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
   const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
   const requirementsByJobId = groupEntriesByCanonicalJobId(allRequirements);
@@ -6920,7 +6983,7 @@ export async function buildAllocationJobList(client: any, orgId: string) {
         filmOrders,
         allBoxes,
         boxById,
-        caulkStockEntries: allCaulkStock,
+        caulkStockEntries: [],
         jobWarehouse: header?.warehouse || "",
         jobNumber,
       });
@@ -7095,30 +7158,46 @@ export async function buildJobsList(
   limit: number,
   lifecycleStatus?: unknown,
   jobNumbers: unknown = [],
-  options: { preloadedBoxes?: any[]; snapshotConcurrency?: number; warehouse?: unknown } = {},
+  options: {
+    preloadedBoxes?: any[];
+    preloadedJobs?: any[];
+    preloadedPhases?: any[];
+    snapshotConcurrency?: number;
+    warehouse?: unknown;
+  } = {},
 ) {
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus);
   const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
   const jobNumberFilterSet = new Set(normalizeStringArrayParam(jobNumbers));
   const hasPreloadedBoxes = Array.isArray(options.preloadedBoxes);
-  const snapshotTasks: Array<() => Promise<any>> = [
-    () => listJobs(client, orgId, { warehouse: warehouseFilter }),
-    () => listAllocations(client, orgId),
-    () => listFilmOrders(client, orgId),
-    () => listJobPhases(client, orgId),
-    () => listJobRequirements(client, orgId),
-  ];
-
-  const snapshotResults = await runBoundedSnapshotReads(snapshotTasks, options.snapshotConcurrency);
-  let snapshotIndex = 0;
-  const jobs = snapshotResults[snapshotIndex++];
-  const allAllocations = snapshotResults[snapshotIndex++];
-  const allFilmOrders = snapshotResults[snapshotIndex++];
-  const allPhases = snapshotResults[snapshotIndex++];
-  const allRequirements = snapshotResults[snapshotIndex++];
+  const hasPreloadedPhases = Array.isArray(options.preloadedPhases);
+  const jobs = Array.isArray(options.preloadedJobs)
+    ? options.preloadedJobs
+    : await listJobs(client, orgId, { warehouse: warehouseFilter });
+  const selectedJobs = jobs.filter((job) => {
+    const jobNumber = getEntryJobNumber(job);
+    if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(jobNumber)) {
+      return false;
+    }
+    return !lifecycleFilter || normalizeJobLifecycleStatus(job?.lifecycleStatus) === lifecycleFilter;
+  });
+  const snapshot = await loadJobSummarySnapshot(
+    client,
+    orgId,
+    selectedJobs.map((job) => getEntryJobId(job)).filter(Boolean),
+    {
+      includeLegacy: true,
+      legacyJobNumbers: Array.from(jobNumberFilterSet),
+      includePhases: !hasPreloadedPhases,
+    },
+  );
+  const allAllocations = snapshot.allocations;
+  const allFilmOrders = snapshot.filmOrders;
+  const allPhases = hasPreloadedPhases ? options.preloadedPhases as any[] : snapshot.phases;
+  const allRequirements = snapshot.requirements;
   const allBoxes: any[] = hasPreloadedBoxes
     ? (options.preloadedBoxes as any[])
-    : await listBoxesByIds(orgId, collectAllocationBoxIds(allAllocations));
+    : await listPlanningBoxesByIds(orgId, collectAllocationBoxIds(allAllocations));
   const allocationsByJobId = groupEntriesByCanonicalJobId(allAllocations);
   const filmOrdersByJobId = groupEntriesByCanonicalJobId(allFilmOrders);
   const phasesByJobId = groupEntriesByCanonicalJobId(allPhases);
@@ -7135,12 +7214,16 @@ export async function buildJobsList(
   const boxById = Object.fromEntries(allBoxes.map((box: any) => [box.boxId, box]));
 
   for (const job of jobs) {
-    if (jobNumberFilterSet.size > 0 && !jobNumberFilterSet.has(job.jobNumber)) {
-      continue;
-    }
     const jobNumber = getEntryJobNumber(job);
-    jobHeaders.push(job);
-    jobNumberHeaderCounts[jobNumber] = (jobNumberHeaderCounts[jobNumber] || 0) + 1;
+    if (jobNumber) {
+      jobNumberHeaderCounts[jobNumber] = (jobNumberHeaderCounts[jobNumber] || 0) + 1;
+    }
+  }
+  for (const job of selectedJobs) {
+    const jobNumber = getEntryJobNumber(job);
+    if (jobNumber) {
+      jobHeaders.push(job);
+    }
   }
 
   collectLegacyJobNumbersFromRows(allAllocations, legacyJobNumbers, jobNumberFilterSet);
@@ -7231,8 +7314,21 @@ async function buildJobsSearchResults(
 
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter, [], {
-    warehouse: options.warehouse,
+  const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
+  const candidateJobNumbers = await listJobSearchCandidateNumbers(
+    client,
+    orgId,
+    normalizedQueryDigits,
+    lifecycleFilter,
+    warehouseFilter,
+  );
+  if (!candidateJobNumbers.length) {
+    return [];
+  }
+  const jobs = await listJobsByNumbers(client, orgId, candidateJobNumbers);
+  const entries = await buildJobsList(client, orgId, 0, lifecycleFilter, candidateJobNumbers, {
+    warehouse: warehouseFilter,
+    preloadedJobs: jobs,
   });
   return rankJobNumberSearchCandidates(entries, normalizedQueryDigits, {
     compareWithinMatch: compareJobsListEntries,
@@ -7241,7 +7337,15 @@ async function buildJobsSearchResults(
 }
 
 async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, orgId: string) {
-  const activeJobs = await buildJobsList(client, orgId, 0, "ACTIVE", [], { snapshotConcurrency: 2 });
+  const candidateJobNumbers = await listJobAttentionCandidateNumbers(client, orgId);
+  if (!candidateJobNumbers.length) {
+    return false;
+  }
+  const jobs = await listJobsByNumbers(client, orgId, candidateJobNumbers);
+  const activeJobs = await buildJobsList(client, orgId, 0, "ACTIVE", candidateJobNumbers, {
+    preloadedJobs: jobs,
+    snapshotConcurrency: 2,
+  });
   return activeJobs.some((job) => {
     const status = asTrimmedString((job as Record<string, unknown>).status).toUpperCase();
     return Boolean(asTrimmedString((job as Record<string, unknown>).installDate)) &&
@@ -7338,17 +7442,36 @@ async function buildJobsCalendar(
   const normalizedView = normalizeCalendarView(view);
   const normalizedAnchorDate = normalizeCalendarAnchorDate(anchorDate, month);
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
+  const range = normalizedView === "week"
+    ? {
+        startDate: getCalendarWeekStart(normalizedAnchorDate),
+        endDate: shiftCalendarDate(getCalendarWeekStart(normalizedAnchorDate), 6),
+      }
+    : getCalendarMonthRange(normalizedAnchorDate);
+  const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
+  const candidateJobNumbers = await listJobCalendarCandidateNumbers(
+    client,
+    orgId,
+    range.startDate,
+    range.endDate,
+    lifecycleFilter,
+    warehouseFilter,
+  );
+  if (!candidateJobNumbers.length) {
+    return [];
+  }
+  const jobs = await listJobsByNumbers(client, orgId, candidateJobNumbers);
   const entries = buildPhaseCalendarEntries(
-    await buildJobsList(client, orgId, 0, lifecycleFilter, [], { warehouse: options.warehouse })
+    await buildJobsList(client, orgId, 0, lifecycleFilter, candidateJobNumbers, {
+      warehouse: warehouseFilter,
+      preloadedJobs: jobs,
+    }),
   );
   if (normalizedView === "week") {
-    const rangeStart = getCalendarWeekStart(normalizedAnchorDate);
-    const rangeEnd = shiftCalendarDate(rangeStart, 6);
-    return entries.filter((entry) => calendarEntryOverlapsRange(entry, rangeStart, rangeEnd));
+    return entries.filter((entry) => calendarEntryOverlapsRange(entry, range.startDate, range.endDate));
   }
 
-  const monthRange = getCalendarMonthRange(normalizedAnchorDate);
-  return entries.filter((entry) => calendarEntryOverlapsRange(entry, monthRange.startDate, monthRange.endDate));
+  return entries.filter((entry) => calendarEntryOverlapsRange(entry, range.startDate, range.endDate));
 }
 
 async function buildJobDetail(client: any, orgId: string, jobNumber: unknown) {
@@ -7834,6 +7957,8 @@ async function buildFilmOrdersList(client: any, orgId: string, options: { wareho
   const linkedBoxesByFilmOrderId = await buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     orgId,
     sorted.map((entry) => asTrimmedString(entry.filmOrderId)),
+    {},
+    sorted,
   );
 
   return sorted
@@ -8009,6 +8134,7 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
   );
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
+  let successfullyHandledCount = 0;
   let skippedFilmTransferCount = 0;
   let skippedOrderedFilmCount = 0;
   let skippedUnavailableFilmCount = 0;
@@ -8053,16 +8179,26 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
     }
 
     if (step.action === "RESOLVE_ONLY" || sameJobCheckedOut) {
-      const allocationResolution = await resolveAllocationsForCheckoutWithoutBoxMutation(
-        serviceClient,
-        client,
-        orgId,
-        box.boxId,
-        jobNumber,
-        actor,
-        targetJobId,
-      );
+      let allocationResolution;
+      try {
+        allocationResolution = await resolveAllocationsForCheckoutWithoutBoxMutation(
+          serviceClient,
+          client,
+          orgId,
+          box.boxId,
+          jobNumber,
+          actor,
+          targetJobId,
+        );
+      } catch (error) {
+        if (!isPendingTransferCheckoutConflict(error)) {
+          throw error;
+        }
+        skippedFilmTransferCount += 1;
+        continue;
+      }
       if (allocationResolution.fulfilledCount > 0) {
+        successfullyHandledCount += 1;
         warnings.push(
           `Kept ${allocationResolution.fulfilledCount} allocation${allocationResolution.fulfilledCount === 1 ? "" : "s"} totaling ${allocationResolution.fulfilledFeet} LF linked to job ${jobNumber} after checkout.`,
         );
@@ -8073,20 +8209,32 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       continue;
     }
 
-    const checkoutResult = await rpcOrThrow<any>(client, "api_acl_boxes_set_status", {
-      p_org_id: orgId,
-      p_actor: actor,
-      p_payload: {
-        boxId: box.boxId,
-        status: "CHECKED_OUT",
-        ...(target.usedJobId ? { jobId: targetJobId, jobNumber } : {}),
-        auditNote: `Checked out for job ${jobNumber}`,
-      },
-    });
+    let checkoutResult;
+    try {
+      checkoutResult = await rpcOrThrow<any>(client, "api_acl_boxes_set_status", {
+        p_org_id: orgId,
+        p_actor: actor,
+        p_payload: {
+          boxId: box.boxId,
+          status: "CHECKED_OUT",
+          ...(target.usedJobId ? { jobId: targetJobId, jobNumber } : {}),
+          auditNote: `Checked out for job ${jobNumber}`,
+        },
+      });
+    } catch (error) {
+      if (!isPendingTransferCheckoutConflict(error)) {
+        throw error;
+      }
+      skippedFilmTransferCount += 1;
+      continue;
+    }
     if (checkoutResult && Array.isArray((checkoutResult as Record<string, unknown>).warnings)) {
       warnings.push(...((checkoutResult as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
     }
-    checkedOutBoxCount += 1;
+    if (checkoutResult) {
+      successfullyHandledCount += 1;
+      checkedOutBoxCount += 1;
+    }
   }
 
   for (const allocation of preCheckoutState.caulkAllocations) {
@@ -8110,21 +8258,45 @@ async function executeCheckoutAllJobMaterials(client: any, identity: AuthIdentit
       continue;
     }
 
-    const result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
-      p_org_id: orgId,
-      p_actor: actor,
-      p_payload: {
-        caulkAllocationId: allocation.caulkAllocationId,
-        checkoutTubes: remaining,
-        notes: `Checked out all remaining caulk for job ${jobNumber}.`,
-      },
-    });
+    let result;
+    try {
+      result = await rpcOrThrow<any>(client, "api_acl_allocations_caulk_checkout", {
+        p_org_id: orgId,
+        p_actor: actor,
+        p_payload: {
+          caulkAllocationId: allocation.caulkAllocationId,
+          checkoutTubes: remaining,
+          notes: `Checked out all remaining caulk for job ${jobNumber}.`,
+        },
+      });
+    } catch (error) {
+      if (!isPendingTransferCheckoutConflict(error)) {
+        throw error;
+      }
+      skippedCaulkTransferCount += 1;
+      continue;
+    }
     if (result) {
       if (Array.isArray((result as Record<string, unknown>).warnings)) {
         warnings.push(...((result as Record<string, unknown>).warnings as unknown[]).map((entry) => asTrimmedString(entry)).filter(Boolean));
       }
+      successfullyHandledCount += 1;
       checkedOutCaulkCount += 1;
     }
+  }
+
+  const pendingTransferDenial = getPendingTransferCheckoutDenial({
+    successfullyHandledCount,
+    blockedFilmCount: skippedFilmTransferCount,
+    blockedCaulkCount: skippedCaulkTransferCount,
+  });
+  if (pendingTransferDenial) {
+    throw new HttpError(
+      pendingTransferDenial.statusCode,
+      pendingTransferDenial.message,
+      [],
+      { code: pendingTransferDenial.code },
+    );
   }
 
   const refreshedState = await loadJobStagingValidationState(
@@ -8652,6 +8824,43 @@ async function cancelBoxTransfer(client: any, identity: AuthIdentity, payload: R
   );
 }
 
+export async function loadCheckedOutJobBoxRows(serviceClient: any, orgId: string) {
+  const { data, error } = await serviceClient
+    .schema("app")
+    .from("boxes")
+    .select("box_id, status, last_checkout_job, last_checkout_job_id")
+    .eq("org_id", orgId)
+    .eq("status", "CHECKED_OUT");
+  throwOnSupabaseError(error, "Unable to load checked-out job boxes");
+  return Array.isArray(data) ? data : [];
+}
+
+async function listCheckedOutBoxesForJobMutation(
+  serviceClient: any,
+  orgId: string,
+  targetJobId: string,
+  jobNumber: string,
+) {
+  return (await loadCheckedOutJobBoxRows(serviceClient, orgId)).filter((entry) =>
+    isCheckedOutBoxAssignedToJob(entry, { jobId: targetJobId, jobNumber })
+  );
+}
+
+export function toSafeDeleteJobError(error: unknown): HttpError {
+  if (error instanceof HttpError && isExpectedDeleteJobHttpStatus(error.statusCode)) {
+    return error;
+  }
+
+  return new DeleteJobOperationError();
+}
+
+class DeleteJobOperationError extends HttpError {
+  constructor() {
+    super(500, DELETE_JOB_FAILURE_MESSAGE);
+    this.name = "DeleteJobOperationError";
+  }
+}
+
 async function completeJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const warnings: string[] = [];
   const orgId = identity.orgId;
@@ -8939,7 +9148,7 @@ function formatDeletedJobCleanupWarning({
   );
 }
 
-async function deleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+async function executeDeleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
   const warnings: string[] = [];
   const orgId = identity.orgId;
   const actor = identity.actor;
@@ -8996,26 +9205,21 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
   const existingRollHistory = target.usedJobId
     ? await listRollHistoryForJobAllocations(client, orgId, existingAllocations)
     : await listRollHistoryByJob(client, orgId, jobNumber, existingAllocations);
-  const normalizedTargetJobId = targetJobId.toLowerCase();
-  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
-  const checkedOutBoxes = (await listBoxes(client, orgId)).filter((box) => {
-    if (box.status !== "CHECKED_OUT") {
-      return false;
-    }
-    if (!target.usedJobId) {
-      return normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber;
-    }
-
-    const boxJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
-    return (
-      boxJobId === normalizedTargetJobId ||
-      (!boxJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber)
-    );
-  });
+  const serviceClient = requireServiceRoleClientForJobs();
+  const checkedOutBoxes = await listCheckedOutBoxesForJobMutation(
+    serviceClient,
+    orgId,
+    targetJobId,
+    jobNumber,
+  );
   if (checkedOutBoxes.length) {
     const listedBoxes = checkedOutBoxes
       .slice(0, 5)
-      .map((box) => box.boxId)
+      .map((box) =>
+        asTrimmedString(
+          (box as Record<string, unknown>).box_id ?? (box as Record<string, unknown>).boxId,
+        )
+      )
       .join(", ");
     const suffix = checkedOutBoxes.length > 5 ? ", ..." : "";
     throw new HttpError(
@@ -9032,7 +9236,6 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
     );
   }
 
-  const serviceClient = requireServiceRoleClientForJobs();
   const cancelReason = asTrimmedString(payload.reason) || `Deleted job ${jobNumber}.`;
   const nowIso = new Date().toISOString();
 
@@ -9228,6 +9431,14 @@ async function deleteJob(client: any, identity: AuthIdentity, payload: Record<st
   );
 
   return ok(target.usedJobId ? { jobId: targetJobId, jobNumber } : { jobNumber }, warnings);
+}
+
+async function deleteJob(client: any, identity: AuthIdentity, payload: Record<string, unknown>) {
+  try {
+    return await executeDeleteJob(client, identity, payload);
+  } catch (error) {
+    throw toSafeDeleteJobError(error);
+  }
 }
 
 async function recalculateFilmOrderAfterAllocationMutation(
@@ -9856,6 +10067,7 @@ async function dispatchRead(
       buildAppAttentionSummaryFromService(readClient, readOrgId, identity, {
         hasActiveJobsNeedingAllocation: hasActiveJobsNeedingAllocationForAttentionSummary,
         buildFilmOrdersList,
+        hasFilmOrdersNeedingAttention,
         countOpenFilmWeightPendingReviews: (countClient, countOrgId) =>
           rpcOrThrow<number>(countClient, "api_acl_get_film_weight_pending_review_count", {
             p_org_id: countOrgId,
@@ -9891,6 +10103,7 @@ async function dispatchRead(
     resolveAllocationJobWarehouse,
     resolveJobContext,
     parseCrossWarehouseFlag,
+    loadAllocationPreviewCandidateSnapshot,
     listBoxes,
     listBoxesByWarehouses,
     buildPendingTransfersByBoxRecordId,
@@ -9902,8 +10115,11 @@ async function dispatchRead(
       selectedJob: any,
     ) => listJobRequirementsByJobIdDirect(readOrgId, selectedJob),
     buildActiveAllocationsByBoxIndex,
+    buildCapacityAllocationsByBoxIndex,
     listActiveAllocations,
     listJobs,
+    listJobsByIds,
+    listJobsByNumbers,
     buildJobsList,
     buildJobsCalendar,
     buildJobsSearchResults,
@@ -9959,6 +10175,7 @@ async function dispatchMutation(
     normalizeJobNumberDigits,
     normalizeJobLifecycleStatus,
     listAllocationsByIds,
+    loadBoxReservationSnapshot,
     toPublicAllocation,
     findFilmOrderById,
     findPlannerSuppressionRequirementById,
@@ -10136,6 +10353,5 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     });
   }
 }
-
 
 

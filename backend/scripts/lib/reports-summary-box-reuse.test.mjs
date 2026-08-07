@@ -1448,7 +1448,7 @@ test('jobs search avoids loading unrelated boxes when no allocations need them',
   );
 });
 
-test('local and Edge report builders both pass preloaded boxes into buildJobsList', () => {
+test('report builders reuse boxes while Edge job summaries stay scoped', () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   const localReportsSource = fs.readFileSync(
     path.join(repoRoot, 'backend/src/app/services/runtime/runtimeReports.mjs'),
@@ -1485,11 +1485,18 @@ test('local and Edge report builders both pass preloaded boxes into buildJobsLis
   assert.match(localReadHandlersSource, /'\/jobs\/list'/);
   assert.match(localReadHandlersSource, /'\/jobs\/search'/);
   assert.match(localReadHandlersSource, /'\/reports\/summary'/);
-  assert.match(edgeSource, /await runBoundedSnapshotReads\(\[\s*\(\) => listJobs\(client, orgId\),\s*\(\) => listAllocations\(client, orgId\),\s*\(\) => listFilmOrders\(client, orgId\),\s*\(\) => listJobRequirements\(client, orgId\),/s);
+  assert.match(
+    edgeSource,
+    /await loadJobSummarySnapshot\(\s*client,\s*orgId,\s*selectedJobs\.map\(\(job\) => getEntryJobId\(job\)\)\.filter\(Boolean\)/s
+  );
+  assert.doesNotMatch(
+    edgeSource,
+    /await runBoundedSnapshotReads\(\[\s*\(\) => listJobs\(client, orgId\),\s*\(\) => listAllocations\(client, orgId\),\s*\(\) => listFilmOrders\(client, orgId\),\s*\(\) => listJobRequirements\(client, orgId\),/s
+  );
   const localBuildJobsList = localJobsReadSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
   const edgeBuildJobsList = edgeSource.match(/async function buildJobsList[\s\S]*?async function buildJobsSearchResults/)?.[0] || '';
   assert.match(localBuildJobsList, /listBoxesByIds\(readClient, orgId, collectAllocationBoxIds\(allAllocations\)\)/);
-  assert.match(edgeBuildJobsList, /listBoxesByIds\(orgId, collectAllocationBoxIds\(allAllocations\)\)/);
+  assert.match(edgeBuildJobsList, /listPlanningBoxesByIds\(orgId, collectAllocationBoxIds\(allAllocations\)\)/);
   assert.doesNotMatch(localBuildJobsList, /readTasks\.push\(\(readClient\) => listBoxes\(readClient, orgId\)\)/);
   assert.doesNotMatch(edgeBuildJobsList, /snapshotTasks\.push\(\(\) => listBoxes\(client, orgId\)\)/);
   assert.doesNotMatch(localBuildJobsList, /listCaulkStock|caulkStockEntries: allCaulkStock/);

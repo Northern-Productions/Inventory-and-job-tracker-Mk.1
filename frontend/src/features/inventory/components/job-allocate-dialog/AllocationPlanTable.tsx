@@ -8,6 +8,7 @@ interface AllocationCandidate {
   allocatableNowFeet?: number | null;
   allocationPlanningFeet: number;
   status: string;
+  warehouse?: string;
 }
 
 function formatBoxStatusLabel(status: string) {
@@ -29,6 +30,7 @@ function getDisplayPlanningFeet(box: AllocationCandidate) {
 interface AllocationPlanTableProps {
   isExtraFilmMode: boolean;
   boxes: AllocationCandidate[];
+  jobWarehouse: string;
   requestedFeetValue: number;
   coveredFeet: number;
   remainingFeet: number;
@@ -40,6 +42,7 @@ interface AllocationPlanTableProps {
 export function AllocationPlanTable({
   isExtraFilmMode,
   boxes,
+  jobWarehouse,
   requestedFeetValue,
   coveredFeet,
   remainingFeet,
@@ -116,7 +119,11 @@ export function AllocationPlanTable({
                 <td>{box.filmName}</td>
                 <td>{box.widthIn}</td>
                 <td>
-                  <span className={`badge badge-${box.status}`}>{formatBoxStatusLabel(box.status)}</span>
+                  <span className={`badge badge-${box.status}`}>
+                    {box.status === 'IN_STOCK' && box.warehouse && box.warehouse !== jobWarehouse
+                      ? 'TRANSFER REQUIRED'
+                      : formatBoxStatusLabel(box.status)}
+                  </span>
                 </td>
                 <td>{getDisplayPlanningFeet(box)}</td>
                 <td>

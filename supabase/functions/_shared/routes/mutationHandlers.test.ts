@@ -1,4 +1,5 @@
 import { dispatchMutationWithHandlers } from "./mutationHandlers.ts";
+import { HttpError } from "../http.ts";
 import { resolveEdgeJobMutationTargetById } from "../jobMutationIdentity.ts";
 
 function assertEquals(actual: unknown, expected: unknown, message: string) {
@@ -64,6 +65,12 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     normalizeJobNumberDigits: (value: unknown) => asTrimmedString(value).replace(/[^0-9]/g, ""),
     normalizeJobLifecycleStatus: () => "ACTIVE",
     listAllocationsByIds: async () => [],
+    loadBoxReservationSnapshot: async () => ({
+      selectedAllocations: [],
+      allocations: [],
+      boxes: [],
+      jobs: [],
+    }),
     toPublicAllocation: () => ({}),
     findFilmOrderById: async () => null,
     findPlannerSuppressionRequirementById: async () => null,
@@ -238,9 +245,75 @@ Deno.test("job mutation identity resolves jobId using auth-derived org and valid
   );
 });
 
+Deno.test("film box transfer mutations use the canonical atomic SQL RPCs", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  let legacyCallCount = 0;
+  const routes = [
+    { path: "/boxes/transfer/start", fn: "api_acl_box_transfer_start" },
+    { path: "/boxes/transfer/receive", fn: "api_acl_box_transfer_receive" },
+    { path: "/boxes/transfer/cancel", fn: "api_acl_box_transfer_cancel" },
+  ];
+
+  for (const route of routes) {
+    const response = await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      route.path,
+      { transferId: "TRF-1", boxId: "IL1-100", toWarehouse: "MS1" },
+      buildDeps({
+        callMutationRpc: async (
+          _client: unknown,
+          fn: string,
+          orgId: string,
+          actor: string,
+          payload: Record<string, unknown>,
+        ) => {
+          rpcCalls.push({ fn, orgId, actor, payload });
+          return {
+            box: { boxId: "IL1-100" },
+            transfer: { transferId: "TRF-1" },
+            logId: "LOG-1",
+            cancelledAllocationCount: 0,
+            releasedFeet: 0,
+            warnings: [],
+          };
+        },
+        startBoxTransfer: async () => {
+          legacyCallCount += 1;
+          return {};
+        },
+        receiveBoxTransfer: async () => {
+          legacyCallCount += 1;
+          return {};
+        },
+        cancelBoxTransfer: async () => {
+          legacyCallCount += 1;
+          return {};
+        },
+      }),
+    );
+
+    assertEquals(response.data, {
+      box: { boxId: "IL1-100" },
+      transfer: { transferId: "TRF-1" },
+      logId: "LOG-1",
+      cancelledAllocationCount: 0,
+      releasedFeet: 0,
+    }, `Expected ${route.path} to return the SQL RPC result.`);
+  }
+
+  assertEquals(
+    rpcCalls.map(({ fn, orgId, actor }) => ({ fn, orgId, actor })),
+    routes.map(({ fn }) => ({ fn, orgId: "org-from-auth", actor: "tester" })),
+    "Expected each transfer route to use its authenticated-org SQL RPC.",
+  );
+  assertEquals(legacyCallCount, 0, "Legacy multi-write transfer helpers must not run.");
+});
+
 Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
   const rpcPayloads: Array<Record<string, unknown>> = [];
   const findJobCalls: Array<Record<string, unknown>> = [];
+  const reservationSnapshotCalls: Array<Record<string, unknown>> = [];
 
   const response = await dispatchMutationWithHandlers(
     {},
@@ -272,11 +345,36 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
       ) => {
         rpcPayloads.push({ fn, orgId, actor, payload });
         return {
-          allocationIds: [],
+          allocationIds: ["allocation-test-1"],
+          transferIds: ["TRF-TEST"],
           remainingUncoveredFeet: 0,
           warnings: [],
         };
       },
+      loadBoxReservationSnapshot: async (
+        _client: unknown,
+        orgId: string,
+        options: { allocationIds?: string[] },
+      ) => {
+        reservationSnapshotCalls.push({ orgId, options });
+        const allocation = {
+          allocationId: "allocation-test-1",
+          boxId: "IL1-100",
+          allocatedFeet: 10,
+          installDate: "",
+        };
+        return {
+          selectedAllocations: [allocation],
+          allocations: [allocation],
+          boxes: [],
+          jobs: [],
+        };
+      },
+      toPublicAllocation: (allocation: Record<string, unknown>) => ({
+        allocationId: allocation.allocationId,
+        boxId: allocation.boxId,
+        allocatedFeet: allocation.allocatedFeet,
+      }),
     }),
   );
 
@@ -304,13 +402,25 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
     "Expected canonical jobId to be passed to SQL RPC only after validation.",
   );
   assertEquals(
+    reservationSnapshotCalls,
+    [{ orgId: "org-from-auth", options: { allocationIds: ["allocation-test-1"] } }],
+    "Expected one batched reservation response reload for every returned allocation.",
+  );
+  assertEquals(
     response.data,
     {
-      allocations: [],
+      allocations: [{
+        allocationId: "allocation-test-1",
+        boxId: "IL1-100",
+        allocatedFeet: 10,
+        backedPhysicalFeet: 10,
+        reservationState: "WITHOUT_INSTALL_DATE",
+      }],
       filmOrder: null,
       remainingUncoveredFeet: 0,
+      transferIds: ["TRF-TEST"],
     },
-    "Expected allocation apply response shape to stay stable.",
+    "Expected allocation apply response to preserve atomic transfer IDs.",
   );
 });
 
@@ -1634,6 +1744,46 @@ Deno.test("/jobs/checkout-all reloads canonical job detail by jobId and keeps SQ
   );
 });
 
+Deno.test("/jobs/checkout-all propagates the sanitized pending-transfer denial without reloading detail", async () => {
+  const denial = new HttpError(
+    409,
+    "Checkout is blocked while material is pending transfer. Receive or cancel the transfer, then retry.",
+    [],
+    { code: "PENDING_TRANSFER_CHECKOUT_BLOCKED" },
+  );
+  let detailCallCount = 0;
+
+  let caught: unknown;
+  try {
+    await dispatchMutationWithHandlers(
+      {},
+      { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+      "/jobs/checkout-all",
+      { jobId: "11111111-1111-4111-8111-111111111111", jobNumber: "81234" },
+      buildDeps({
+        checkoutAllJobMaterials: async () => {
+          throw denial;
+        },
+        buildJobDetailById: async () => {
+          detailCallCount += 1;
+          return {};
+        },
+      }),
+    );
+  } catch (error) {
+    caught = error;
+  }
+
+  assertEquals(caught, denial, "Expected the checkout denial to reach the HTTP boundary unchanged.");
+  assertEquals(detailCallCount, 0, "Expected denied checkout-all not to reload or wrap job detail.");
+  assertEquals((caught as HttpError).warnings, [], "Expected the denial to discard accumulated warnings.");
+  assertEquals(
+    (caught as HttpError).details,
+    { code: "PENDING_TRANSFER_CHECKOUT_BLOCKED" },
+    "Expected the safe denial code to remain available to the HTTP envelope.",
+  );
+});
+
 Deno.test("/jobs/set-staged-pickup reloads canonical job detail by jobId and keeps SQL planner ownership", async () => {
   const stagedPayloads: Array<Record<string, unknown>> = [];
   const jobDetailByIdCalls: Array<Record<string, unknown>> = [];
@@ -1977,7 +2127,7 @@ Deno.test("caulk checkout/check-in preserve row-id payloads while stripping requ
 
 Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloads public boxes", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
-  const reloadedBoxIds: string[] = [];
+  const snapshotBoxIds: string[][] = [];
 
   const response = await dispatchMutationWithHandlers(
     {},
@@ -1998,15 +2148,24 @@ Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloa
           logIds: ["LOG-100", "LOG-101"],
         };
       },
-      findBoxById: async (_client: unknown, _orgId: string, boxId: string) => {
-        reloadedBoxIds.push(boxId);
+      loadBoxReservationSnapshot: async (
+        _client: unknown,
+        _orgId: string,
+        options: { boxIds?: string[] },
+      ) => {
+        snapshotBoxIds.push(options.boxIds || []);
         return {
-          id: `record-${boxId}`,
-          boxId,
-          status: "IN_STOCK",
-          hasLabel: true,
-          feetAvailable: 50,
-          initialFeet: 50,
+          selectedAllocations: [],
+          allocations: [],
+          boxes: (options.boxIds || []).map((boxId) => ({
+            id: `record-${boxId}`,
+            boxId,
+            status: "IN_STOCK",
+            hasLabel: true,
+            feetAvailable: 50,
+            initialFeet: 50,
+          })),
+          jobs: [],
         };
       },
       toPublicBox: (box: Record<string, unknown>) => ({
@@ -2028,7 +2187,7 @@ Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloa
     ],
     "Expected the label-print route to delegate to the SQL ACL RPC.",
   );
-  assertEquals(reloadedBoxIds, ["IL1-100", "IL1-101"], "Expected updated boxes to be reloaded.");
+  assertEquals(snapshotBoxIds, [["IL1-100", "IL1-101"]], "Expected one batched updated-box reload.");
   assertEquals(
     response,
     {

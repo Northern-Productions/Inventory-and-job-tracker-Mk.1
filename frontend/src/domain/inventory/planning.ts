@@ -96,6 +96,7 @@ export interface AllocationPreviewSuggestion {
   availableFeet: number;
   planningFeet: number;
   boxStatus: BoxStatus;
+  requiresTransfer?: boolean;
   suggestedFeet: number;
   suggestedCoveredFeet: number;
   receivedDate: string;
@@ -114,6 +115,7 @@ export interface AllocationPreview {
   sourceBoxFeetAvailable: number;
   sourceBoxPlanningFeet: number;
   sourceBoxStatus: BoxStatus;
+  sourceRequiresTransfer?: boolean;
   sourceSuggestedFeet: number;
   sourceSuggestedCoveredFeet: number;
   sourceConflicts: string[];
@@ -161,6 +163,15 @@ export interface FilmOrderEntry {
   installDate: string;
   crewLeader: string;
   status: FilmOrderStatus;
+  storedStatus?: FilmOrderStatus;
+  displayStatus?: FilmOrderDisplayStatus;
+  needSource?: FilmOrderNeedSource;
+  neededFeet?: number;
+  fulfilledFeet?: number;
+  remainingFeet?: number;
+  overageFeet?: number;
+  manualFulfilledAt?: string | null;
+  manualFulfilledBy?: string | null;
   sourceBoxId: string;
   origin?: FilmOrderOrigin;
   createdAt: string;
@@ -384,7 +395,7 @@ export interface JobFilmTransferAlert {
   boxId: string;
   sourceWarehouse: Warehouse;
   destinationWarehouse: Warehouse;
-  state: 'NEEDS_TRANSFER' | 'TRANSFER_PENDING';
+  state: 'NEEDS_TRANSFER' | 'TRANSFER_PENDING' | 'TRANSFER_REVIEW_REQUIRED';
   transferId?: string;
   startedAt?: string;
   startedBy?: string;

@@ -60,8 +60,22 @@ Lower-priority claims are reduced or cancelled first.
 
 - Normal warehouse operations should not be blocked because downstream jobs will become short.
 - Check-in and check-out accept real-world material movement.
+- A box in a pending warehouse transfer is the exception: its custody is in transit, so checkout/check-in, consumption, staging, and incompatible box edits remain blocked until receipt or cancellation.
 - After check-in or a physical LF correction, lower-priority allocations are reconciled immediately.
 - Affected film orders and job readiness must be recalculated before the mutation is considered complete.
+
+## Atomic Cross-Warehouse Allocation And Transfer Rules
+
+- Transfer-assisted allocation starts only from a reviewed `IN_STOCK` source box with no existing reserving allocation.
+- One apply request may use a cross-warehouse box for exactly one requirement. Duplicate box selection fails the whole transaction.
+- The requirement allocation and pending transfer are created atomically. The transfer links to the immutable `(org_id, allocation_id)` key; there is no backfill of historical transfers.
+- A linked pending transfer has one transfer-created first allocation. The allocation reserves planning capacity, while the physical box remains unavailable at the destination until receipt.
+- While pending, a second transfer, additional allocation, allocation strengthening/reactivation, fulfillment, checkout/check-in, staging, phase/requirement completion, and incompatible box mutation are blocked server-side.
+- Releasing or cancelling the business allocation does not cancel physical custody. Receipt remains available and must not reactivate the allocation.
+- Transfer cancellation status-cancels the linked active allocation when needed, keeps its history row, preserves physical LF and weight, and restores `IN_STOCK` only because transfer start proved that source state.
+- Receipt moves the physical record and its historical references to the destination identity while preserving LF and weight.
+- Historical pending transfers with a null allocation link use the explicit ordinary receive/cancel compatibility path. Workflow type is determined only by the nullable link, never timestamps or guessed relationships.
+- Material-flow entry points acquire the shared advisory transaction lock before their existing row/table locks. Keep this order aligned across transfer, allocation, checkout/check-in, job cancellation, requirement/phase state, and staging paths.
 
 ## Job Readiness/Status Rules
 

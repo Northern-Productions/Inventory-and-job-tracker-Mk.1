@@ -1,5 +1,6 @@
 import type { Box, JobRequirementLine } from '../../../domain';
 import { isSplitCoveragePair } from '../../../domain/allocationCoverageContract.mjs';
+import { getFilmBoxAllocationEligibility } from '../../../domain/filmBoxAllocationEligibility.mjs';
 import {
   compareJobPlanningFilmMatches,
   canJobPlanningFilmSatisfyRequirement,
@@ -25,7 +26,7 @@ function getBoxPlanningFeet(box: BoxPlanningFeetInput) {
     return Math.max(0, Number(box.feetAvailable || 0) - Number(box.activeAllocatedFeet || 0));
   }
 
-  if (normalizedStatus === 'IN_STOCK' || normalizedStatus === 'TRANSFER') {
+  if (normalizedStatus === 'IN_STOCK') {
     return Math.max(0, Number(box.feetAvailable || 0));
   }
 
@@ -37,27 +38,15 @@ function getAllocationStatusRank(status: Box['status']) {
     return 0;
   }
 
-  if (status === 'TRANSFER') {
+  if (status === 'ORDERED') {
     return 1;
   }
 
-  if (status === 'ORDERED') {
+  if (status === 'CHECKED_OUT') {
     return 2;
   }
 
-  if (status === 'CHECKED_OUT') {
-    return 3;
-  }
-
   return 4;
-}
-
-function isTransferAllocatableForJob(box: Pick<Box, 'status'>, _jobWarehouse: string) {
-  if (box.status !== 'TRANSFER') {
-    return false;
-  }
-
-  return true;
 }
 
 function compareDates(leftDate: string, rightDate: string) {
@@ -142,12 +131,13 @@ export function findMatchingBoxesForRequirement(
   }
 
   const rankedMatches = Array.from(dedupedByBoxId.values()).flatMap((box) => {
-    const isAllocatableStatus =
-      box.status === 'IN_STOCK' ||
-      box.status === 'ORDERED' ||
-      box.status === 'CHECKED_OUT' ||
-      isTransferAllocatableForJob(box, jobWarehouse);
-    if (!isAllocatableStatus || getBoxPlanningFeet(box) <= 0) {
+    const reservedFeet =
+      Number(box.allocatedWithInstallDateFeet || 0) + Number(box.allocatedWithoutInstallDateFeet || 0);
+    const eligibility = getFilmBoxAllocationEligibility(box, box.pendingTransfer, jobWarehouse, {
+      allowTransferAssist: true,
+      hasReservations: reservedFeet > 0
+    });
+    if (!eligibility.eligible || getBoxPlanningFeet(box) <= 0) {
       return [];
     }
 
@@ -176,6 +166,13 @@ export function findMatchingBoxesForRequirement(
   rankedMatches.sort(
     (left, right) =>
       getAllocationStatusRank(left.box.status) - getAllocationStatusRank(right.box.status) ||
+      (jobWarehouse && left.box.warehouse !== right.box.warehouse
+        ? left.box.warehouse === jobWarehouse
+          ? -1
+          : right.box.warehouse === jobWarehouse
+            ? 1
+            : 0
+        : 0) ||
       compareJobPlanningFilmMatches(left.filmMatch, right.filmMatch) ||
       compareBoxesByClosestCompatibleWidth(left.box, right.box, requirement)
   );

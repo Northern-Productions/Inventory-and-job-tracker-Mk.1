@@ -1,4 +1,8 @@
-import { buildFilmCheckoutActionPlan } from '../../../../../../shared/checkoutSemantics.mjs';
+import {
+  buildFilmCheckoutActionPlan,
+  getPendingTransferCheckoutDenial,
+  isPendingTransferCheckoutConflict,
+} from '../../../../../../shared/checkoutSemantics.mjs';
 import {
   HttpError,
   queryRow,
@@ -214,7 +218,8 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user, options 
     return {
       box: savedBox,
       warnings,
-      checkedOut: true
+      checkedOut: true,
+      successfullyHandled: true
     };
   }
 
@@ -239,7 +244,8 @@ async function checkoutBoxForJob(client, orgId, boxId, jobNumber, user, options 
   return {
     box: workingBox,
     warnings,
-    checkedOut: false
+    checkedOut: false,
+    successfullyHandled: allocationResolution.fulfilledCount > 0
   };
 }
 
@@ -291,6 +297,22 @@ async function checkoutCaulkAllocationForJob(client, orgId, jobNumber, caulkAllo
     checkoutCreated: true,
     warnings
   };
+}
+
+async function runCheckoutAllItem(client, operation) {
+  await client.query('SAVEPOINT checkout_all_item');
+  try {
+    const result = await operation();
+    await client.query('RELEASE SAVEPOINT checkout_all_item');
+    return { blockedByPendingTransfer: false, result };
+  } catch (error) {
+    await client.query('ROLLBACK TO SAVEPOINT checkout_all_item');
+    await client.query('RELEASE SAVEPOINT checkout_all_item');
+    if (isPendingTransferCheckoutConflict(error)) {
+      return { blockedByPendingTransfer: true, result: null };
+    }
+    throw error;
+  }
 }
 
 async function resolveCheckoutAllTarget(client, orgId, payloadOrJobNumber, user) {
@@ -407,6 +429,7 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
   const warnings = [];
   let checkedOutBoxCount = 0;
   let checkedOutCaulkCount = 0;
+  let successfullyHandledCount = 0;
   let skippedFilmTransferCount = 0;
   let skippedOrderedFilmCount = 0;
   let skippedUnavailableFilmCount = 0;
@@ -449,18 +472,28 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
       assertCanCheckoutBoxFromWarehouse(currentBox);
     }
 
-    const checkoutResult = await checkoutBoxForJob(
-      client,
-      orgId,
-      step.boxId,
-      normalizedJobNumber,
-      user,
-      {
-        jobId: target.jobId,
-        selectedJob: target.existingJob
-      }
+    const checkoutAttempt = await runCheckoutAllItem(client, () =>
+      checkoutBoxForJob(
+        client,
+        orgId,
+        step.boxId,
+        normalizedJobNumber,
+        user,
+        {
+          jobId: target.jobId,
+          selectedJob: target.existingJob
+        }
+      )
     );
+    if (checkoutAttempt.blockedByPendingTransfer) {
+      skippedFilmTransferCount += 1;
+      continue;
+    }
+    const checkoutResult = checkoutAttempt.result;
     warnings.push(...checkoutResult.warnings);
+    if (checkoutResult.successfullyHandled) {
+      successfullyHandledCount += 1;
+    }
     if (checkoutResult.checkedOut) {
       checkedOutBoxCount += 1;
     }
@@ -488,17 +521,39 @@ async function checkoutAllJobMaterials(client, orgId, payloadOrJobNumber, user) 
       continue;
     }
 
-    const checkoutResult = await checkoutCaulkAllocationForJob(
-      client,
-      orgId,
-      normalizedJobNumber,
-      allocation,
-      user
+    const checkoutAttempt = await runCheckoutAllItem(client, () =>
+      checkoutCaulkAllocationForJob(
+        client,
+        orgId,
+        normalizedJobNumber,
+        allocation,
+        user
+      )
     );
+    if (checkoutAttempt.blockedByPendingTransfer) {
+      skippedCaulkTransferCount += 1;
+      continue;
+    }
+    const checkoutResult = checkoutAttempt.result;
     warnings.push(...checkoutResult.warnings);
     if (checkoutResult.checkoutCreated) {
+      successfullyHandledCount += 1;
       checkedOutCaulkCount += 1;
     }
+  }
+
+  const pendingTransferDenial = getPendingTransferCheckoutDenial({
+    successfullyHandledCount,
+    blockedFilmCount: skippedFilmTransferCount,
+    blockedCaulkCount: skippedCaulkTransferCount,
+  });
+  if (pendingTransferDenial) {
+    throw new HttpError(
+      pendingTransferDenial.statusCode,
+      pendingTransferDenial.message,
+      [],
+      { code: pendingTransferDenial.code }
+    );
   }
 
   const refreshedState = await loadCheckoutAllStagingState(client, orgId, target);

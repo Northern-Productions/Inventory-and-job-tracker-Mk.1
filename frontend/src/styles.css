@@ -2650,6 +2650,11 @@ textarea {
   color: #1b6b45;
 }
 
+.badge-MANUALLY_FULFILLED {
+  background: #d9efe2;
+  color: #1b6b45;
+}
+
 .badge-INCOMPLETE {
   background: #fff4dc;
   color: #8c5a12;
@@ -2853,6 +2858,7 @@ td.col-available-linear-ft {
 .key-value {
   display: grid;
   gap: 0.25rem;
+  min-width: 0;
 }
 
 .key-value dt {
@@ -2888,6 +2894,8 @@ td.col-available-linear-ft {
 .key-value dd {
   margin: 0;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mobile-record-list {
@@ -7484,6 +7492,7 @@ th {
 :root[data-theme="dark"] .badge-ACTIVE,
 :root[data-theme="dark"] .badge-FULFILLED,
 :root[data-theme="dark"] .badge-FULFILLED_COVERED,
+:root[data-theme="dark"] .badge-MANUALLY_FULFILLED,
 :root[data-theme="dark"] .badge-IN_STOCK,
 :root[data-theme="dark"] .badge-COMPLETED {
   background: rgba(104, 211, 145, 0.18);

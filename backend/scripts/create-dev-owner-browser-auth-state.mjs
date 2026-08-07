@@ -300,19 +300,32 @@ async function ensureOwnerMembership({ databaseUrl, orgId, userId, tag }) {
   }
 }
 
-async function cleanupOwnerArtifacts({ databaseUrl, supabaseUrl, serviceRoleKey, orgId, manifestPath, tag }) {
+async function cleanupOwnerArtifacts({
+  databaseUrl,
+  supabaseUrl,
+  serviceRoleKey,
+  orgId,
+  manifestPath,
+  tag,
+  userId: explicitUserId = '',
+  storageStatePath: explicitStorageStatePath = '',
+}) {
   let manifest = null;
   if (fs.existsSync(manifestPath)) {
     manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   }
-  const userId = asTrimmedString(manifest?.userId);
-  const storageStatePath = normalizeRepoPath(manifest?.storageStatePath, DEFAULT_OUTPUT_PATH);
+  const userId = asTrimmedString(explicitUserId || manifest?.userId);
+  const storageStatePath = explicitStorageStatePath
+    ? path.resolve(explicitStorageStatePath)
+    : normalizeRepoPath(manifest?.storageStatePath, DEFAULT_OUTPUT_PATH);
 
   const deleted = {
     ownerNotificationPreferences: 0,
+    userPreferences: 0,
     accessRequests: 0,
     organizationMembers: 0,
     authUser: false,
+    residueVerified: false,
     storageState: false,
     manifest: false
   };
@@ -337,6 +350,14 @@ async function cleanupOwnerArtifacts({ databaseUrl, supabaseUrl, serviceRoleKey,
         `,
         [orgId, userId]
       );
+      const userPreferences = await client.query(
+        `
+          delete from app.user_preferences
+          where org_id = $1::uuid
+            and user_id = $2::uuid
+        `,
+        [orgId, userId]
+      );
       const members = await client.query(
         `
           delete from app.organization_members
@@ -347,12 +368,38 @@ async function cleanupOwnerArtifacts({ databaseUrl, supabaseUrl, serviceRoleKey,
         [orgId, userId]
       );
       deleted.ownerNotificationPreferences = prefs.rowCount || 0;
+      deleted.userPreferences = userPreferences.rowCount || 0;
       deleted.accessRequests = access.rowCount || 0;
       deleted.organizationMembers = members.rowCount || 0;
     } finally {
       await client.end().catch(() => undefined);
     }
     deleted.authUser = await deleteAuthUser({ supabaseUrl, serviceRoleKey, userId });
+
+    const verificationClient = buildDatabaseClient(databaseUrl);
+    await verificationClient.connect();
+    try {
+      const residue = await verificationClient.query(
+        `
+          select
+            (select count(*)::integer from auth.users where id = $1::uuid) as auth_users,
+            (select count(*)::integer from auth.sessions where user_id = $1::uuid) as auth_sessions,
+            (select count(*)::integer from app.organization_members where org_id = $2::uuid and user_id = $1::uuid) as memberships,
+            (select count(*)::integer from app.owner_notification_preferences where org_id = $2::uuid and owner_user_id = $1::uuid) as owner_preferences,
+            (select count(*)::integer from app.user_preferences where org_id = $2::uuid and user_id = $1::uuid) as user_preferences,
+            (select count(*)::integer from app.access_requests where org_id = $2::uuid and user_id = $1::uuid) as access_requests
+        `,
+        [userId, orgId]
+      );
+      deleted.residueVerified = Object.values(residue.rows[0] || {}).every(
+        (value) => Number(value) === 0
+      );
+    } finally {
+      await verificationClient.end().catch(() => undefined);
+    }
+    if (!deleted.residueVerified) {
+      throw new Error('DEV owner browser auth cleanup left tagged database residue.');
+    }
   }
 
   if (fs.existsSync(storageStatePath)) {
@@ -368,6 +415,7 @@ async function cleanupOwnerArtifacts({ databaseUrl, supabaseUrl, serviceRoleKey,
   console.log(`Auth tag: ${tag || asTrimmedString(manifest?.tag) || 'unknown'}`);
   console.log(`Organization membership rows deleted: ${deleted.organizationMembers}`);
   console.log(`Auth user deleted or absent: ${deleted.authUser ? 'yes' : userId ? 'no' : 'not-created'}`);
+  console.log(`Auth and session residue verified absent: ${deleted.residueVerified ? 'yes' : 'not-created'}`);
   console.log(`Storage state removed: ${deleted.storageState ? 'yes' : 'not-present'}`);
   console.log(`Manifest removed: ${deleted.manifest ? 'yes' : 'not-present'}`);
   return deleted;
@@ -392,6 +440,10 @@ async function main() {
   if (options.cleanup) {
     await cleanupOwnerArtifacts({ ...config, manifestPath, tag });
     return;
+  }
+
+  if (fs.existsSync(outputPath) || fs.existsSync(manifestPath)) {
+    throw new Error('Refusing to overwrite existing DEV owner browser auth artifacts; clean them first.');
   }
 
   const email = buildEmail(tag);
@@ -434,7 +486,13 @@ async function main() {
     console.log(`Owner auth manifest written to ignored path: ${path.relative(REPO_ROOT, manifestPath).replace(/\\/g, '/')}`);
   } catch (error) {
     if (userId) {
-      await cleanupOwnerArtifacts({ ...config, manifestPath, tag }).catch(() => undefined);
+      await cleanupOwnerArtifacts({
+        ...config,
+        manifestPath,
+        tag,
+        userId,
+        storageStatePath: outputPath,
+      }).catch(() => undefined);
     }
     throw error;
   }

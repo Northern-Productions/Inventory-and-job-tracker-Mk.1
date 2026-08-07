@@ -1,6 +1,7 @@
 // Purpose: Job, film-order, and delete mutation runtime workflows.
 import {
   HttpError,
+  queryRows,
   queryRow,
   ok,
   asTrimmedString,
@@ -112,6 +113,11 @@ import {
 import {
   validateFilmOrderJobMutationOwnership,
 } from '../../../../../shared/domain/filmOrderMutationIdentity.mjs';
+import {
+  DELETE_JOB_FAILURE_MESSAGE,
+  isCheckedOutBoxAssignedToJob,
+  isExpectedDeleteJobHttpStatus,
+} from '../../../../../shared/domain/jobDeleteContract.mjs';
 import {
   normalizePlannerSuppressionMaterialType,
   validatePlannerSuppressionRequirementOwnership,
@@ -807,6 +813,41 @@ async function cancelActiveCaulkAllocationsForCompleteJob(client, orgId, actor, 
     : {};
 }
 
+async function listCheckedOutBoxesForJobMutation(client, orgId, target, jobNumber) {
+  const rows = await queryRows(
+    client,
+    `
+      select box_id, status, last_checkout_job, last_checkout_job_id
+      from app.boxes
+      where org_id = $1
+        and status = 'CHECKED_OUT'
+    `,
+    [orgId]
+  );
+
+  return rows.filter((entry) =>
+    isCheckedOutBoxAssignedToJob(entry, {
+      jobId: target.usedJobId ? target.jobId : '',
+      jobNumber,
+    })
+  );
+}
+
+function toSafeDeleteJobError(error) {
+  if (error instanceof HttpError && isExpectedDeleteJobHttpStatus(error.statusCode)) {
+    return error;
+  }
+
+  return new DeleteJobOperationError();
+}
+
+class DeleteJobOperationError extends HttpError {
+  constructor() {
+    super(500, DELETE_JOB_FAILURE_MESSAGE);
+    this.name = 'DeleteJobOperationError';
+  }
+}
+
 async function completeJob(client, orgId, payload, actor) {
   const warnings = [];
   const target = await resolveJobMutationTargetById(client, orgId, payload);
@@ -992,7 +1033,7 @@ async function reopenJob(client, orgId, payload, actor) {
   );
 }
 
-async function deleteJob(client, orgId, payload, actor, role) {
+async function executeDeleteJob(client, orgId, payload, actor, role) {
   const warnings = [];
   if (role !== 'owner' && role !== 'admin') {
     throw new HttpError(403, 'Admin or owner access is required.');
@@ -1017,26 +1058,11 @@ async function deleteJob(client, orgId, payload, actor, role) {
     throw new HttpError(404, `Job ${jobNumber} was not found.`);
   }
 
-  const normalizedTargetJobId = target.usedJobId ? asTrimmedString(target.jobId).toLowerCase() : '';
-  const normalizedTargetJobNumber = normalizeJobNumberKey(jobNumber);
-  const checkedOutBoxes = (await listBoxes(client, orgId)).filter((box) => {
-    if (box.status !== 'CHECKED_OUT') {
-      return false;
-    }
-    if (!target.usedJobId) {
-      return normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber;
-    }
-
-    const boxJobId = asTrimmedString(box.lastCheckoutJobId).toLowerCase();
-    return (
-      boxJobId === normalizedTargetJobId ||
-      (!boxJobId && normalizeJobNumberKey(box.lastCheckoutJob) === normalizedTargetJobNumber)
-    );
-  });
+  const checkedOutBoxes = await listCheckedOutBoxesForJobMutation(client, orgId, target, jobNumber);
   if (checkedOutBoxes.length) {
     const listedBoxes = checkedOutBoxes
       .slice(0, 5)
-      .map((box) => box.boxId)
+      .map((box) => asTrimmedString(box.box_id || box.boxId))
       .join(', ');
     const suffix = checkedOutBoxes.length > 5 ? ', ...' : '';
     throw new HttpError(
@@ -1103,6 +1129,14 @@ async function deleteJob(client, orgId, payload, actor, role) {
   );
 
   return ok(target.usedJobId ? { jobId: target.jobId, jobNumber } : { jobNumber }, warnings);
+}
+
+async function deleteJob(client, orgId, payload, actor, role) {
+  try {
+    return await executeDeleteJob(client, orgId, payload, actor, role);
+  } catch (error) {
+    throw toSafeDeleteJobError(error);
+  }
 }
 
 async function createFilmOrder(client, orgId, payload, actor) {

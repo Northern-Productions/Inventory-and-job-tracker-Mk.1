@@ -82,6 +82,16 @@ function buildDetail(summary = buildSummary()): JobDetail {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, reject, resolve };
+}
+
 describe('useCheckoutAllJobMaterials identity caches', () => {
   it('canonical checkout-all invalidates jobById and leaves same-number legacy detail caches alone', async () => {
     const queryClient = createQueryClient();
@@ -142,6 +152,51 @@ describe('useCheckoutAllJobMaterials identity caches', () => {
     expect(queryClient.getQueryData<JobDetail>(inventoryKeys.job(before.summary.jobNumber))?.summary).toEqual(
       expect.objectContaining({ status: 'CHECKED_OUT' })
     );
+  });
+
+  it('restores the optimistic checkout snapshot when pending transfer returns 409', async () => {
+    const queryClient = createQueryClient();
+    const before = {
+      ...buildDetail(buildSummary({ jobId: undefined })),
+      allocations: [
+        {
+          allocationId: 'allocation-1',
+          boxId: 'IL1-100',
+          boxStatus: 'IN_STOCK',
+          checkedOutOnThisJob: false,
+          status: 'ACTIVE',
+          resolvedAt: '',
+          allocatedFeet: 10
+        }
+      ]
+    } as JobDetail;
+    const denial = new Error(
+      'Checkout is blocked while material is pending transfer. Receive or cancel the transfer, then retry.'
+    );
+    const request = createDeferred<never>();
+    queryClient.setQueryData(inventoryKeys.job(before.summary.jobNumber), before);
+    checkoutAllJobMaterialsMock.mockReturnValueOnce(request.promise);
+
+    const { result } = renderHook(() => useCheckoutAllJobMaterials(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    let mutationPromise!: Promise<unknown>;
+    await act(async () => {
+      mutationPromise = result.current.mutateAsync({ jobNumber: before.summary.jobNumber });
+      await Promise.resolve();
+    });
+
+    expect(
+      queryClient.getQueryData<JobDetail>(inventoryKeys.job(before.summary.jobNumber))?.allocations[0]
+    ).toEqual(expect.objectContaining({ boxStatus: 'CHECKED_OUT', checkedOutOnThisJob: true }));
+
+    await act(async () => {
+      request.reject(denial);
+      await expect(mutationPromise).rejects.toBe(denial);
+    });
+
+    expect(queryClient.getQueryData(inventoryKeys.job(before.summary.jobNumber))).toEqual(before);
   });
 });
 
