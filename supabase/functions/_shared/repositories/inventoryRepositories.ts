@@ -402,6 +402,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       return null;
     }
     const sourceBoxId = deps.asTrimmedString(row.source_box_id);
+    const status = deps.asTrimmedString(row.status) || "FILM_ORDER";
+    const displayStatus = deps.asTrimmedString(row.display_status ?? row.displayStatus);
+    const needSource = deps.asTrimmedString(row.need_source ?? row.needSource);
     return {
       id: row.id,
       orgId: row.org_id,
@@ -421,7 +424,20 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       remainingToOrderFeet: deps.integerOrZero(row.remaining_to_order_feet),
       installDate: deps.formatDateValue(row.job_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
-      status: deps.asTrimmedString(row.status) || "FILM_ORDER",
+      status,
+      ...(displayStatus
+        ? {
+            storedStatus: deps.asTrimmedString(row.stored_status ?? row.storedStatus) || status,
+            displayStatus,
+            needSource,
+            neededFeet: deps.integerOrZero(row.needed_feet ?? row.neededFeet),
+            fulfilledFeet: deps.integerOrZero(row.fulfilled_feet ?? row.fulfilledFeet),
+            remainingFeet: deps.integerOrZero(row.remaining_feet ?? row.remainingFeet),
+            overageFeet: deps.integerOrZero(row.overage_feet ?? row.overageFeet),
+            manualFulfilledAt: deps.formatTimestamp(row.manual_fulfilled_at ?? row.manualFulfilledAt),
+            manualFulfilledBy: deps.asTrimmedString(row.manual_fulfilled_by ?? row.manualFulfilledBy),
+          }
+        : {}),
       sourceBoxId,
       origin: deriveFilmOrderOrigin(sourceBoxId),
       createdAt: deps.formatTimestamp(row.created_at),
@@ -436,6 +452,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const jobId = deps.asTrimmedString(entry.jobId);
     const workScope = deps.asTrimmedString(entry.workScope || entry.sections);
     const sections = deps.asTrimmedString(entry.sections || entry.workScope);
+    const displayStatus = deps.asTrimmedString(entry.displayStatus);
 
     return {
       filmOrderId: entry.filmOrderId,
@@ -455,6 +472,23 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       installDate: entry.installDate,
       crewLeader: entry.crewLeader,
       status: entry.status,
+      ...(displayStatus
+        ? {
+            storedStatus: deps.asTrimmedString(entry.storedStatus) || entry.status,
+            displayStatus,
+            needSource: deps.asTrimmedString(entry.needSource),
+            neededFeet: deps.integerOrZero(entry.neededFeet),
+            fulfilledFeet: deps.integerOrZero(entry.fulfilledFeet),
+            remainingFeet: deps.integerOrZero(entry.remainingFeet),
+            overageFeet: deps.integerOrZero(entry.overageFeet),
+            ...(deps.asTrimmedString(entry.manualFulfilledAt)
+              ? { manualFulfilledAt: entry.manualFulfilledAt }
+              : {}),
+            ...(deps.asTrimmedString(entry.manualFulfilledBy)
+              ? { manualFulfilledBy: entry.manualFulfilledBy }
+              : {}),
+          }
+        : {}),
       sourceBoxId: entry.sourceBoxId,
       origin: deriveFilmOrderOrigin(entry.sourceBoxId),
       createdAt: entry.createdAt,

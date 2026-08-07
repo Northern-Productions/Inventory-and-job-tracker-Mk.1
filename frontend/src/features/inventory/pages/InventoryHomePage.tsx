@@ -28,7 +28,6 @@ import { getActiveCustomWidth } from '../utils/widthFilters';
 import {
   patchInventoryRouteState,
   readInventoryRouteState,
-  replaceInventoryHashSearchParams,
   writeInventoryRouteState,
   type InventoryView
 } from '../utils/inventoryRouteState';
@@ -40,7 +39,7 @@ const INVENTORY_SEARCH_SETTLE_MS = 200;
 export default function InventoryHomePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const hasMountedRef = useRef(false);
-  const pendingSearchQueryRef = useRef<string | null>(null);
+  const routeSearchRequestsRef = useRef<string[]>([]);
   const searchSettleTimerRef = useRef<number | null>(null);
   const defaultWarehouse = useDefaultWarehouse();
   const warehouseRegistry = useWarehouseRegistry();
@@ -66,6 +65,10 @@ export default function InventoryHomePage() {
   );
   const [visibleSearchQuery, setVisibleSearchQuery] = useState(filters.q);
   const [settledSearchQuery, setSettledSearchQuery] = useState(filters.q);
+  const routeStateRef = useRef(routeState);
+  const visibleSearchQueryRef = useRef(visibleSearchQuery);
+  routeStateRef.current = routeState;
+  visibleSearchQueryRef.current = visibleSearchQuery;
   const inventoryView = routeState.inventoryView;
   const selectedWidthsKey = filters.widths.join('|');
   const settledFilters = useMemo(
@@ -152,49 +155,22 @@ export default function InventoryHomePage() {
   }, []);
 
   useEffect(() => {
-    const pendingSearchQuery = pendingSearchQueryRef.current;
-
-    if (pendingSearchQuery !== null && filters.q === pendingSearchQuery) {
-      pendingSearchQueryRef.current = null;
+    const requestIndex = routeSearchRequestsRef.current.indexOf(filters.q);
+    if (requestIndex >= 0) {
+      routeSearchRequestsRef.current.splice(0, requestIndex + 1);
       return;
     }
 
-    if (pendingSearchQuery !== null && filters.q !== pendingSearchQuery) {
-      pendingSearchQueryRef.current = null;
-      if (searchSettleTimerRef.current !== null) {
-        window.clearTimeout(searchSettleTimerRef.current);
-        searchSettleTimerRef.current = null;
-      }
+    routeSearchRequestsRef.current = [];
+    if (searchSettleTimerRef.current !== null) {
+      window.clearTimeout(searchSettleTimerRef.current);
+      searchSettleTimerRef.current = null;
     }
 
+    visibleSearchQueryRef.current = filters.q;
     setVisibleSearchQuery(filters.q);
     setSettledSearchQuery(filters.q);
   }, [filters.q]);
-
-  useEffect(() => {
-    if (
-      pendingSearchQueryRef.current !== settledSearchQuery ||
-      filters.q === settledSearchQuery
-    ) {
-      return;
-    }
-
-    setSearchParams(
-      writeInventoryRouteState(
-        patchInventoryRouteState(routeState, {
-          filters: { q: settledSearchQuery }
-        }),
-        { defaultWarehouse }
-      ),
-      { replace: true }
-    );
-  }, [
-    defaultWarehouse,
-    filters.q,
-    routeState,
-    setSearchParams,
-    settledSearchQuery
-  ]);
 
   useEffect(
     () => () => {
@@ -206,17 +182,21 @@ export default function InventoryHomePage() {
   );
 
   const setInventoryView = (nextView: InventoryView) => {
-    pendingSearchQueryRef.current = null;
     if (searchSettleTimerRef.current !== null) {
       window.clearTimeout(searchSettleTimerRef.current);
       searchSettleTimerRef.current = null;
     }
-    setSettledSearchQuery(visibleSearchQuery);
+    const nextSearchQuery = visibleSearchQueryRef.current;
+    const latestRouteState = routeStateRef.current;
+    setSettledSearchQuery(nextSearchQuery);
+    if (nextSearchQuery !== latestRouteState.filters.q) {
+      routeSearchRequestsRef.current.push(nextSearchQuery);
+    }
     setSearchParams(
       writeInventoryRouteState(
-        patchInventoryRouteState(routeState, {
+        patchInventoryRouteState(latestRouteState, {
           inventoryView: nextView,
-          filters: { q: visibleSearchQuery }
+          filters: { q: nextSearchQuery }
         }),
         { defaultWarehouse }
       ),
@@ -227,45 +207,54 @@ export default function InventoryHomePage() {
   const patchFilters = (next: Partial<InventoryFilterValues>) => {
     if (Object.prototype.hasOwnProperty.call(next, 'q')) {
       const nextSearchQuery = next.q || '';
-      const nextRouteState = patchInventoryRouteState(routeState, {
-        filters: { q: nextSearchQuery }
-      });
-      const nextSearchParams = writeInventoryRouteState(nextRouteState, {
-        defaultWarehouse
-      });
-
+      visibleSearchQueryRef.current = nextSearchQuery;
       setVisibleSearchQuery(nextSearchQuery);
-      replaceInventoryHashSearchParams(nextSearchParams);
 
       if (searchSettleTimerRef.current !== null) {
         window.clearTimeout(searchSettleTimerRef.current);
+        searchSettleTimerRef.current = null;
       }
 
-      if (nextSearchQuery === filters.q) {
-        pendingSearchQueryRef.current = null;
-        searchSettleTimerRef.current = null;
+      if (nextSearchQuery === routeStateRef.current.filters.q) {
         setSettledSearchQuery(nextSearchQuery);
         return;
       }
 
-      pendingSearchQueryRef.current = nextSearchQuery;
       searchSettleTimerRef.current = window.setTimeout(() => {
         searchSettleTimerRef.current = null;
         setSettledSearchQuery(nextSearchQuery);
+        const latestRouteState = routeStateRef.current;
+        if (nextSearchQuery === latestRouteState.filters.q) {
+          return;
+        }
+        routeSearchRequestsRef.current.push(nextSearchQuery);
+        setSearchParams(
+          writeInventoryRouteState(
+            patchInventoryRouteState(latestRouteState, {
+              filters: { q: nextSearchQuery }
+            }),
+            { defaultWarehouse }
+          ),
+          { replace: true }
+        );
       }, INVENTORY_SEARCH_SETTLE_MS);
       return;
     }
 
-    pendingSearchQueryRef.current = null;
     if (searchSettleTimerRef.current !== null) {
       window.clearTimeout(searchSettleTimerRef.current);
       searchSettleTimerRef.current = null;
     }
-    setSettledSearchQuery(visibleSearchQuery);
+    const nextSearchQuery = visibleSearchQueryRef.current;
+    const latestRouteState = routeStateRef.current;
+    setSettledSearchQuery(nextSearchQuery);
+    if (nextSearchQuery !== latestRouteState.filters.q) {
+      routeSearchRequestsRef.current.push(nextSearchQuery);
+    }
     setSearchParams(
       writeInventoryRouteState(
-        patchInventoryRouteState(routeState, {
-          filters: { ...next, q: visibleSearchQuery }
+        patchInventoryRouteState(latestRouteState, {
+          filters: { ...next, q: nextSearchQuery }
         }),
         { defaultWarehouse }
       ),

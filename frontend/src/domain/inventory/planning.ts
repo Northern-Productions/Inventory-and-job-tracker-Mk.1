@@ -163,6 +163,15 @@ export interface FilmOrderEntry {
   installDate: string;
   crewLeader: string;
   status: FilmOrderStatus;
+  storedStatus?: FilmOrderStatus;
+  displayStatus?: FilmOrderDisplayStatus;
+  needSource?: FilmOrderNeedSource;
+  neededFeet?: number;
+  fulfilledFeet?: number;
+  remainingFeet?: number;
+  overageFeet?: number;
+  manualFulfilledAt?: string | null;
+  manualFulfilledBy?: string | null;
   sourceBoxId: string;
   origin?: FilmOrderOrigin;
   createdAt: string;

@@ -220,6 +220,21 @@ describe('FilmOrderDetailsPage', () => {
     expect(screen.getByText('LINKED BOX INITIAL FEET CHANGED')).toBeTruthy();
   });
 
+  it('does not offer manual fulfillment when canonical coverage already resolves the order', async () => {
+    getFilmOrderDetailMock.mockResolvedValue(
+      buildDetail({
+        displayStatus: 'FULFILLED_COVERED',
+        fulfilledFeet: 230,
+        remainingFeet: 0
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Fulfilled / Covered')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Fulfill Order' })).toBeNull();
+  });
+
   it('renders connected box initial costs and a total for known costs', async () => {
     getFilmOrderDetailMock.mockResolvedValue(
       buildDetail({
