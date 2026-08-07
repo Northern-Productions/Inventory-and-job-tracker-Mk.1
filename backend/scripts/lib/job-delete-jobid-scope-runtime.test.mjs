@@ -93,7 +93,7 @@ test('job delete guarded transition remains runtime-only', async () => {
   assert.equal(await fileExists(backendMigrationPath), false);
   assert.equal(await fileExists(supabaseMigrationPath), false);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0194_scoped_job_summary_reads\.sql';/);
 
 });
 

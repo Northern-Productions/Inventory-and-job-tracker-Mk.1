@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates.sql';
+const LATEST_MIGRATION = '0194_scoped_job_summary_reads.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -138,6 +138,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.build_allocation_apply_plan_0192(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocation_preview_candidates(uuid, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_list_jobs_by_ids(uuid, uuid[])' },
+  { kind: 'function', signature: 'public.api_acl_list_jobs_by_numbers(uuid, text[])' },
+  { kind: 'function', signature: 'public.api_acl_job_summary_snapshot(uuid, uuid[], boolean, text[], boolean)' },
+  { kind: 'function', signature: 'public.api_acl_has_film_orders_needing_attention(uuid)' },
   { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.api_acl_boxes_resolve_checkout_allocations_pre_0191(uuid, text, jsonb)' },
@@ -371,6 +375,50 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'return app_api.allocation_preview_candidates_0193(p_org_id, p_payload);'
     ],
     excludes: ["'allocations', 'write'"]
+  },
+  {
+    signature: 'public.api_acl_list_jobs_by_ids(uuid, uuid[])',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      'where j.org_id = p_org_id',
+      'and j.id = any(v_job_ids)'
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_list_jobs_by_numbers(uuid, text[])',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      'where j.org_id = p_org_id',
+      'and j.job_number = any(v_job_numbers)'
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_job_summary_snapshot(uuid, uuid[], boolean, text[], boolean)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'read');",
+      "perform app_api.require_effective_feature_access(p_org_id, 'film_orders', 'read');",
+      'a.job_id = any(v_job_ids)',
+      'and a.job_id is null',
+      'f.job_id = any(v_job_ids)',
+      'and f.job_id is null',
+      'and r.job_id = any(v_job_ids)',
+      "return jsonb_build_object("
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_has_film_orders_needing_attention(uuid)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'film_orders', 'read');",
+      'where f.org_id = p_org_id',
+      "and f.status::text = 'FILM_ORDER'",
+      'and f.job_date is not null',
+      'and f.remaining_to_order_feet > 0'
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
   },
   {
     signature: 'public.api_acl_allocations_apply(uuid, text, jsonb)',
@@ -1777,6 +1825,10 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_acl_box_transfer_receive(uuid, text, jsonb)',
   'public.api_acl_box_transfer_cancel(uuid, text, jsonb)',
   'public.api_acl_allocation_preview_candidates(uuid, jsonb)',
+  'public.api_acl_list_jobs_by_ids(uuid, uuid[])',
+  'public.api_acl_list_jobs_by_numbers(uuid, text[])',
+  'public.api_acl_job_summary_snapshot(uuid, uuid[], boolean, text[], boolean)',
+  'public.api_acl_has_film_orders_needing_attention(uuid)',
 ];
 
 function sqlLiteral(value) {

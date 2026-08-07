@@ -866,6 +866,77 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return mapRows(rows, mapDbJobRow);
   }
 
+  async function listJobsByIds(client: any, orgId: string, jobIds: string[]) {
+    const normalizedJobIds = Array.from(
+      new Set((Array.isArray(jobIds) ? jobIds : []).map((entry) => deps.asTrimmedString(entry)).filter(Boolean)),
+    );
+    if (!normalizedJobIds.length) {
+      return [];
+    }
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs_by_ids", {
+      p_org_id: orgId,
+      p_job_ids: normalizedJobIds,
+    });
+    return mapRows(rows, mapDbJobRow);
+  }
+
+  async function listJobsByNumbers(client: any, orgId: string, jobNumbers: string[]) {
+    const normalizedJobNumbers = Array.from(
+      new Set((Array.isArray(jobNumbers) ? jobNumbers : []).map((entry) => deps.asTrimmedString(entry)).filter(Boolean)),
+    );
+    if (!normalizedJobNumbers.length) {
+      return [];
+    }
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs_by_numbers", {
+      p_org_id: orgId,
+      p_job_numbers: normalizedJobNumbers,
+    });
+    return mapRows(rows, mapDbJobRow);
+  }
+
+  async function loadJobSummarySnapshot(
+    client: any,
+    orgId: string,
+    jobIds: string[],
+    options: { includeLegacy?: boolean; legacyJobNumbers?: string[]; includePhases?: boolean } = {},
+  ) {
+    const normalizedJobIds = Array.from(
+      new Set((Array.isArray(jobIds) ? jobIds : []).map((entry) => deps.asTrimmedString(entry)).filter(Boolean)),
+    );
+    const normalizedLegacyJobNumbers = Array.from(
+      new Set(
+        (Array.isArray(options.legacyJobNumbers) ? options.legacyJobNumbers : [])
+          .map((entry) => deps.asTrimmedString(entry))
+          .filter(Boolean),
+      ),
+    );
+    const snapshot = await deps.rpcOrThrow<Record<string, unknown>>(client, "api_acl_job_summary_snapshot", {
+      p_org_id: orgId,
+      p_job_ids: normalizedJobIds,
+      p_include_legacy: options.includeLegacy !== false,
+      p_legacy_job_numbers: normalizedLegacyJobNumbers,
+      p_include_phases: options.includePhases !== false,
+    });
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new Error("Job summary snapshot did not return a valid object.");
+    }
+
+    return {
+      allocations: mapRows(Array.isArray(snapshot.allocations) ? snapshot.allocations : [], mapDbAllocationRow),
+      filmOrders: mapRows(Array.isArray(snapshot.filmOrders) ? snapshot.filmOrders : [], mapDbFilmOrderRow),
+      phases: mapRows(Array.isArray(snapshot.phases) ? snapshot.phases : [], mapDbJobPhaseRow),
+      requirements: mapRows(Array.isArray(snapshot.requirements) ? snapshot.requirements : [], mapDbRequirementRow),
+    };
+  }
+
+  async function hasFilmOrdersNeedingAttention(client: any, orgId: string) {
+    return Boolean(
+      await deps.rpcOrThrow<boolean>(client, "api_acl_has_film_orders_needing_attention", {
+        p_org_id: orgId,
+      }),
+    );
+  }
+
   async function listJobsCalendar(client: any, orgId: string, month: string, lifecycleStatus?: unknown) {
     const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_jobs_calendar", {
       p_org_id: orgId,
@@ -1000,6 +1071,10 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     findFilmOrderById,
     listFilmOrderLinksByFilmOrderId,
     listJobs,
+    listJobsByIds,
+    listJobsByNumbers,
+    loadJobSummarySnapshot,
+    hasFilmOrdersNeedingAttention,
     listJobsCalendar,
     findJobByNumber,
     findJobById,

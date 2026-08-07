@@ -55,7 +55,7 @@ test('requirement usage state migration is mirrored and guarded by schema latest
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0194_scoped_job_summary_reads\.sql';/);
 
   assert.match(backendMigration, /actual_used_feet integer not null default 0/);
   assert.match(backendMigration, /status text not null default 'ACTIVE'/);

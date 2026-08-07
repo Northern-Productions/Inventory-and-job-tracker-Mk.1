@@ -88,7 +88,7 @@ test('multi-phase migration is mirrored and guarded by schema latest', () => {
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0194_scoped_job_summary_reads\.sql';/);
 
   assert.match(backendMigration, /create table if not exists app\.job_phases/);
   assert.match(backendMigration, /add column phase_id uuid/);
@@ -107,7 +107,7 @@ test('phase edit hotfix migration qualifies ordinality for phase payload parsing
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0193_allocation_preview_bounded_candidates\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0194_scoped_job_summary_reads\.sql';/);
 
   assert.match(backendMigration, /with ordinality as phase\(value, phase_ordinality\)/);
   assert.match(backendMigration, /coalesce\(phase\.value->>'phaseNumber', phase\.phase_ordinality::text\)/);

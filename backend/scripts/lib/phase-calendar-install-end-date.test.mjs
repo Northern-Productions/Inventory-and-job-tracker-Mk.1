@@ -28,7 +28,7 @@ test('phase calendar install end date migration is mirrored and schema-guarded',
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
+  assert.match(schemaCheck, /0194_scoped_job_summary_reads\.sql/);
 
   assert.match(schemaCheck, /app\.job_phases\.install_end_date/);
   assert.match(backendMigration, /add column if not exists install_end_date date/);

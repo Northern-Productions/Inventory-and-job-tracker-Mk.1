@@ -950,6 +950,80 @@ Deno.test("Edge allocation preview repository performs one bounded ACL RPC and p
   assertEquals(snapshot.scope, { coarseCandidateCount: 1, candidateCount: 1 }, "Expected safe scope metadata.");
 });
 
+Deno.test("Edge repositories use bounded job-header and summary RPCs", async () => {
+  const calls: Array<{ fn: string; params: Record<string, unknown> }> = [];
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async <T>(_client: unknown, fn: string, params: Record<string, unknown> = {}) => {
+      calls.push({ fn, params });
+      if (fn === "api_acl_list_jobs_by_ids") {
+        return [{ id: "11111111-1111-4111-8111-111111111111", job_number: "4953" }] as T;
+      }
+      if (fn === "api_acl_job_summary_snapshot") {
+        return {
+          allocations: [{ allocation_id: "allocation-safe", job_number: "4953", allocated_feet: 10 }],
+          filmOrders: [],
+          phases: [],
+          requirements: [],
+        } as T;
+      }
+      if (fn === "api_acl_has_film_orders_needing_attention") {
+        return true as T;
+      }
+      return [] as T;
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : null,
+    integerOrZero: (value: unknown) => Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0,
+    integerOrNull: (value: unknown) => Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : null,
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+  });
+
+  const jobs = await repositories.listJobsByIds({}, "org-1", [
+    "11111111-1111-4111-8111-111111111111",
+    "11111111-1111-4111-8111-111111111111",
+  ]);
+  const snapshot = await repositories.loadJobSummarySnapshot(
+    {},
+    "org-1",
+    ["11111111-1111-4111-8111-111111111111"],
+    { includeLegacy: true, legacyJobNumbers: ["4953"], includePhases: false },
+  );
+  const attention = await repositories.hasFilmOrdersNeedingAttention({}, "org-1");
+
+  assertEquals(jobs.map((entry: any) => entry.jobNumber), ["4953"], "Expected mapped bounded job headers.");
+  assertEquals(
+    snapshot.allocations.map((entry: any) => entry.allocationId),
+    ["allocation-safe"],
+    "Expected mapped bounded summary rows.",
+  );
+  assertEquals(attention, true, "Expected the boolean attention result.");
+  assertEquals(calls, [
+    {
+      fn: "api_acl_list_jobs_by_ids",
+      params: {
+        p_org_id: "org-1",
+        p_job_ids: ["11111111-1111-4111-8111-111111111111"],
+      },
+    },
+    {
+      fn: "api_acl_job_summary_snapshot",
+      params: {
+        p_org_id: "org-1",
+        p_job_ids: ["11111111-1111-4111-8111-111111111111"],
+        p_include_legacy: true,
+        p_legacy_job_numbers: ["4953"],
+        p_include_phases: false,
+      },
+    },
+    {
+      fn: "api_acl_has_film_orders_needing_attention",
+      params: { p_org_id: "org-1" },
+    },
+  ], "Expected exact authenticated bounded RPC calls.");
+});
+
 Deno.test("/boxes/receive canonicalization trims optional lot run and core type", async () => {
   const payload = await canonicalizeMutationPayloadForRoute({} as any, "org-1", "/boxes/receive", {
     boxId: "IL1-1234",
@@ -1020,6 +1094,93 @@ Deno.test("fetchWarehouseBoxRowsForInventory pages warehouse box reads past the 
     "Expected warehouse inventory to include rows from later pages.",
   );
   assertEquals(ranges, [[0, 2], [3, 5]], "Expected range pagination to continue until a short page.");
+});
+
+Deno.test("fetchWarehouseBoxRowsForInventory pushes exact status exclusions into PostgREST", async () => {
+  const filters: Array<[string, string, unknown]> = [];
+  const client = {
+    schema() {
+      return {
+        from() {
+          const query = {
+            select() {
+              return query;
+            },
+            eq(column: string, value: unknown) {
+              filters.push(["eq", column, value]);
+              return query;
+            },
+            neq(column: string, value: unknown) {
+              filters.push(["neq", column, value]);
+              return query;
+            },
+            in() {
+              return query;
+            },
+            order() {
+              return query;
+            },
+            range() {
+              return Promise.resolve({ data: [], error: null });
+            },
+          };
+          return query;
+        },
+      };
+    },
+  };
+
+  await fetchWarehouseBoxRowsForInventory(client, "org-1", ["IL1"], 1000, {
+    excludeStatuses: ["ZEROED", "RETIRED", "ZEROED"],
+  });
+  assertEquals(
+    filters,
+    [
+      ["eq", "org_id", "org-1"],
+      ["neq", "status", "ZEROED"],
+      ["neq", "status", "RETIRED"],
+    ],
+    "Expected inactive statuses to be removed before rows cross the database boundary.",
+  );
+});
+
+Deno.test("Edge scope enrichment batches canonical job headers", async () => {
+  const jobIds = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ];
+  const calls: string[] = [];
+  const response = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/caulk/transfers/list",
+    { warehouse: "ALL" },
+    {} as any,
+    {
+      rpcOrThrow: async () => jobIds.map((jobId, index) => ({
+        transfer_id: `TR-${index + 1}`,
+        job_id: jobId,
+        job_number: String(index + 1),
+        job_warehouse: "IL1",
+      })),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      integerOrZero: (value: unknown) => Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0,
+      listJobsByIds: async (_client: unknown, orgId: string, selectedIds: string[]) => {
+        calls.push(`batch:${orgId}:${selectedIds.length}`);
+        return selectedIds.map((id, index) => ({ id, sections: `Scope ${index + 1}` }));
+      },
+      findJobById: async () => {
+        throw new Error("Per-job lookup must not run when the batch reader is available.");
+      },
+    } as any,
+  );
+
+  assertEquals(calls, ["batch:org-1:2"], "Expected one canonical job-header batch.");
+  assertEquals(
+    (response.data as any).entries.map((entry: any) => entry.workScope),
+    ["Scope 1", "Scope 2"],
+    "Expected each batched header to enrich its matching row.",
+  );
 });
 
 Deno.test("buildPublicCaulkRequirementEntries applies unbound caulk coverage in stable requirement order", () => {

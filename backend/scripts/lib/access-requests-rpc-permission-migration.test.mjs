@@ -65,7 +65,7 @@ test('latest schema check guards access requests RPC execute permission', async 
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0193_allocation_preview_bounded_candidates\.sql/);
+  assert.match(schemaCheck, /0194_scoped_job_summary_reads\.sql/);
 
   assert.match(schemaCheck, /public\.api_list_access_requests\(uuid, text\)/);
   assert.match(schemaCheck, /'api_list_access_requests'/);
