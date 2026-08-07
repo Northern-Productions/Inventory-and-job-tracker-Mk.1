@@ -894,6 +894,60 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return mapRows(rows, mapDbJobRow);
   }
 
+  function mapJobNumberCandidates(value: unknown) {
+    return Array.from(
+      new Set(
+        (Array.isArray(value) ? value : [])
+          .map((entry) => deps.asTrimmedString(entry))
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  async function listJobSearchCandidateNumbers(
+    client: any,
+    orgId: string,
+    query: string,
+    lifecycleStatus: string,
+    warehouse?: unknown,
+  ) {
+    return mapJobNumberCandidates(
+      await deps.rpcOrThrow<unknown>(client, "api_acl_job_search_candidate_numbers", {
+        p_org_id: orgId,
+        p_query: query,
+        p_lifecycle_status: lifecycleStatus,
+        p_warehouse: deps.asTrimmedString(warehouse) || null,
+      }),
+    );
+  }
+
+  async function listJobCalendarCandidateNumbers(
+    client: any,
+    orgId: string,
+    rangeStart: string,
+    rangeEnd: string,
+    lifecycleStatus: string,
+    warehouse?: unknown,
+  ) {
+    return mapJobNumberCandidates(
+      await deps.rpcOrThrow<unknown>(client, "api_acl_job_calendar_candidate_numbers", {
+        p_org_id: orgId,
+        p_range_start: rangeStart,
+        p_range_end: rangeEnd,
+        p_lifecycle_status: lifecycleStatus,
+        p_warehouse: deps.asTrimmedString(warehouse) || null,
+      }),
+    );
+  }
+
+  async function listJobAttentionCandidateNumbers(client: any, orgId: string) {
+    return mapJobNumberCandidates(
+      await deps.rpcOrThrow<unknown>(client, "api_acl_job_attention_candidate_numbers", {
+        p_org_id: orgId,
+      }),
+    );
+  }
+
   async function loadJobSummarySnapshot(
     client: any,
     orgId: string,
@@ -926,6 +980,52 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       filmOrders: mapRows(Array.isArray(snapshot.filmOrders) ? snapshot.filmOrders : [], mapDbFilmOrderRow),
       phases: mapRows(Array.isArray(snapshot.phases) ? snapshot.phases : [], mapDbJobPhaseRow),
       requirements: mapRows(Array.isArray(snapshot.requirements) ? snapshot.requirements : [], mapDbRequirementRow),
+    };
+  }
+
+  async function loadBoxReservationSnapshot(
+    client: any,
+    orgId: string,
+    options: { boxIds?: string[]; allocationIds?: string[] } = {},
+  ) {
+    const boxIds = Array.from(
+      new Set(
+        (Array.isArray(options.boxIds) ? options.boxIds : [])
+          .map((entry) => deps.asTrimmedString(entry).toUpperCase())
+          .filter(Boolean),
+      ),
+    );
+    const allocationIds = Array.from(
+      new Set(
+        (Array.isArray(options.allocationIds) ? options.allocationIds : [])
+          .map((entry) => deps.asTrimmedString(entry))
+          .filter(Boolean),
+      ),
+    );
+    if (!boxIds.length && !allocationIds.length) {
+      return { selectedAllocations: [], allocations: [], boxes: [], jobs: [] };
+    }
+
+    const snapshot = await deps.rpcOrThrow<Record<string, unknown>>(client, "api_acl_box_reservation_snapshot", {
+      p_org_id: orgId,
+      p_box_ids: boxIds,
+      p_allocation_ids: allocationIds,
+    });
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      throw new Error("Box reservation snapshot did not return a valid object.");
+    }
+
+    return {
+      selectedAllocations: mapRows(
+        Array.isArray(snapshot.selectedAllocations) ? snapshot.selectedAllocations : [],
+        mapDbAllocationRow,
+      ),
+      allocations: mapRows(Array.isArray(snapshot.allocations) ? snapshot.allocations : [], mapDbAllocationRow),
+      boxes: await enrichBoxesWithInternalIds(
+        orgId,
+        mapRows(Array.isArray(snapshot.boxes) ? snapshot.boxes : [], mapDbBoxRow),
+      ),
+      jobs: mapRows(Array.isArray(snapshot.jobs) ? snapshot.jobs : [], mapDbJobRow),
     };
   }
 
@@ -1073,7 +1173,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     listJobs,
     listJobsByIds,
     listJobsByNumbers,
+    listJobSearchCandidateNumbers,
+    listJobCalendarCandidateNumbers,
+    listJobAttentionCandidateNumbers,
     loadJobSummarySnapshot,
+    loadBoxReservationSnapshot,
     hasFilmOrdersNeedingAttention,
     listJobsCalendar,
     findJobByNumber,

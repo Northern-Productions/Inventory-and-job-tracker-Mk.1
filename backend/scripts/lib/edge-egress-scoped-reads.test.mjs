@@ -48,11 +48,17 @@ test('search and calendar preselect candidates before loading job material graph
   const search = functionSource(source, 'async function buildJobsSearchResults', 'async function hasActiveJobsNeedingAllocation');
   const calendar = functionSource(source, 'async function buildJobsCalendar', 'async function buildJobDetail');
 
-  assert.match(search, /rankJobNumberSearchCandidates\(candidates/);
+  assert.match(search, /listJobSearchCandidateNumbers\(/);
+  assert.match(search, /listJobsByNumbers\(client, orgId, candidateJobNumbers\)/);
   assert.match(search, /buildJobsList\(client, orgId, 0, lifecycleFilter, candidateJobNumbers/);
+  assert.doesNotMatch(search, /listJobs\(client, orgId/);
+  assert.doesNotMatch(search, /loadJobSummarySnapshot\(client, orgId, \[\]/);
+  assert.match(calendar, /listJobCalendarCandidateNumbers\(/);
+  assert.match(calendar, /listJobsByNumbers\(client, orgId, candidateJobNumbers\)/);
   assert.match(calendar, /calendarEntryOverlapsRange\(entry, range\.startDate, range\.endDate\)/);
-  assert.match(calendar, /buildJobsList\(client, orgId, 0, lifecycleFilter, Array\.from\(candidateJobNumbers\)/);
-  assert.match(calendar, /preloadedPhases:/);
+  assert.match(calendar, /buildJobsList\(client, orgId, 0, lifecycleFilter, candidateJobNumbers/);
+  assert.doesNotMatch(calendar, /listJobPhases\(client, orgId\)/);
+  assert.doesNotMatch(calendar, /loadJobSummarySnapshot\(client, orgId, \[\]/);
 });
 
 test('film-order and history reads batch headers and reuse already-loaded rows', async () => {
@@ -90,5 +96,30 @@ test('attention and inventory filters return only necessary state', async () => 
   assert.match(apiSource, /excludeStatuses: \["ZEROED", "RETIRED"\]/);
   assert.match(apiSource, /query = query\.neq\("status", excludedStatus\)/);
   assert.match(repositorySource, /api_acl_has_film_orders_needing_attention/);
+  assert.match(repositorySource, /api_acl_job_attention_candidate_numbers/);
+  assert.match(apiSource, /listJobAttentionCandidateNumbers\(client, orgId\)/);
   assert.match(attentionSource, /deps\.hasFilmOrdersNeedingAttention/);
+});
+
+test('duplicate checks and mutation response reloads use scoped batch reads', async () => {
+  const [apiSource, readSource, repositorySource, mutationSource] = await Promise.all([
+    readFile(apiHandlerUrl, 'utf8'),
+    readFile(readHandlersUrl, 'utf8'),
+    readFile(repositoryUrl, 'utf8'),
+    readFile(new URL('../../../supabase/functions/_shared/routes/mutationHandlers.ts', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(readSource, /deps\.listJobsByNumbers\(client, orgId, \[jobNumber\]\)/);
+  assert.match(repositorySource, /api_acl_box_reservation_snapshot/);
+  assert.match(apiSource, /loadBoxReservationSnapshot,/);
+
+  const allocationReload = functionSource(
+    mutationSource,
+    'async function buildPublicAllocationsWithReservationMetrics',
+    'async function clearStagedPickupForActiveRequirements'
+  );
+  assert.match(allocationReload, /deps\.loadBoxReservationSnapshot\(client, orgId/);
+  assert.doesNotMatch(allocationReload, /deps\.listJobs\(/);
+  assert.doesNotMatch(allocationReload, /deps\.findBoxById\(/);
+  assert.doesNotMatch(allocationReload, /deps\.listAllocationsByBox\(/);
 });

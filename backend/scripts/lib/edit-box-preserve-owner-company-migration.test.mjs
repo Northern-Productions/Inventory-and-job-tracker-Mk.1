@@ -77,7 +77,7 @@ test('add box owner requirement migration restores owner before save path', asyn
 test('schema latest guard requires edit and add box owner semantics', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /0194_scoped_job_summary_reads\.sql/);
+  assert.match(schemaCheck, /0195_residual_efficiency_scoped_reads\.sql/);
   assert.match(schemaCheck, /public\.api_boxes_add\(uuid, text, jsonb\)/);
   assert.match(
     schemaCheck,

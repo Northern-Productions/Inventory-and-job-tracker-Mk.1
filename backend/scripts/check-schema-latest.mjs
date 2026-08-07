@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0194_scoped_job_summary_reads.sql';
+const LATEST_MIGRATION = '0195_residual_efficiency_scoped_reads.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -142,6 +142,10 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_list_jobs_by_numbers(uuid, text[])' },
   { kind: 'function', signature: 'public.api_acl_job_summary_snapshot(uuid, uuid[], boolean, text[], boolean)' },
   { kind: 'function', signature: 'public.api_acl_has_film_orders_needing_attention(uuid)' },
+  { kind: 'function', signature: 'public.api_acl_job_search_candidate_numbers(uuid, text, text, text)' },
+  { kind: 'function', signature: 'public.api_acl_job_calendar_candidate_numbers(uuid, date, date, text, text)' },
+  { kind: 'function', signature: 'public.api_acl_job_attention_candidate_numbers(uuid)' },
+  { kind: 'function', signature: 'public.api_acl_box_reservation_snapshot(uuid, text[], text[])' },
   { kind: 'function', signature: 'public.api_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocations_remove_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.api_acl_boxes_resolve_checkout_allocations_pre_0191(uuid, text, jsonb)' },
@@ -417,6 +421,49 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "and f.status::text = 'FILM_ORDER'",
       'and f.job_date is not null',
       'and f.remaining_to_order_feet > 0'
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_job_search_candidate_numbers(uuid, text, text, text)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'read');",
+      "perform app_api.require_effective_feature_access(p_org_id, 'film_orders', 'read');",
+      "a.job_id is null",
+      "f.job_id is null"
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_job_calendar_candidate_numbers(uuid, date, date, text, text)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      'p.install_date <= p_range_end',
+      'end >= p_range_start',
+      'j.due_date between p_range_start and p_range_end'
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_job_attention_candidate_numbers(uuid)',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      "j.lifecycle_status::text = 'ACTIVE'",
+      'p.install_date is not null'
+    ],
+    excludes: ['insert into', 'update app.', 'delete from']
+  },
+  {
+    signature: 'public.api_acl_box_reservation_snapshot(uuid, text[], text[])',
+    includes: [
+      "perform app_api.require_effective_feature_access(p_org_id, 'inventory', 'read');",
+      "perform app_api.require_effective_feature_access(p_org_id, 'allocations', 'read');",
+      "perform app_api.require_effective_feature_access(p_org_id, 'jobs', 'read');",
+      "'selectedAllocations', v_selected_allocations",
+      "'allocations', v_allocations",
+      "'boxes', v_boxes",
+      "'jobs', v_jobs"
     ],
     excludes: ['insert into', 'update app.', 'delete from']
   },
@@ -1829,6 +1876,10 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_acl_list_jobs_by_numbers(uuid, text[])',
   'public.api_acl_job_summary_snapshot(uuid, uuid[], boolean, text[], boolean)',
   'public.api_acl_has_film_orders_needing_attention(uuid)',
+  'public.api_acl_job_search_candidate_numbers(uuid, text, text, text)',
+  'public.api_acl_job_calendar_candidate_numbers(uuid, date, date, text, text)',
+  'public.api_acl_job_attention_candidate_numbers(uuid)',
+  'public.api_acl_box_reservation_snapshot(uuid, text[], text[])',
 ];
 
 function sqlLiteral(value) {
