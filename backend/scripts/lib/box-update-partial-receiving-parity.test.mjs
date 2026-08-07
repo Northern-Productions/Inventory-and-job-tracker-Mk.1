@@ -149,7 +149,7 @@ test('schema latest guard catches stale box update partial receiving function dr
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0194_scoped_job_summary_reads\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0195_residual_efficiency_scoped_reads\.sql';/);
 
   assert.match(requiredFunctionSemantics, /signature: 'app_api\.build_box_from_payload\(uuid, jsonb, text\)'/);
   assert.match(requiredFunctionSemantics, /v_use_partial_receiving_metrics boolean := false;/);

@@ -980,10 +980,11 @@ const readHandlers: Record<string, ReadHandler> = {
       "JobNumber"
     );
     const workScopeInput = getJobDuplicateWorkScopeInput(params);
-    const entries = await deps.listJobs(client, orgId);
-    const sameJobNumberJobs = entries.filter(
-      (entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber
-    );
+    const sameJobNumberJobs = deps.listJobsByNumbers
+      ? await deps.listJobsByNumbers(client, orgId, [jobNumber])
+      : (await deps.listJobs(client, orgId)).filter(
+        (entry: any) => deps.asTrimmedString(entry?.jobNumber) === jobNumber
+      );
     return ok(buildJobDuplicateCheckResult({
       jobNumber,
       workScopeInput,

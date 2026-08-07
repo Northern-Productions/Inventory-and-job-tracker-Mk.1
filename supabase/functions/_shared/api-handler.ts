@@ -1712,7 +1712,11 @@ const {
   listJobs,
   listJobsByIds,
   listJobsByNumbers,
+  listJobSearchCandidateNumbers,
+  listJobCalendarCandidateNumbers,
+  listJobAttentionCandidateNumbers,
   loadJobSummarySnapshot,
+  loadBoxReservationSnapshot,
   hasFilmOrdersNeedingAttention,
   listJobsCalendar,
   findJobByNumber,
@@ -7311,30 +7315,17 @@ async function buildJobsSearchResults(
   const lifecycleFilter = normalizeJobLifecycleFilter(lifecycleStatus) || "ACTIVE";
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
-  const [jobs, legacySnapshot] = await Promise.all([
-    listJobs(client, orgId, { warehouse: warehouseFilter }),
-    loadJobSummarySnapshot(client, orgId, [], { includeLegacy: true, includePhases: false }),
-  ]);
-  const legacyJobNumbers = new Set<string>();
-  collectLegacyJobNumbersFromRows(legacySnapshot.allocations, legacyJobNumbers, new Set());
-  collectLegacyJobNumbersFromRows(legacySnapshot.filmOrders, legacyJobNumbers, new Set());
-  collectLegacyJobNumbersFromRows(legacySnapshot.requirements, legacyJobNumbers, new Set());
-  const candidates = [
-    ...jobs.filter((job) => normalizeJobLifecycleStatus(job?.lifecycleStatus) === lifecycleFilter),
-    ...(lifecycleFilter === "ACTIVE"
-      ? Array.from(legacyJobNumbers, (jobNumber) => ({ jobNumber }))
-      : []),
-  ];
-  const candidateJobNumbers = Array.from(
-    new Set(
-      rankJobNumberSearchCandidates(candidates, normalizedQueryDigits, {
-        compareWithinMatch: compareJobsListEntries,
-      }).map((entry) => getEntryJobNumber(entry)).filter(Boolean),
-    ),
+  const candidateJobNumbers = await listJobSearchCandidateNumbers(
+    client,
+    orgId,
+    normalizedQueryDigits,
+    lifecycleFilter,
+    warehouseFilter,
   );
   if (!candidateJobNumbers.length) {
     return [];
   }
+  const jobs = await listJobsByNumbers(client, orgId, candidateJobNumbers);
   const entries = await buildJobsList(client, orgId, 0, lifecycleFilter, candidateJobNumbers, {
     warehouse: warehouseFilter,
     preloadedJobs: jobs,
@@ -7346,7 +7337,15 @@ async function buildJobsSearchResults(
 }
 
 async function hasActiveJobsNeedingAllocationForAttentionSummary(client: any, orgId: string) {
-  const activeJobs = await buildJobsList(client, orgId, 0, "ACTIVE", [], { snapshotConcurrency: 2 });
+  const candidateJobNumbers = await listJobAttentionCandidateNumbers(client, orgId);
+  if (!candidateJobNumbers.length) {
+    return false;
+  }
+  const jobs = await listJobsByNumbers(client, orgId, candidateJobNumbers);
+  const activeJobs = await buildJobsList(client, orgId, 0, "ACTIVE", candidateJobNumbers, {
+    preloadedJobs: jobs,
+    snapshotConcurrency: 2,
+  });
   return activeJobs.some((job) => {
     const status = asTrimmedString((job as Record<string, unknown>).status).toUpperCase();
     return Boolean(asTrimmedString((job as Record<string, unknown>).installDate)) &&
@@ -7450,56 +7449,22 @@ async function buildJobsCalendar(
       }
     : getCalendarMonthRange(normalizedAnchorDate);
   const warehouseFilter = normalizeWarehouseFilter(options.warehouse);
-  const [jobs, phases, legacySnapshot] = await Promise.all([
-    listJobs(client, orgId, { warehouse: warehouseFilter }),
-    listJobPhases(client, orgId),
-    loadJobSummarySnapshot(client, orgId, [], { includeLegacy: true, includePhases: false }),
-  ]);
-  const phasesByJobId = groupEntriesByCanonicalJobId(phases);
-  const candidateJobNumbers = new Set<string>();
-  for (const job of jobs) {
-    if (normalizeJobLifecycleStatus(job?.lifecycleStatus) !== lifecycleFilter) {
-      continue;
-    }
-    const phaseEntries = phasesByJobId[getEntryJobId(job)] || [];
-    const calendarEntries = buildPhaseCalendarEntries([{ ...job, phases: phaseEntries }]);
-    if (calendarEntries.some((entry) => calendarEntryOverlapsRange(entry, range.startDate, range.endDate))) {
-      candidateJobNumbers.add(getEntryJobNumber(job));
-    }
-  }
-  if (lifecycleFilter === "ACTIVE") {
-    const legacyAllocationsByJob = groupEntriesByJobNumberFallback(legacySnapshot.allocations, { includeScopedRows: true });
-    const legacyFilmOrdersByJob = groupEntriesByJobNumberFallback(legacySnapshot.filmOrders, { includeScopedRows: true });
-    const legacyJobNumbers = new Set([
-      ...Object.keys(legacyAllocationsByJob),
-      ...Object.keys(legacyFilmOrdersByJob),
-    ]);
-    for (const jobNumber of legacyJobNumbers) {
-      const header = buildLegacyJobHeaderFromData(
-        jobNumber,
-        legacyAllocationsByJob[jobNumber] || [],
-        legacyFilmOrdersByJob[jobNumber] || [],
-      );
-      const calendarEntries = buildPhaseCalendarEntries([header]);
-      if (calendarEntries.some((entry) => calendarEntryOverlapsRange(entry, range.startDate, range.endDate))) {
-        candidateJobNumbers.add(jobNumber);
-      }
-    }
-  }
-  if (!candidateJobNumbers.size) {
+  const candidateJobNumbers = await listJobCalendarCandidateNumbers(
+    client,
+    orgId,
+    range.startDate,
+    range.endDate,
+    lifecycleFilter,
+    warehouseFilter,
+  );
+  if (!candidateJobNumbers.length) {
     return [];
   }
-  const selectedJobIds = new Set(
-    jobs
-      .filter((job) => candidateJobNumbers.has(getEntryJobNumber(job)))
-      .map((job) => getEntryJobId(job))
-      .filter(Boolean),
-  );
+  const jobs = await listJobsByNumbers(client, orgId, candidateJobNumbers);
   const entries = buildPhaseCalendarEntries(
-    await buildJobsList(client, orgId, 0, lifecycleFilter, Array.from(candidateJobNumbers), {
+    await buildJobsList(client, orgId, 0, lifecycleFilter, candidateJobNumbers, {
       warehouse: warehouseFilter,
       preloadedJobs: jobs,
-      preloadedPhases: phases.filter((phase) => selectedJobIds.has(getEntryJobId(phase))),
     }),
   );
   if (normalizedView === "week") {
@@ -10210,6 +10175,7 @@ async function dispatchMutation(
     normalizeJobNumberDigits,
     normalizeJobLifecycleStatus,
     listAllocationsByIds,
+    loadBoxReservationSnapshot,
     toPublicAllocation,
     findFilmOrderById,
     findPlannerSuppressionRequirementById,
@@ -10387,6 +10353,5 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
     });
   }
 }
-
 
 

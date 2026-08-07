@@ -28,7 +28,7 @@ test('legacy check-in reconciliation migration is mirrored and schema-guarded', 
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0194_scoped_job_summary_reads\.sql/);
+  assert.match(schemaCheck, /0195_residual_efficiency_scoped_reads\.sql/);
 
   assert.match(schemaCheck, /legacy_match\.requirement_match_count = 1/);
   assert.match(schemaCheck, /Consumed during film box check-in after actual LF was recorded\./);

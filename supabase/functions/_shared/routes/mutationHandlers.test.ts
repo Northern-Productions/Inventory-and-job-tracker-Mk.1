@@ -65,6 +65,12 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     normalizeJobNumberDigits: (value: unknown) => asTrimmedString(value).replace(/[^0-9]/g, ""),
     normalizeJobLifecycleStatus: () => "ACTIVE",
     listAllocationsByIds: async () => [],
+    loadBoxReservationSnapshot: async () => ({
+      selectedAllocations: [],
+      allocations: [],
+      boxes: [],
+      jobs: [],
+    }),
     toPublicAllocation: () => ({}),
     findFilmOrderById: async () => null,
     findPlannerSuppressionRequirementById: async () => null,
@@ -307,6 +313,7 @@ Deno.test("film box transfer mutations use the canonical atomic SQL RPCs", async
 Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and request orgId is stripped", async () => {
   const rpcPayloads: Array<Record<string, unknown>> = [];
   const findJobCalls: Array<Record<string, unknown>> = [];
+  const reservationSnapshotCalls: Array<Record<string, unknown>> = [];
 
   const response = await dispatchMutationWithHandlers(
     {},
@@ -338,12 +345,36 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
       ) => {
         rpcPayloads.push({ fn, orgId, actor, payload });
         return {
-          allocationIds: [],
+          allocationIds: ["allocation-test-1"],
           transferIds: ["TRF-TEST"],
           remainingUncoveredFeet: 0,
           warnings: [],
         };
       },
+      loadBoxReservationSnapshot: async (
+        _client: unknown,
+        orgId: string,
+        options: { allocationIds?: string[] },
+      ) => {
+        reservationSnapshotCalls.push({ orgId, options });
+        const allocation = {
+          allocationId: "allocation-test-1",
+          boxId: "IL1-100",
+          allocatedFeet: 10,
+          installDate: "",
+        };
+        return {
+          selectedAllocations: [allocation],
+          allocations: [allocation],
+          boxes: [],
+          jobs: [],
+        };
+      },
+      toPublicAllocation: (allocation: Record<string, unknown>) => ({
+        allocationId: allocation.allocationId,
+        boxId: allocation.boxId,
+        allocatedFeet: allocation.allocatedFeet,
+      }),
     }),
   );
 
@@ -371,9 +402,20 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
     "Expected canonical jobId to be passed to SQL RPC only after validation.",
   );
   assertEquals(
+    reservationSnapshotCalls,
+    [{ orgId: "org-from-auth", options: { allocationIds: ["allocation-test-1"] } }],
+    "Expected one batched reservation response reload for every returned allocation.",
+  );
+  assertEquals(
     response.data,
     {
-      allocations: [],
+      allocations: [{
+        allocationId: "allocation-test-1",
+        boxId: "IL1-100",
+        allocatedFeet: 10,
+        backedPhysicalFeet: 10,
+        reservationState: "WITHOUT_INSTALL_DATE",
+      }],
       filmOrder: null,
       remainingUncoveredFeet: 0,
       transferIds: ["TRF-TEST"],
@@ -2085,7 +2127,7 @@ Deno.test("caulk checkout/check-in preserve row-id payloads while stripping requ
 
 Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloads public boxes", async () => {
   const rpcCalls: Array<Record<string, unknown>> = [];
-  const reloadedBoxIds: string[] = [];
+  const snapshotBoxIds: string[][] = [];
 
   const response = await dispatchMutationWithHandlers(
     {},
@@ -2106,15 +2148,24 @@ Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloa
           logIds: ["LOG-100", "LOG-101"],
         };
       },
-      findBoxById: async (_client: unknown, _orgId: string, boxId: string) => {
-        reloadedBoxIds.push(boxId);
+      loadBoxReservationSnapshot: async (
+        _client: unknown,
+        _orgId: string,
+        options: { boxIds?: string[] },
+      ) => {
+        snapshotBoxIds.push(options.boxIds || []);
         return {
-          id: `record-${boxId}`,
-          boxId,
-          status: "IN_STOCK",
-          hasLabel: true,
-          feetAvailable: 50,
-          initialFeet: 50,
+          selectedAllocations: [],
+          allocations: [],
+          boxes: (options.boxIds || []).map((boxId) => ({
+            id: `record-${boxId}`,
+            boxId,
+            status: "IN_STOCK",
+            hasLabel: true,
+            feetAvailable: 50,
+            initialFeet: 50,
+          })),
+          jobs: [],
         };
       },
       toPublicBox: (box: Record<string, unknown>) => ({
@@ -2136,7 +2187,7 @@ Deno.test("/boxes/labels/mark-printed marks selected boxes through SQL and reloa
     ],
     "Expected the label-print route to delegate to the SQL ACL RPC.",
   );
-  assertEquals(reloadedBoxIds, ["IL1-100", "IL1-101"], "Expected updated boxes to be reloaded.");
+  assertEquals(snapshotBoxIds, [["IL1-100", "IL1-101"]], "Expected one batched updated-box reload.");
   assertEquals(
     response,
     {

@@ -54,7 +54,7 @@ test('film weight profiles migration stays mirrored and schema-guarded', async (
     /v_old_weight_source text := '  v_measured_roll_weight_lbs := coalesce\(v_box\.last_roll_weight_lbs, v_box\.initial_weight_lbs\);';/
   );
 
-  assert.match(schemaCheck, /0194_scoped_job_summary_reads\.sql/);
+  assert.match(schemaCheck, /0195_residual_efficiency_scoped_reads\.sql/);
 
   assert.match(schemaCheck, /signature: 'app\.film_weight_profiles'/);
   assert.match(schemaCheck, /signature: 'app\.film_weight_samples'/);

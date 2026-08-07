@@ -138,7 +138,7 @@ test('0192 preserves the canonical public contract and private helper grants', a
 test('schema latest retains the 0192 bounded allocator contract after 0193', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0194_scoped_job_summary_reads\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0195_residual_efficiency_scoped_reads\.sql';/);
   assert.match(schemaLatest, /app_api\.allocation_apply_box_states_0192\(uuid, text\[\]\)/);
   assert.match(schemaLatest, /app_api\.build_allocation_apply_plan_0192\(uuid, text, jsonb\)/);
   assert.match(schemaLatest, /v_plan := app_api\.build_allocation_apply_plan_0192/);
