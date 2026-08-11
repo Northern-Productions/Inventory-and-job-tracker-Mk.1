@@ -4,6 +4,7 @@ import {
   buildJobsList,
   buildPublicCaulkRequirementEntries,
   buildPublicJobRequirementEntries,
+  buildCurrentFilmRequirementContext,
   buildJobDetailById,
   canonicalizeMutationPayloadForRoute,
   fetchWarehouseBoxRowsForInventory,
@@ -664,14 +665,20 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     width_in: 60,
     requested_feet: 100,
     covered_feet: 0,
-    ordered_feet: 0,
-    remaining_to_order_feet: 100,
-    status: "FILM_ORDER",
+    linked_feet: 125,
+    ordered_feet: 125,
+    received_feet: 0,
+    on_the_way_feet: 125,
+    remaining_to_order_feet: 0,
+    order_overage_feet: 25,
+    completed_feet: 0,
+    order_ledger_version: "film-order-ledger-v1",
+    status: "FILM_ON_THE_WAY",
     stored_status: "FILM_ORDER",
-    display_status: "FULFILLED_COVERED",
-    need_source: "CURRENT_REQUIREMENT",
+    display_status: "FILM_ON_THE_WAY",
+    need_source: "ORDER_REQUEST",
     needed_feet: 100,
-    fulfilled_feet: 125,
+    fulfilled_feet: 0,
     remaining_feet: 0,
     overage_feet: 25,
     source_box_id: "",
@@ -725,14 +732,31 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     },
     {
       storedStatus: "FILM_ORDER",
-      displayStatus: "FULFILLED_COVERED",
-      needSource: "CURRENT_REQUIREMENT",
+      displayStatus: "FILM_ON_THE_WAY",
+      needSource: "ORDER_REQUEST",
       neededFeet: 100,
-      fulfilledFeet: 125,
+      fulfilledFeet: 0,
       remainingFeet: 0,
       overageFeet: 25,
     },
-    "Expected Edge public film order mapper to preserve canonical list coverage fields.",
+    "Expected Edge public film order mapper to preserve the canonical order ledger aliases.",
+  );
+  assertEquals(
+    {
+      linkedFeet: repositories.toPublicFilmOrder(canonicalEntry, []).linkedFeet,
+      receivedFeet: repositories.toPublicFilmOrder(canonicalEntry, []).receivedFeet,
+      onTheWayFeet: repositories.toPublicFilmOrder(canonicalEntry, []).onTheWayFeet,
+      orderOverageFeet: repositories.toPublicFilmOrder(canonicalEntry, []).orderOverageFeet,
+      orderLedgerVersion: repositories.toPublicFilmOrder(canonicalEntry, []).orderLedgerVersion,
+    },
+    {
+      linkedFeet: 125,
+      receivedFeet: 0,
+      onTheWayFeet: 125,
+      orderOverageFeet: 25,
+      orderLedgerVersion: "film-order-ledger-v1",
+    },
+    "Expected Edge public film order mapper to preserve explicit 0197 ledger fields.",
   );
   assertEquals(
     Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "jobId"),
@@ -750,9 +774,19 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
     "Expected Edge public film order mapper to omit sections for legacy rows.",
   );
   assertEquals(
-    Object.prototype.hasOwnProperty.call(repositories.toPublicFilmOrder(legacyEntry, []), "displayStatus"),
-    false,
-    "Expected Edge public film order mapper to preserve legacy rows without canonical list fields.",
+    {
+      displayStatus: repositories.toPublicFilmOrder(legacyEntry, []).displayStatus,
+      needSource: repositories.toPublicFilmOrder(legacyEntry, []).needSource,
+      neededFeet: repositories.toPublicFilmOrder(legacyEntry, []).neededFeet,
+      remainingFeet: repositories.toPublicFilmOrder(legacyEntry, []).remainingFeet,
+    },
+    {
+      displayStatus: "FILM_ORDER",
+      needSource: "ORDER_REQUEST",
+      neededFeet: 100,
+      remainingFeet: 100,
+    },
+    "Expected Edge public film order mapper to derive a compatible order-scoped legacy fallback.",
   );
 });
 
@@ -1371,6 +1405,94 @@ Deno.test("buildPublicJobRequirementEntries credits only unambiguous stale same-
       { requirementId: "req-60", allocatedFeet: 0, remainingFeet: 20 },
     ],
     "Expected ambiguous stale requirement coverage to stay uncredited.",
+  );
+});
+
+Deno.test("current Film Order requirement context stays dynamic and counts only unreceived matching capacity", () => {
+  const requirement = {
+    requirementId: "requirement-current",
+    manufacturer: "3M",
+    filmName: "Security",
+    widthIn: 60,
+    requiredFeet: 36,
+    allocatedFeet: 24,
+    remainingFeet: 12,
+    status: "ACTIVE",
+  };
+  const orders = [
+    {
+      filmOrderId: "order-a",
+      requirementId: "requirement-current",
+      manufacturer: "3M",
+      filmName: "Security",
+      widthIn: 60,
+      requestedFeet: 12,
+      onTheWayFeet: 6,
+      status: "FILM_ORDER",
+    },
+    {
+      filmOrderId: "order-b",
+      requirementId: "requirement-current",
+      manufacturer: "3M",
+      filmName: "Security",
+      widthIn: 120,
+      requestedFeet: 3,
+      onTheWayFeet: 3,
+      status: "FILM_ON_THE_WAY",
+    },
+    {
+      filmOrderId: "cancelled",
+      requirementId: "requirement-current",
+      manufacturer: "3M",
+      filmName: "Security",
+      widthIn: 60,
+      requestedFeet: 100,
+      onTheWayFeet: 100,
+      status: "CANCELLED",
+    },
+  ];
+
+  assertEquals(
+    buildCurrentFilmRequirementContext(requirement, orders),
+    {
+      requirementId: "requirement-current",
+      requiredFeet: 36,
+      allocatedFeet: 24,
+      onTheWayFeet: 12,
+      stillShortFeet: 0,
+      status: "ACTIVE",
+    },
+    "Expected partial sequential orders and width conversion to reuse current requirement arithmetic.",
+  );
+  assertEquals(
+    buildCurrentFilmRequirementContext(
+      { ...requirement, requiredFeet: 50, remainingFeet: 26 },
+      orders,
+    ),
+    {
+      requirementId: "requirement-current",
+      requiredFeet: 50,
+      allocatedFeet: 24,
+      onTheWayFeet: 12,
+      stillShortFeet: 14,
+      status: "ACTIVE",
+    },
+    "Expected requirement increases to change only current context.",
+  );
+  assertEquals(
+    buildCurrentFilmRequirementContext(
+      { ...requirement, requiredFeet: 30, remainingFeet: 6 },
+      orders,
+    ),
+    {
+      requirementId: "requirement-current",
+      requiredFeet: 30,
+      allocatedFeet: 24,
+      onTheWayFeet: 12,
+      stillShortFeet: 0,
+      status: "ACTIVE",
+    },
+    "Expected requirement decreases to leave historical order quantities untouched.",
   );
 });
 
@@ -2396,7 +2518,7 @@ Deno.test("/jobs/get-by-id implementation does not delegate to job-number detail
 
   for (const expectedCall of [
     "listAllocationsByJobIdDirect",
-    "listFilmOrdersByJobIdDirect",
+    "listFilmOrdersByJobId",
     "listJobRequirementsByJobIdDirect",
     "listJobCaulkRequirementsByJobIdDirect",
     "listCaulkJobAllocationsByJobIdDirect",

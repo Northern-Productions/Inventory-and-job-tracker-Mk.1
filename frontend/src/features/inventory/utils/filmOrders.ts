@@ -7,7 +7,10 @@ import type {
 
 type FilmOrderAttentionEntry = Pick<FilmOrderEntry, 'status'> &
   Partial<
-    Pick<FilmOrderEntry, 'displayStatus' | 'remainingFeet' | 'remainingToOrderFeet' | 'installDate'>
+    Pick<
+      FilmOrderEntry,
+      'displayStatus' | 'remainingFeet' | 'remainingToOrderFeet' | 'installDate'
+    >
   >;
 type FilmOrderLinkedBoxesEntry = Partial<Pick<FilmOrderEntry, 'linkedBoxes'>>;
 
@@ -15,6 +18,7 @@ export const FILM_ORDER_LINKED_BOX_IDS_EMPTY_LABEL = '--';
 
 const FILM_ORDER_DISPLAY_STATUS_SET = new Set<FilmOrderDisplayStatus>([
   'FILM_ORDER',
+  'FILM_ON_THE_WAY',
   'INCOMPLETE',
   'FULFILLED_COVERED',
   'MANUALLY_FULFILLED',
@@ -229,27 +233,75 @@ export function getFilmOrderDisplayStatus(
 export function getFilmOrderRemainingFeet(
   order: Partial<Pick<FilmOrderEntry, 'remainingFeet' | 'remainingToOrderFeet'>>
 ): number {
-  const effectiveRemainingFeet = Number(order.remainingFeet);
-  if (Number.isFinite(effectiveRemainingFeet)) {
-    return Math.max(effectiveRemainingFeet, 0);
+  const storedRemainingFeet = Number(order.remainingToOrderFeet);
+  if (Number.isFinite(storedRemainingFeet)) {
+    return Math.max(storedRemainingFeet, 0);
   }
 
-  const storedRemainingFeet = Number(order.remainingToOrderFeet);
-  return Number.isFinite(storedRemainingFeet) ? Math.max(storedRemainingFeet, 0) : 0;
+  const compatibilityRemainingFeet = Number(order.remainingFeet);
+  return Number.isFinite(compatibilityRemainingFeet) ? Math.max(compatibilityRemainingFeet, 0) : 0;
+}
+
+export function getFilmOrderLinkedFeet(
+  order: Partial<Pick<FilmOrderEntry, 'linkedFeet' | 'orderedFeet'>>
+): number {
+  const linkedFeet = Number(order.linkedFeet);
+  if (Number.isFinite(linkedFeet)) {
+    return Math.max(linkedFeet, 0);
+  }
+
+  const compatibilityOrderedFeet = Number(order.orderedFeet);
+  return Number.isFinite(compatibilityOrderedFeet) ? Math.max(compatibilityOrderedFeet, 0) : 0;
+}
+
+export function getFilmOrderReceivedFeet(
+  order: Partial<Pick<FilmOrderEntry, 'receivedFeet' | 'coveredFeet'>>
+): number {
+  const receivedFeet = Number(order.receivedFeet);
+  return Number.isFinite(receivedFeet) ? Math.max(receivedFeet, 0) : 0;
+}
+
+export function getFilmOrderOnTheWayFeet(
+  order: Partial<Pick<FilmOrderEntry, 'onTheWayFeet' | 'linkedFeet' | 'orderedFeet' | 'receivedFeet'>>
+): number {
+  const onTheWayFeet = Number(order.onTheWayFeet);
+  if (Number.isFinite(onTheWayFeet)) {
+    return Math.max(onTheWayFeet, 0);
+  }
+
+  return Math.max(getFilmOrderLinkedFeet(order) - getFilmOrderReceivedFeet(order), 0);
+}
+
+export function getFilmOrderOverageFeet(
+  order: Partial<Pick<FilmOrderEntry, 'orderOverageFeet' | 'overageFeet'>>
+): number {
+  const orderOverageFeet = Number(order.orderOverageFeet);
+  if (Number.isFinite(orderOverageFeet)) {
+    return Math.max(orderOverageFeet, 0);
+  }
+
+  const compatibilityOverageFeet = Number(order.overageFeet);
+  return Number.isFinite(compatibilityOverageFeet) ? Math.max(compatibilityOverageFeet, 0) : 0;
 }
 
 export function canOrderMoreFilmForFilmOrder(
-  order: Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>
+  order: Pick<FilmOrderEntry, 'status'> &
+    Partial<Pick<FilmOrderEntry, 'displayStatus' | 'remainingFeet' | 'remainingToOrderFeet'>>
 ): boolean {
   const displayStatus = getFilmOrderDisplayStatus(order);
-  return order.status === 'FILM_ORDER' && (displayStatus === 'FILM_ORDER' || displayStatus === 'INCOMPLETE');
+  return (
+    order.status === 'FILM_ORDER' &&
+    displayStatus === 'FILM_ORDER' &&
+    getFilmOrderRemainingFeet(order) > 0
+  );
 }
 
 export function canManuallyFulfillFilmOrder(
-  order: Pick<FilmOrderEntry, 'status'> & Partial<Pick<FilmOrderEntry, 'displayStatus'>>
+  order: Pick<FilmOrderEntry, 'status'> &
+    Partial<Pick<FilmOrderEntry, 'displayStatus' | 'remainingFeet' | 'remainingToOrderFeet'>>
 ): boolean {
   const displayStatus = getFilmOrderDisplayStatus(order);
-  return displayStatus === 'FILM_ORDER' || displayStatus === 'INCOMPLETE';
+  return displayStatus === 'FILM_ORDER' && getFilmOrderRemainingFeet(order) > 0;
 }
 
 export function addOptimisticLinkedBoxToFilmOrder(
@@ -289,8 +341,12 @@ export function addOptimisticLinkedBoxToFilmOrder(
 
   return {
     ...order,
+    linkedFeet: nextOrderedFeet,
     orderedFeet: nextOrderedFeet,
+    receivedFeet: Math.max(0, Number(order.receivedFeet || 0)),
+    onTheWayFeet: Math.max(nextOrderedFeet - Math.max(0, Number(order.receivedFeet || 0)), 0),
     remainingToOrderFeet: nextRemainingToOrderFeet,
+    orderOverageFeet: Math.max(nextOrderedFeet - Math.max(0, Number(order.requestedFeet || 0)), 0),
     status: derivedState.status,
     resolvedAt: derivedState.resolvedAt,
     resolvedBy: derivedState.resolvedBy,
@@ -335,6 +391,14 @@ export function markFilmOrderLinkedBoxReceived(
 
   return {
     ...order,
+    receivedFeet: nextLinkedBoxes.reduce(
+      (sum, entry) => sum + (entry.isReceived ? Math.max(0, Number(entry.orderedFeet || 0)) : 0),
+      0
+    ),
+    onTheWayFeet: nextLinkedBoxes.reduce(
+      (sum, entry) => sum + (!entry.isReceived ? Math.max(0, Number(entry.orderedFeet || 0)) : 0),
+      0
+    ),
     status: derivedState.status,
     resolvedAt: derivedState.resolvedAt,
     resolvedBy: derivedState.resolvedBy,

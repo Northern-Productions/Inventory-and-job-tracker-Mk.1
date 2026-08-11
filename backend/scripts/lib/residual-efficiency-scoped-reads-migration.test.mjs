@@ -91,7 +91,7 @@ test('new RPCs remain authenticated-only and preserve feature ACLs', async () =>
 test('latest schema guard requires migration 0195 and every residual read RPC', async () => {
   const schemaGuard = await readFile(schemaGuardUrl, 'utf8');
 
-  assert.match(schemaGuard, /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/);
+  assert.match(schemaGuard, /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/);
   for (const signature of signatures) {
     assert.ok(schemaGuard.includes(signature), `Expected schema guard coverage for ${signature}.`);
   }

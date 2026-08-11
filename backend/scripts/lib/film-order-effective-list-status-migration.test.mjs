@@ -74,14 +74,14 @@ test('effective Film Order list remains a scoped batched read behind the existin
   assert.doesNotMatch(migration, /\b(?:insert into|update app\.|delete from|truncate|execute format)\b/i);
 });
 
-test('latest schema guard requires migration 0196 and canonical Film Order list semantics', async () => {
+test('latest schema guard preserves the 0196 contract beneath the 0197 successor', async () => {
   const schemaGuard = await readFile(schemaGuardUrl, 'utf8');
 
   assert.match(
     schemaGuard,
-    /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/,
+    /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/,
   );
   assert.match(schemaGuard, /signature: 'public\.api_list_film_orders\(uuid, text\)'/);
-  assert.match(schemaGuard, /'display_status', effective\.display_status/);
-  assert.match(schemaGuard, /'remaining_feet', effective\.remaining_feet/);
+  assert.match(schemaGuard, /signature: 'app_api\.film_order_ledger_projection\(uuid, text\[\]\)'/);
+  assert.match(schemaGuard, /'remaining_to_order_feet'/);
 });

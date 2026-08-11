@@ -4,11 +4,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Box, FilmOrderDetail } from '../../../domain';
+import type { FilmOrderDetail } from '../../../domain';
 import FilmOrderDetailsPage from './FilmOrderDetailsPage';
 
 const getFilmOrderDetailMock = vi.fn();
-const getBoxMock = vi.fn();
 const manualFulfillFilmOrderMock = vi.fn();
 const toastPushMock = vi.fn();
 
@@ -20,10 +19,6 @@ vi.mock('../../../api/features/filmOrdersClient', () => ({
   cancelJob: vi.fn(),
   deleteFilmOrder: vi.fn(),
   manualFulfillFilmOrder: (...args: unknown[]) => manualFulfillFilmOrderMock(...args)
-}));
-
-vi.mock('../../../api/features/inventoryClient', () => ({
-  getBox: (...args: unknown[]) => getBoxMock(...args)
 }));
 
 vi.mock('../../../components/Toast', () => ({
@@ -52,19 +47,35 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
     filmName: 'Security',
     widthIn: 60,
     requestedFeet: 230,
+    linkedFeet: 100,
     coveredFeet: 0,
-    orderedFeet: 0,
-    remainingToOrderFeet: 230,
+    orderedFeet: 100,
+    receivedFeet: 100,
+    onTheWayFeet: 0,
+    remainingToOrderFeet: 130,
+    orderOverageFeet: 0,
+    completedFeet: 100,
+    orderLedgerVersion: 'film-order-ledger-v1',
     installDate: '2026-05-21',
     crewLeader: 'Napo',
     status: 'FILM_ORDER',
     storedStatus: 'FILM_ORDER',
-    displayStatus: 'INCOMPLETE',
-    needSource: 'CURRENT_REQUIREMENT',
+    displayStatus: 'FILM_ORDER',
+    needSource: 'ORDER_REQUEST',
     neededFeet: 230,
     fulfilledFeet: 100,
     remainingFeet: 130,
     overageFeet: 0,
+    requirementContextStatus: 'CURRENT',
+    currentRequirement: {
+      availability: 'CURRENT',
+      requirementId: '22222222-2222-4222-8222-222222222222',
+      requiredFeet: 230,
+      allocatedFeet: 100,
+      onTheWayFeet: 0,
+      stillShortFeet: 130,
+      status: 'ACTIVE'
+    },
     sourceBoxId: '',
     createdAt: '2026-05-18T12:00:00Z',
     createdBy: 'tester',
@@ -104,6 +115,9 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
         boxId: 'IL1-100',
         dealer: 'Dealer One',
         orderedFeet: 230,
+        linkedFeet: 100,
+        receivedFeet: 100,
+        onTheWayFeet: 0,
         autoAllocatedFeet: 0,
         isReceived: true,
         isDirectToJobSite: false,
@@ -111,7 +125,8 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
         feetAvailable: 100,
         status: 'IN_STOCK',
         orderDate: '2026-05-18',
-        receivedDate: '2026-05-20'
+        receivedDate: '2026-05-20',
+        initialCost: 1200
       }
     ],
     history: [
@@ -128,39 +143,6 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
       }
     ],
     ...overrides
-  };
-}
-
-function buildBoxCost(boxId: string, purchaseCost: number | null): Box {
-  return {
-    boxId,
-    warehouse: 'IL1',
-    manufacturer: '3M',
-    filmName: 'Security',
-    widthIn: 60,
-    initialFeet: 100,
-    feetAvailable: 100,
-    allocationPlanningFeet: 100,
-    lotRun: '',
-    status: 'IN_STOCK',
-    orderDate: '2026-05-18',
-    receivedDate: '2026-05-20',
-    initialWeightLbs: null,
-    lastRollWeightLbs: null,
-    lastWeighedDate: '',
-    filmKey: '3m|security',
-    coreType: '',
-    coreWeightLbs: null,
-    lfWeightLbsPerFt: null,
-    pricePerLf: null,
-    purchaseCost,
-    notes: '',
-    hasEverBeenCheckedOut: false,
-    lastCheckoutJob: '',
-    lastCheckoutDate: '',
-    zeroedDate: '',
-    zeroedReason: '',
-    zeroedBy: ''
   };
 }
 
@@ -184,11 +166,9 @@ describe('FilmOrderDetailsPage', () => {
 
   beforeEach(() => {
     getFilmOrderDetailMock.mockReset();
-    getBoxMock.mockReset();
     manualFulfillFilmOrderMock.mockReset();
     toastPushMock.mockReset();
     getFilmOrderDetailMock.mockResolvedValue(buildDetail());
-    getBoxMock.mockImplementation((boxId: string) => Promise.resolve(buildBoxCost(boxId, 1200)));
     manualFulfillFilmOrderMock.mockResolvedValue({
       result: {
         ...buildDetail(),
@@ -198,18 +178,27 @@ describe('FilmOrderDetailsPage', () => {
     });
   });
 
-  it('renders dynamic need, fulfillment, box links, job link, and history', async () => {
+  it('renders the historical order ledger, current requirement, links, and history', async () => {
     renderPage();
 
     expect(await screen.findByRole('heading', { name: 'FO-1' })).toBeTruthy();
     expect(getFilmOrderDetailMock).toHaveBeenCalledWith('FO-1');
-    await waitFor(() => expect(screen.getByText('Incomplete')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Film Order')).toBeTruthy());
     expect(screen.getByRole('button', { name: 'Fulfill Order' })).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'Fulfill Order' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Add Box' })).toBeNull();
-    expect(screen.getByText('Current Needed LF')).toBeTruthy();
+    expect(screen.getByText('Requested LF')).toBeTruthy();
+    expect(screen.getByText('Ordered / Linked LF')).toBeTruthy();
+    expect(screen.getByText('Received LF')).toBeTruthy();
+    expect(screen.getByText('Covered / Allocated LF')).toBeTruthy();
+    expect(screen.getByText('Remaining To Order')).toBeTruthy();
+    expect(screen.getByText('Order Overage')).toBeTruthy();
     expect(screen.getAllByText('230').length).toBeGreaterThan(0);
-    expect(screen.getByText('130')).toBeTruthy();
+    expect(screen.getAllByText('130')).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: 'Current Requirement' })).toBeTruthy();
+    expect(screen.getByText('Required LF')).toBeTruthy();
+    expect(screen.getByText('Allocated LF')).toBeTruthy();
+    expect(screen.getByText('Still Short LF')).toBeTruthy();
     expect(screen.getByRole('link', { name: /IL1-4024 \/ Section 1/i }).getAttribute('href')).toBe(
       '/allocations/jobs/11111111-1111-4111-8111-111111111111'
     );
@@ -220,10 +209,78 @@ describe('FilmOrderDetailsPage', () => {
     expect(screen.getByText('LINKED BOX INITIAL FEET CHANGED')).toBeTruthy();
   });
 
+  it('keeps a fully linked unreceived 12 LF order separate from its 36 LF requirement', async () => {
+    getFilmOrderDetailMock.mockResolvedValue(
+      buildDetail({
+        requestedFeet: 12,
+        linkedFeet: 12,
+        orderedFeet: 12,
+        receivedFeet: 0,
+        onTheWayFeet: 12,
+        coveredFeet: 0,
+        remainingToOrderFeet: 0,
+        orderOverageFeet: 0,
+        completedFeet: 0,
+        status: 'FILM_ON_THE_WAY',
+        storedStatus: 'FILM_ON_THE_WAY',
+        displayStatus: 'FILM_ON_THE_WAY',
+        neededFeet: 12,
+        fulfilledFeet: 0,
+        remainingFeet: 0,
+        currentRequirement: {
+          availability: 'CURRENT',
+          requirementId: '22222222-2222-4222-8222-222222222222',
+          requiredFeet: 36,
+          allocatedFeet: 24,
+          onTheWayFeet: 12,
+          stillShortFeet: 0,
+          status: 'ACTIVE'
+        },
+        linkedBoxes: [
+          {
+            linkId: 'link-1',
+            boxId: 'IL1-100',
+            dealer: 'Dealer One',
+            orderedFeet: 12,
+            linkedFeet: 12,
+            receivedFeet: 0,
+            onTheWayFeet: 12,
+            autoAllocatedFeet: 0,
+            isReceived: false,
+            isDirectToJobSite: false,
+            initialFeet: 12,
+            feetAvailable: 12,
+            status: 'ORDERED',
+            orderDate: '2026-05-18',
+            receivedDate: null,
+            initialCost: 1200
+          }
+        ]
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText('Film On The Way')).toBeTruthy();
+    const orderMetrics = screen.getByText('Requested LF').closest('.metric-grid') as HTMLElement;
+    expect(within(orderMetrics).getAllByText('12')).toHaveLength(3);
+    expect(within(orderMetrics).getAllByText('0').length).toBeGreaterThanOrEqual(4);
+    const requirementSection = screen.getByRole('heading', { name: 'Current Requirement' }).closest('section') as HTMLElement;
+    expect(within(requirementSection).getByText('36')).toBeTruthy();
+    expect(within(requirementSection).getByText('24')).toBeTruthy();
+    expect(within(requirementSection).getByText('12')).toBeTruthy();
+    expect(within(requirementSection).getByText('0')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Fulfill Order' })).toBeNull();
+  });
+
   it('does not offer manual fulfillment when canonical coverage already resolves the order', async () => {
     getFilmOrderDetailMock.mockResolvedValue(
       buildDetail({
         displayStatus: 'FULFILLED_COVERED',
+        status: 'FULFILLED',
+        storedStatus: 'FULFILLED',
+        remainingToOrderFeet: 0,
+        completedFeet: 230,
         fulfilledFeet: 230,
         remainingFeet: 0
       })
@@ -244,6 +301,9 @@ describe('FilmOrderDetailsPage', () => {
             boxId: 'IL1-100',
             dealer: 'Dealer One',
             orderedFeet: 100,
+            linkedFeet: 100,
+            receivedFeet: 100,
+            onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
             isDirectToJobSite: false,
@@ -251,13 +311,17 @@ describe('FilmOrderDetailsPage', () => {
             feetAvailable: 100,
             status: 'IN_STOCK',
             orderDate: '2026-05-18',
-            receivedDate: '2026-05-20'
+            receivedDate: '2026-05-20',
+            initialCost: 1250
           },
           {
             linkId: 'link-2',
             boxId: 'IL1-101',
             dealer: 'Dealer One',
             orderedFeet: 75,
+            linkedFeet: 75,
+            receivedFeet: 75,
+            onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
             isDirectToJobSite: false,
@@ -265,15 +329,12 @@ describe('FilmOrderDetailsPage', () => {
             feetAvailable: 75,
             status: 'IN_STOCK',
             orderDate: '2026-05-18',
-            receivedDate: '2026-05-20'
+            receivedDate: '2026-05-20',
+            initialCost: 675.5
           }
         ]
       })
     );
-    getBoxMock.mockImplementation((boxId: string) =>
-      Promise.resolve(buildBoxCost(boxId, boxId === 'IL1-100' ? 1250 : 675.5))
-    );
-
     renderPage();
 
     const table = (await screen.findByRole('columnheader', { name: 'Initial Cost' })).closest(
@@ -297,6 +358,9 @@ describe('FilmOrderDetailsPage', () => {
             boxId: 'IL1-ZERO',
             dealer: 'Dealer One',
             orderedFeet: 100,
+            linkedFeet: 100,
+            receivedFeet: 100,
+            onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
             isDirectToJobSite: false,
@@ -304,13 +368,17 @@ describe('FilmOrderDetailsPage', () => {
             feetAvailable: 100,
             status: 'IN_STOCK',
             orderDate: '2026-05-18',
-            receivedDate: '2026-05-20'
+            receivedDate: '2026-05-20',
+            initialCost: 0
           },
           {
             linkId: 'link-missing',
             boxId: 'IL1-MISSING',
             dealer: 'Dealer One',
             orderedFeet: 75,
+            linkedFeet: 75,
+            receivedFeet: 75,
+            onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
             isDirectToJobSite: false,
@@ -318,15 +386,12 @@ describe('FilmOrderDetailsPage', () => {
             feetAvailable: 75,
             status: 'IN_STOCK',
             orderDate: '2026-05-18',
-            receivedDate: '2026-05-20'
+            receivedDate: '2026-05-20',
+            initialCost: null
           }
         ]
       })
     );
-    getBoxMock.mockImplementation((boxId: string) =>
-      Promise.resolve(buildBoxCost(boxId, boxId === 'IL1-ZERO' ? 0 : null))
-    );
-
     renderPage();
 
     const table = (await screen.findByRole('columnheader', { name: 'Initial Cost' })).closest(
@@ -351,6 +416,9 @@ describe('FilmOrderDetailsPage', () => {
             boxId: 'IL1-MISSING',
             dealer: 'Dealer One',
             orderedFeet: 75,
+            linkedFeet: 75,
+            receivedFeet: 75,
+            onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
             isDirectToJobSite: false,
@@ -358,13 +426,12 @@ describe('FilmOrderDetailsPage', () => {
             feetAvailable: 75,
             status: 'IN_STOCK',
             orderDate: '2026-05-18',
-            receivedDate: '2026-05-20'
+            receivedDate: '2026-05-20',
+            initialCost: null
           }
         ]
       })
     );
-    getBoxMock.mockResolvedValue(buildBoxCost('IL1-MISSING', null));
-
     renderPage();
 
     const table = (await screen.findByRole('columnheader', { name: 'Initial Cost' })).closest(
@@ -406,32 +473,33 @@ describe('FilmOrderDetailsPage', () => {
     );
   });
 
-  it('shows no longer needed status when the linked requirement no longer matches', async () => {
+  it('keeps the order status historical when the current requirement is unbound', async () => {
     getFilmOrderDetailMock.mockResolvedValue(
       buildDetail({
-        displayStatus: 'NO_LONGER_NEEDED',
-        needSource: 'NO_LONGER_NEEDED',
-        neededFeet: 0,
-        fulfilledFeet: 100,
+        status: 'FILM_ON_THE_WAY',
+        storedStatus: 'FILM_ON_THE_WAY',
+        displayStatus: 'FILM_ON_THE_WAY',
+        needSource: 'ORDER_REQUEST',
+        linkedFeet: 230,
+        orderedFeet: 230,
+        receivedFeet: 0,
+        onTheWayFeet: 230,
+        remainingToOrderFeet: 0,
+        neededFeet: 230,
+        fulfilledFeet: 0,
         remainingFeet: 0,
-        overageFeet: 100,
-        requirement: {
-          requirementId: '22222222-2222-4222-8222-222222222222',
-          phaseId: '33333333-3333-4333-8333-333333333333',
-          manufacturer: '3M',
-          filmName: 'Different Film',
-          widthIn: 60,
-          requiredFeet: 230,
-          status: 'ACTIVE',
-          matchesFilmOrder: false
-        }
+        overageFeet: 0,
+        requirementContextStatus: 'HISTORICAL_UNBOUND',
+        currentRequirement: { availability: 'HISTORICAL_UNBOUND' },
+        requirement: null
       })
     );
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText('No Longer Needed')).toBeTruthy());
-    expect(screen.getByText(/not counted as current job demand/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Film On The Way')).toBeTruthy());
+    expect(screen.getByText(/current requirement context is unavailable/i)).toBeTruthy();
+    expect(screen.queryByText('No Longer Needed')).toBeNull();
   });
 
   it('shows an empty connected-box state', async () => {

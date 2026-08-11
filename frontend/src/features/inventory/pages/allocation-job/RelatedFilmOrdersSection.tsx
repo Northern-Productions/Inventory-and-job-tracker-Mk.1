@@ -8,6 +8,14 @@ import {
 import type { FilmOrderEntry } from '../../../../domain';
 import { FilmOrderStatusLink } from '../../components/FilmOrderStatusLink';
 import { FilmOrderLinkedBoxes } from '../../components/FilmOrderLinkedBoxes';
+import {
+  canOrderMoreFilmForFilmOrder,
+  getFilmOrderLinkedFeet,
+  getFilmOrderOnTheWayFeet,
+  getFilmOrderOverageFeet,
+  getFilmOrderReceivedFeet,
+  getFilmOrderRemainingFeet
+} from '../../utils/filmOrders';
 
 interface RelatedFilmOrdersSectionProps {
   orders: FilmOrderEntry[];
@@ -37,16 +45,15 @@ function renderFilmOrderActions({
 
   return (
     <>
-      {order.status === 'FULFILLED' ? null : (
+      {canOrderMoreFilmForFilmOrder(order) ? (
         <Button
           type="button"
           variant="secondary"
           onClick={() => onOrderFilm(order)}
-          disabled={order.status !== 'FILM_ORDER'}
         >
           Order Film
         </Button>
-      )}
+      ) : null}
       {order.status === 'FILM_ORDER' ? (
         <Button
           type="button"
@@ -93,9 +100,12 @@ export function RelatedFilmOrdersSection({
                 <MobileField label="Ordered Box IDs" value={<FilmOrderLinkedBoxes order={order} />} />
                 <MobileField label="Width" value={order.widthIn} />
                 <MobileField label="Requested LF" value={order.requestedFeet} />
-                <MobileField label="Covered LF" value={order.coveredFeet} />
-                <MobileField label="On The Way LF" value={order.orderedFeet} />
-                <MobileField label="Still Short LF" value={order.remainingToOrderFeet} />
+                <MobileField label="Ordered / Linked LF" value={getFilmOrderLinkedFeet(order)} />
+                <MobileField label="On The Way LF" value={getFilmOrderOnTheWayFeet(order)} />
+                <MobileField label="Received LF" value={getFilmOrderReceivedFeet(order)} />
+                <MobileField label="Covered / Allocated LF" value={order.coveredFeet} />
+                <MobileField label="Remaining To Order LF" value={getFilmOrderRemainingFeet(order)} />
+                <MobileField label="Order Overage LF" value={getFilmOrderOverageFeet(order)} />
               </MobileFieldList>
               <div className="film-order-actions">
                 {renderFilmOrderActions({
@@ -119,9 +129,12 @@ export function RelatedFilmOrdersSection({
                 <th>Ordered Box IDs</th>
                 <th>Width</th>
                 <th>Requested</th>
-                <th>Covered</th>
+                <th>Ordered / Linked</th>
                 <th>On The Way</th>
-                <th>Still Short</th>
+                <th>Received</th>
+                <th>Covered / Allocated</th>
+                <th>Remaining To Order</th>
+                <th>Order Overage</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -139,9 +152,12 @@ export function RelatedFilmOrdersSection({
                   </td>
                   <td>{order.widthIn}</td>
                   <td>{order.requestedFeet}</td>
+                  <td>{getFilmOrderLinkedFeet(order)}</td>
+                  <td>{getFilmOrderOnTheWayFeet(order)}</td>
+                  <td>{getFilmOrderReceivedFeet(order)}</td>
                   <td>{order.coveredFeet}</td>
-                  <td>{order.orderedFeet}</td>
-                  <td>{order.remainingToOrderFeet}</td>
+                  <td>{getFilmOrderRemainingFeet(order)}</td>
+                  <td>{getFilmOrderOverageFeet(order)}</td>
                   <td>
                     <div className="film-order-actions">
                       {renderFilmOrderActions({

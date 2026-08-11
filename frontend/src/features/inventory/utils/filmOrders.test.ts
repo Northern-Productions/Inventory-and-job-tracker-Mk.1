@@ -19,12 +19,12 @@ import {
 } from './filmOrders';
 
 describe('filmOrders helpers', () => {
-  it('prefers canonical effective status and remaining LF over stored shortage fields', () => {
+  it('prefers canonical order status and remaining LF over compatibility aliases', () => {
     const coveredOrder = {
       status: 'FILM_ORDER' as const,
       displayStatus: 'FULFILLED_COVERED' as const,
-      remainingFeet: 0,
-      remainingToOrderFeet: 60
+      remainingFeet: 60,
+      remainingToOrderFeet: 0
     };
 
     expect(getFilmOrderDisplayStatus(coveredOrder)).toBe('FULFILLED_COVERED');
@@ -34,8 +34,9 @@ describe('filmOrders helpers', () => {
 
     const incompleteOrder = {
       ...coveredOrder,
-      displayStatus: 'INCOMPLETE' as const,
-      remainingFeet: 40
+      displayStatus: 'FILM_ORDER' as const,
+      remainingFeet: 0,
+      remainingToOrderFeet: 40
     };
     expect(getFilmOrderRemainingFeet(incompleteOrder)).toBe(40);
     expect(canOrderMoreFilmForFilmOrder(incompleteOrder)).toBe(true);

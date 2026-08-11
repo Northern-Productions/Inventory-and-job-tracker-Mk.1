@@ -38,7 +38,7 @@ test('linked film-order recalculation uses corrected physical LF for received bo
 test('schema latest guards linked film-order physical LF recalculation semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/);
   assert.match(schemaLatest, /update app\.film_order_box_links l/);
   assert.match(schemaLatest, /a\.status in \('ACTIVE', 'FULFILLED'\)/);
   assert.match(schemaLatest, /app_api\.box_physical_feet_available\(b\)/);
