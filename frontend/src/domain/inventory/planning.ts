@@ -137,13 +137,23 @@ export type FilmOrderOrigin = 'MANUAL' | 'AUTO_SHORTAGE';
 
 export type FilmOrderDisplayStatus =
   | 'FILM_ORDER'
+  | 'FILM_ON_THE_WAY'
   | 'INCOMPLETE'
   | 'FULFILLED_COVERED'
   | 'MANUALLY_FULFILLED'
   | 'CANCELLED'
   | 'NO_LONGER_NEEDED';
 
-export type FilmOrderNeedSource = 'CURRENT_REQUIREMENT' | 'LEGACY_SNAPSHOT' | 'NO_LONGER_NEEDED';
+export type FilmOrderNeedSource =
+  | 'ORDER_REQUEST'
+  | 'CURRENT_REQUIREMENT'
+  | 'LEGACY_SNAPSHOT'
+  | 'NO_LONGER_NEEDED';
+
+export type FilmOrderRequirementContextAvailability =
+  | 'CURRENT'
+  | 'HISTORICAL_UNBOUND'
+  | 'UNAVAILABLE';
 
 export interface FilmOrderEntry {
   filmOrderId: string;
@@ -157,9 +167,15 @@ export interface FilmOrderEntry {
   filmName: string;
   widthIn: number;
   requestedFeet: number;
+  linkedFeet?: number;
   coveredFeet: number;
   orderedFeet: number;
+  receivedFeet?: number;
+  onTheWayFeet?: number;
   remainingToOrderFeet: number;
+  orderOverageFeet?: number;
+  completedFeet?: number;
+  orderLedgerVersion?: string;
   installDate: string;
   crewLeader: string;
   status: FilmOrderStatus;
@@ -188,11 +204,15 @@ export interface FilmOrderListResponse {
 
 export interface FilmOrderDetailLinkedBox extends FilmOrderLinkedBox {
   linkId?: string;
+  linkedFeet?: number;
+  receivedFeet?: number;
+  onTheWayFeet?: number;
   initialFeet: number;
   feetAvailable: number;
   status: string;
   orderDate?: string | null;
   receivedDate?: string | null;
+  initialCost?: number | null;
 }
 
 export interface FilmOrderHistoryEvent {
@@ -209,6 +229,12 @@ export interface FilmOrderHistoryEvent {
 }
 
 export interface FilmOrderDetail extends FilmOrderEntry {
+  linkedFeet: number;
+  receivedFeet: number;
+  onTheWayFeet: number;
+  orderOverageFeet: number;
+  completedFeet: number;
+  orderLedgerVersion: string;
   storedStatus: FilmOrderStatus;
   displayStatus: FilmOrderDisplayStatus;
   needSource: FilmOrderNeedSource;
@@ -216,6 +242,16 @@ export interface FilmOrderDetail extends FilmOrderEntry {
   fulfilledFeet: number;
   remainingFeet: number;
   overageFeet: number;
+  requirementContextStatus: FilmOrderRequirementContextAvailability;
+  currentRequirement?: {
+    availability: FilmOrderRequirementContextAvailability;
+    requirementId?: string;
+    requiredFeet?: number;
+    allocatedFeet?: number;
+    onTheWayFeet?: number;
+    stillShortFeet?: number;
+    status?: string;
+  };
   manualFulfilledAt?: string | null;
   manualFulfilledBy?: string | null;
   orderedDate?: string | null;

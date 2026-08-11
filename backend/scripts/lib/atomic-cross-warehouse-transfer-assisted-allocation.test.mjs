@@ -33,7 +33,7 @@ test('0191 remains byte-for-byte mirrored and advances the schema contract', asy
   assert.equal(supabaseMigration, backendMigration);
   assert.match(
     schemaCheck,
-    /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/,
+    /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/,
   );
   assert.match(schemaCheck, /app\.box_transfers\.transfer_created_allocation_id/);
   assert.match(schemaCheck, /box_transfers_transfer_created_allocation_fk/);

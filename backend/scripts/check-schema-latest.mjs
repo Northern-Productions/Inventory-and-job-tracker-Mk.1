@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0196_film_order_effective_list_status.sql';
+const LATEST_MIGRATION = '0197_film_order_order_scope_semantics.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -186,6 +186,9 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_film_orders_manual_fulfill(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_manual_fulfill(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
+  { kind: 'function', signature: 'app_api.film_order_ledger_projection(uuid, text[])' },
+  { kind: 'function', signature: 'public.api_list_film_orders_by_job_id(uuid, uuid)' },
+  { kind: 'function', signature: 'public.api_acl_list_film_orders_by_job_id(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_acl_record_film_weight_sample_from_box(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.resolve_film_weight_pending_review(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_resolve_film_weight_pending_review(uuid, text, jsonb)' },
@@ -695,6 +698,26 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     excludes: []
   },
   {
+    signature: 'app_api.film_order_ledger_projection(uuid, text[])',
+    includes: [
+      'app_api.compute_covered_feet_from_allocation(',
+      'app_api.box_physical_feet_available(b)',
+      'remaining_to_order_feet',
+      'order_overage_feet',
+      'on_the_way_feet',
+      "'need_source', 'ORDER_REQUEST'",
+      "then 'FILM_ON_THE_WAY'",
+      "then 'FULFILLED_COVERED'"
+    ],
+    excludes: [
+      'job_requirements',
+      "'CURRENT_REQUIREMENT'",
+      'update app.film_orders',
+      'insert into app.film_orders',
+      'delete from app.film_orders'
+    ]
+  },
+  {
     signature: 'app_api.recalculate_film_order(uuid, text, text)',
     includes: [
       'v_link_count > 0',
@@ -848,10 +871,15 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "'sourceBoxId', v_order.source_box_id",
       "when app_api.trim_text(v_order.source_box_id) = '' then 'MANUAL'",
       "else 'AUTO_SHORTAGE'",
-      'MANUALLY_FULFILLED',
-      "'manualFulfilledAt', v_manual_fulfill_event.created_at"
+      'app_api.film_order_ledger_projection(',
+      "'linkedFeet'",
+      "'receivedFeet'",
+      "'onTheWayFeet'",
+      "'orderOverageFeet'",
+      "'requirementContextStatus'",
+      "'initialCost', b.purchase_cost"
     ],
-    excludes: ['v_order.origin']
+    excludes: ['v_order.origin', "v_needed_feet := greatest(coalesce(v_requirement.required_feet"]
   },
   {
     signature: 'app_api.normalize_job_sections(text)',
@@ -1789,20 +1817,18 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_list_film_orders(uuid, text)',
     includes: [
       'perform app_api.require_org_member(p_org_id);',
-      'with scoped_orders as materialized',
       'where f.org_id = p_org_id',
-      'linked_box_coverage as materialized',
-      'latest_manual_fulfill as materialized',
-      'removed_requirement_events as materialized',
-      'app_api.film_order_matches_requirement(',
-      "when effective.need_source = 'NO_LONGER_NEEDED' then 'NO_LONGER_NEEDED'",
-      "then 'MANUALLY_FULFILLED'",
-      "then 'INCOMPLETE'",
-      "then 'FULFILLED_COVERED'",
-      "'display_status', effective.display_status",
-      "'remaining_feet', effective.remaining_feet"
+      'array_agg(f.film_order_id)',
+      'app_api.film_order_ledger_projection(p_org_id, v_film_order_ids)'
     ],
-    excludes: ['insert into', 'update app.', 'delete from', "'film_orders', 'write'"]
+    excludes: [
+      'job_requirements',
+      "'CURRENT_REQUIREMENT'",
+      'insert into',
+      'update app.',
+      'delete from',
+      "'film_orders', 'write'"
+    ]
   },
   {
     signature: 'public.api_jobs_calendar(uuid, text, text)',
@@ -1881,6 +1907,7 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_disable_team_user(uuid, text, jsonb)',
   'public.api_reenable_team_user(uuid, text, jsonb)',
   'public.api_acl_list_film_orders(uuid, text)',
+  'public.api_acl_list_film_orders_by_job_id(uuid, uuid)',
   'public.api_acl_list_jobs(uuid, text)',
   'public.api_acl_owner_companies_list(uuid, boolean)',
   'public.api_acl_owner_companies_upsert(uuid, text, jsonb)',

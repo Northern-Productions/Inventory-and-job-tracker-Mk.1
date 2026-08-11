@@ -58,11 +58,16 @@ test('buildFilmOrderDetail uses the scoped film order detail RPC', async () => {
           {
             result: {
               filmOrderId: 'FO-1',
-              neededFeet: 230,
-              fulfilledFeet: 100,
-              remainingFeet: 130,
+              requestedFeet: 12,
+              linkedFeet: 12,
+              receivedFeet: 0,
+              onTheWayFeet: 12,
+              neededFeet: 12,
+              fulfilledFeet: 0,
+              remainingFeet: 0,
               overageFeet: 0,
-              displayStatus: 'INCOMPLETE',
+              displayStatus: 'FILM_ON_THE_WAY',
+              requirementContextStatus: 'HISTORICAL_UNBOUND',
             },
           },
         ],
@@ -74,11 +79,17 @@ test('buildFilmOrderDetail uses the scoped film order detail RPC', async () => {
 
   assert.deepEqual(result, {
     filmOrderId: 'FO-1',
-    neededFeet: 230,
-    fulfilledFeet: 100,
-    remainingFeet: 130,
+    requestedFeet: 12,
+    linkedFeet: 12,
+    receivedFeet: 0,
+    onTheWayFeet: 12,
+    neededFeet: 12,
+    fulfilledFeet: 0,
+    remainingFeet: 0,
     overageFeet: 0,
-    displayStatus: 'INCOMPLETE',
+    displayStatus: 'FILM_ON_THE_WAY',
+    requirementContextStatus: 'HISTORICAL_UNBOUND',
+    currentRequirement: { availability: 'HISTORICAL_UNBOUND' },
   });
   assert.equal(calls.length, 1);
   assert.match(calls[0].text, /public\.api_acl_film_orders_get/);

@@ -48,7 +48,7 @@ test('caulk generic stock delta resolves cancel-return owner from the allocation
 test('schema latest guard requires cancel-return owner resolution on generic stock delta wrapper', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/);
   assert.match(schemaCheck, /app_api\.caulk_apply_stock_delta\(uuid, text, uuid, text, text, integer, text, text, text, text\)/);
   assert.match(schemaCheck, /v_action = 'JOB_ALLOCATION_CANCEL_RETURN'/);
   assert.match(schemaCheck, /app_api\.caulk_owner_from_allocation_public_id\(p_org_id, p_source_box_id\)/);

@@ -109,14 +109,20 @@ test('toPublicFilmOrder exposes additive jobId when the row has job_id', () => {
     width_in: 60,
     requested_feet: 100,
     covered_feet: 0,
-    ordered_feet: 0,
-    remaining_to_order_feet: 100,
-    status: 'FILM_ORDER',
+    linked_feet: 125,
+    ordered_feet: 125,
+    received_feet: 0,
+    on_the_way_feet: 125,
+    remaining_to_order_feet: 0,
+    order_overage_feet: 25,
+    completed_feet: 0,
+    order_ledger_version: 'film-order-ledger-v1',
+    status: 'FILM_ON_THE_WAY',
     stored_status: 'FILM_ORDER',
-    display_status: 'FULFILLED_COVERED',
-    need_source: 'CURRENT_REQUIREMENT',
+    display_status: 'FILM_ON_THE_WAY',
+    need_source: 'ORDER_REQUEST',
     needed_feet: 100,
-    fulfilled_feet: 125,
+    fulfilled_feet: 0,
     remaining_feet: 0,
     overage_feet: 25,
     source_box_id: '',
@@ -139,12 +145,28 @@ test('toPublicFilmOrder exposes additive jobId when the row has job_id', () => {
     },
     {
       storedStatus: 'FILM_ORDER',
-      displayStatus: 'FULFILLED_COVERED',
-      needSource: 'CURRENT_REQUIREMENT',
+      displayStatus: 'FILM_ON_THE_WAY',
+      needSource: 'ORDER_REQUEST',
       neededFeet: 100,
-      fulfilledFeet: 125,
+      fulfilledFeet: 0,
       remainingFeet: 0,
       overageFeet: 25,
+    },
+  );
+  assert.deepEqual(
+    {
+      linkedFeet: publicEntry.linkedFeet,
+      receivedFeet: publicEntry.receivedFeet,
+      onTheWayFeet: publicEntry.onTheWayFeet,
+      orderOverageFeet: publicEntry.orderOverageFeet,
+      orderLedgerVersion: publicEntry.orderLedgerVersion,
+    },
+    {
+      linkedFeet: 125,
+      receivedFeet: 0,
+      onTheWayFeet: 125,
+      orderOverageFeet: 25,
+      orderLedgerVersion: 'film-order-ledger-v1',
     },
   );
 });
@@ -176,7 +198,7 @@ test('toPublicFilmOrder exposes additive Work Scope fields when the row has sect
   assert.equal(publicEntry.sections, 'Sections 4, 5');
 });
 
-test('toPublicFilmOrder preserves legacy records without jobId', () => {
+test('toPublicFilmOrder preserves legacy identity while deriving order-scoped fields', () => {
   const entry = mapDbFilmOrderRow({
     id: 'row-legacy',
     org_id: 'org-1',
@@ -201,7 +223,10 @@ test('toPublicFilmOrder preserves legacy records without jobId', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'jobId'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'workScope'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'sections'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(publicEntry, 'displayStatus'), false);
+  assert.equal(publicEntry.displayStatus, 'FILM_ORDER');
+  assert.equal(publicEntry.needSource, 'ORDER_REQUEST');
+  assert.equal(publicEntry.neededFeet, 100);
+  assert.equal(publicEntry.remainingFeet, 100);
   assert.equal(publicEntry.jobNumber, '4447');
 });
 

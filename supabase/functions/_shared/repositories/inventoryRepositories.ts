@@ -420,8 +420,14 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       widthIn: deps.numericOrNull(row.width_in) ?? 0,
       requestedFeet: deps.integerOrZero(row.requested_feet),
       coveredFeet: deps.integerOrZero(row.covered_feet),
-      orderedFeet: deps.integerOrZero(row.ordered_feet),
+      linkedFeet: deps.integerOrZero(row.linked_feet ?? row.ordered_feet),
+      orderedFeet: deps.integerOrZero(row.linked_feet ?? row.ordered_feet),
+      receivedFeet: deps.integerOrZero(row.received_feet),
+      onTheWayFeet: deps.integerOrZero(row.on_the_way_feet),
       remainingToOrderFeet: deps.integerOrZero(row.remaining_to_order_feet),
+      orderOverageFeet: deps.integerOrZero(row.order_overage_feet ?? row.overage_feet),
+      completedFeet: deps.integerOrZero(row.completed_feet ?? row.fulfilled_feet),
+      orderLedgerVersion: deps.asTrimmedString(row.order_ledger_version ?? row.orderLedgerVersion),
       installDate: deps.formatDateValue(row.job_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       status,
@@ -448,11 +454,76 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     };
   }
 
+  function buildPublicFilmOrderLedger(entry: any, linkedBoxes: any[]) {
+    const requestedFeet = deps.integerOrZero(entry.requestedFeet);
+    const normalizedLinkedBoxes = Array.isArray(linkedBoxes) ? linkedBoxes : [];
+    const hasCanonicalLedger = deps.asTrimmedString(entry.orderLedgerVersion) === "film-order-ledger-v1";
+    const linkedFeet = hasCanonicalLedger
+      ? deps.integerOrZero(entry.linkedFeet)
+      : normalizedLinkedBoxes.length
+        ? normalizedLinkedBoxes.reduce((sum, box) => sum + deps.integerOrZero(box?.orderedFeet), 0)
+        : deps.integerOrZero(entry.linkedFeet ?? entry.orderedFeet);
+    const receivedFeet = hasCanonicalLedger
+      ? deps.integerOrZero(entry.receivedFeet)
+      : normalizedLinkedBoxes.reduce(
+          (sum, box) => sum + (box?.isReceived ? deps.integerOrZero(box?.orderedFeet) : 0),
+          0,
+        );
+    const onTheWayFeet = Math.max(linkedFeet - receivedFeet, 0);
+    const coveredFeet = deps.integerOrZero(entry.coveredFeet);
+    const remainingToOrderFeet = Math.max(requestedFeet - linkedFeet, 0);
+    const orderOverageFeet = Math.max(linkedFeet - requestedFeet, 0);
+    const completedFeet = Math.max(receivedFeet, coveredFeet);
+
+    return {
+      requestedFeet,
+      linkedFeet,
+      receivedFeet,
+      onTheWayFeet,
+      coveredFeet,
+      remainingToOrderFeet,
+      orderOverageFeet,
+      completedFeet,
+    };
+  }
+
+  function derivePublicFilmOrderDisplayStatus(entry: any, ledger: ReturnType<typeof buildPublicFilmOrderLedger>) {
+    const explicitStatus = deps.asTrimmedString(entry.displayStatus).toUpperCase();
+    if (
+      explicitStatus === "CANCELLED" ||
+      explicitStatus === "MANUALLY_FULFILLED" ||
+      explicitStatus === "FILM_ORDER" ||
+      explicitStatus === "FILM_ON_THE_WAY" ||
+      explicitStatus === "FULFILLED_COVERED"
+    ) {
+      return explicitStatus;
+    }
+
+    const storedStatus = deps.asTrimmedString(entry.status).toUpperCase();
+    if (storedStatus === "CANCELLED") {
+      return "CANCELLED";
+    }
+    if (deps.asTrimmedString(entry.manualFulfilledAt) && storedStatus === "FULFILLED") {
+      return "MANUALLY_FULFILLED";
+    }
+    if (storedStatus === "FULFILLED") {
+      return "FULFILLED_COVERED";
+    }
+    if (ledger.linkedFeet >= ledger.requestedFeet && ledger.onTheWayFeet > 0) {
+      return "FILM_ON_THE_WAY";
+    }
+    if (storedStatus === "FILM_ON_THE_WAY") {
+      return "FILM_ON_THE_WAY";
+    }
+    return "FILM_ORDER";
+  }
+
   function toPublicFilmOrder(entry: any, linkedBoxes: any[]) {
     const jobId = deps.asTrimmedString(entry.jobId);
     const workScope = deps.asTrimmedString(entry.workScope || entry.sections);
     const sections = deps.asTrimmedString(entry.sections || entry.workScope);
-    const displayStatus = deps.asTrimmedString(entry.displayStatus);
+    const ledger = buildPublicFilmOrderLedger(entry, linkedBoxes);
+    const displayStatus = derivePublicFilmOrderDisplayStatus(entry, ledger);
 
     return {
       filmOrderId: entry.filmOrderId,
@@ -465,10 +536,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       manufacturer: entry.manufacturer,
       filmName: entry.filmName,
       widthIn: entry.widthIn,
-      requestedFeet: entry.requestedFeet,
-      coveredFeet: entry.coveredFeet,
-      orderedFeet: entry.orderedFeet,
-      remainingToOrderFeet: entry.remainingToOrderFeet,
+      requestedFeet: ledger.requestedFeet,
+      linkedFeet: ledger.linkedFeet,
+      orderedFeet: ledger.linkedFeet,
+      receivedFeet: ledger.receivedFeet,
+      onTheWayFeet: ledger.onTheWayFeet,
+      coveredFeet: ledger.coveredFeet,
+      remainingToOrderFeet: ledger.remainingToOrderFeet,
+      orderOverageFeet: ledger.orderOverageFeet,
+      completedFeet: ledger.completedFeet,
+      orderLedgerVersion: deps.asTrimmedString(entry.orderLedgerVersion) || "film-order-ledger-v1",
       installDate: entry.installDate,
       crewLeader: entry.crewLeader,
       status: entry.status,
@@ -476,11 +553,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
         ? {
             storedStatus: deps.asTrimmedString(entry.storedStatus) || entry.status,
             displayStatus,
-            needSource: deps.asTrimmedString(entry.needSource),
-            neededFeet: deps.integerOrZero(entry.neededFeet),
-            fulfilledFeet: deps.integerOrZero(entry.fulfilledFeet),
-            remainingFeet: deps.integerOrZero(entry.remainingFeet),
-            overageFeet: deps.integerOrZero(entry.overageFeet),
+            needSource: "ORDER_REQUEST",
+            neededFeet: ledger.requestedFeet,
+            fulfilledFeet: ledger.completedFeet,
+            remainingFeet: ledger.remainingToOrderFeet,
+            overageFeet: ledger.orderOverageFeet,
             ...(deps.asTrimmedString(entry.manualFulfilledAt)
               ? { manualFulfilledAt: entry.manualFulfilledAt }
               : {}),
@@ -877,6 +954,14 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     return mapRows(rows, mapDbFilmOrderRow);
   }
 
+  async function listFilmOrdersByJobId(client: any, orgId: string, jobId: string) {
+    const rows = await deps.rpcOrThrow<any[]>(client, "api_acl_list_film_orders_by_job_id", {
+      p_org_id: orgId,
+      p_job_id: jobId,
+    });
+    return mapRows(rows, mapDbFilmOrderRow);
+  }
+
   async function findFilmOrderById(client: any, orgId: string, filmOrderId: string) {
     const row = await deps.rpcOrThrow<any | null>(client, "api_acl_find_film_order_by_id", {
       p_org_id: orgId,
@@ -1202,6 +1287,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     listActiveAllocations,
     listFilmOrders,
     listFilmOrdersByJob,
+    listFilmOrdersByJobId,
     findFilmOrderById,
     listFilmOrderLinksByFilmOrderId,
     listJobs,

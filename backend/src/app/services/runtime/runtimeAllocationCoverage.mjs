@@ -1156,7 +1156,8 @@ function getFilmOnTheWayFeetForRequirement(filmOrders, requirement) {
   const entries = Array.isArray(filmOrders) ? filmOrders : [];
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    if (asTrimmedString(entry?.status).toUpperCase() !== 'FILM_ON_THE_WAY') {
+    const status = asTrimmedString(entry?.status).toUpperCase();
+    if (status === 'CANCELLED' || status === 'FULFILLED') {
       continue;
     }
 
@@ -1164,13 +1165,43 @@ function getFilmOnTheWayFeetForRequirement(filmOrders, requirement) {
       continue;
     }
 
-    // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
+    const hasExplicitOnTheWayFeet = entry?.onTheWayFeet !== undefined && entry?.onTheWayFeet !== null;
+    if (!hasExplicitOnTheWayFeet && status !== 'FILM_ON_THE_WAY') {
+      continue;
+    }
+
+    // Canonical reads expose only unreceived linked capacity. The status/ordered fallback
+    // keeps older payloads compatible during the migration/Edge rollout sequence.
     const orderedFeet = integerOrZero(entry.orderedFeet);
-    const sourceFeet = orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+    const sourceFeet = hasExplicitOnTheWayFeet
+      ? integerOrZero(entry.onTheWayFeet)
+      : orderedFeet > 0
+        ? orderedFeet
+        : integerOrZero(entry.requestedFeet);
     total += computeCoveredFeetForAllocation(sourceFeet, entry.widthIn, requirement.widthIn);
   }
 
   return total;
+}
+
+function buildCurrentFilmRequirementContext(requirement, filmOrders) {
+  if (!requirement) {
+    return null;
+  }
+
+  const requiredFeet = Math.max(0, integerOrZero(requirement.requiredFeet));
+  const allocatedFeet = Math.max(0, integerOrZero(requirement.allocatedFeet));
+  const onTheWayFeet = Math.max(0, getFilmOnTheWayFeetForRequirement(filmOrders, requirement));
+  const shortageBeforeOrders = Math.max(0, integerOrZero(requirement.remainingFeet));
+
+  return {
+    requirementId: asTrimmedString(requirement.requirementId || requirement.id),
+    requiredFeet,
+    allocatedFeet,
+    onTheWayFeet,
+    stillShortFeet: Math.max(shortageBeforeOrders - onTheWayFeet, 0),
+    status: normalizeRequirementState(requirement)
+  };
 }
 
 function areFilmShortagesFullyOnTheWay(requirements, filmOrders) {
@@ -1360,6 +1391,7 @@ export {
   isCaulkRequirementComplete,
   deriveCaulkRequirementCompletionResult,
   buildPublicJobRequirementEntries,
+  buildCurrentFilmRequirementContext,
   buildCaulkFallbackDebugLogEntry,
   buildCaulkCoverageByRequirementId,
   buildCaulkCoverageByProductId,
