@@ -12,6 +12,7 @@ import {
 } from './authRecovery';
 
 const getAuthContextMock = vi.fn();
+const selectOrganizationMock = vi.fn();
 const requestUsernameChangeApiMock = vi.fn();
 const updateDefaultWarehouseApiMock = vi.fn();
 const setClientAccessContextMock = vi.fn();
@@ -32,6 +33,7 @@ let signUpMock: ReturnType<typeof vi.fn>;
 
 vi.mock('../../api/features/authClient', () => ({
   getAuthContext: (...args: unknown[]) => getAuthContextMock(...args),
+  selectOrganization: (...args: unknown[]) => selectOrganizationMock(...args),
   requestUsernameChange: (...args: unknown[]) => requestUsernameChangeApiMock(...args),
   updateDefaultWarehouse: (...args: unknown[]) => updateDefaultWarehouseApiMock(...args),
   setClientAccessContext: (...args: unknown[]) => setClientAccessContextMock(...args)
@@ -111,6 +113,7 @@ function Probe() {
       <div data-testid="error">{auth.errorMessage}</div>
       <div data-testid="access-ready">{String(auth.isAccessReady)}</div>
       <div data-testid="access-status">{auth.accessStatus}</div>
+      <div data-testid="organization-count">{auth.accessContext?.organizations?.length || 0}</div>
       <div data-testid="access-refresh-error">{auth.accessRefreshError}</div>
       <button type="button" onClick={() => void auth.requestPasswordReset('user@example.com')}>
         request-reset
@@ -123,6 +126,9 @@ function Probe() {
       </button>
       <button type="button" onClick={() => void auth.refreshAccessContext()}>
         refresh-access
+      </button>
+      <button type="button" onClick={() => void auth.switchOrganization('org-2').catch(() => undefined)}>
+        switch-org
       </button>
     </div>
   );
@@ -192,6 +198,8 @@ describe('AuthContext', () => {
     isSupabaseAuthConfiguredMock.mockReturnValue(true);
     getStoredAuthSessionMock.mockReturnValue(null);
     getAuthContextMock.mockResolvedValue(createAccessContext());
+    selectOrganizationMock.mockReset();
+    selectOrganizationMock.mockResolvedValue({ orgId: 'org-2' });
     setStoredAuthSessionMock.mockReset();
     setClientAccessContextMock.mockReset();
     clearTenantPersistentBrowserCachesMock.mockReset();
@@ -550,5 +558,74 @@ describe('AuthContext', () => {
 
     expect(queryClient.getQueryData(jobsListKey)).toBeUndefined();
     expect(clearTenantPersistentBrowserCachesMock).toHaveBeenCalled();
+  });
+
+  it('clears current tenant state before attempting an organization switch', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+    getAuthContextMock.mockResolvedValue(
+      createAccessContext({
+        organizations: [
+          { orgId: 'org-1', name: 'One', role: 'owner', selected: true },
+          { orgId: 'org-2', name: 'Two', role: 'member', selected: false }
+        ]
+      })
+    );
+    const switchAttempt = createDeferred<{ orgId: string }>();
+    selectOrganizationMock.mockImplementationOnce(() => switchAttempt.promise);
+
+    const { queryClient } = renderWithProviders();
+    const jobsListKey = inventoryKeys.jobsList({ limit: 25, lifecycleStatus: 'ACTIVE' });
+    await waitFor(() => {
+      expect(screen.getByTestId('access-status').textContent).toBe('approved');
+    });
+    queryClient.setQueryData(jobsListKey, [{ jobNumber: 'private-to-org-1' }]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'switch-org' }));
+
+    await waitFor(() => {
+      expect(selectOrganizationMock).toHaveBeenCalledWith('org-2');
+      expect(screen.getByTestId('access-status').textContent).toBe('');
+    });
+    expect(queryClient.getQueryData(jobsListKey)).toBeUndefined();
+    expect(clearTenantPersistentBrowserCachesMock).toHaveBeenCalled();
+
+    switchAttempt.reject(new Error('Switch stopped for test'));
+    await waitFor(() => {
+      expect(screen.getByTestId('access-ready').textContent).toBe('true');
+    });
+    queryClient.clear();
+  });
+
+  it('discovers a newly added organization when an already logged-in user refreshes access', async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: createSession() },
+      error: null
+    });
+    getAuthContextMock.mockResolvedValue(
+      createAccessContext({
+        organizations: [{ orgId: 'org-1', name: 'One', role: 'member', selected: true }]
+      })
+    );
+    renderWithProviders();
+    await waitFor(() => {
+      expect(screen.getByTestId('organization-count').textContent).toBe('1');
+    });
+
+    getAuthContextMock.mockResolvedValue(
+      createAccessContext({
+        organizations: [
+          { orgId: 'org-1', name: 'One', role: 'member', selected: true },
+          { orgId: 'org-2', name: 'Two', role: 'admin', selected: false }
+        ]
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'refresh-access' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('organization-count').textContent).toBe('2');
+    });
   });
 });

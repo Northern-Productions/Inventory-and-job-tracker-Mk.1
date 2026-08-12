@@ -9,6 +9,7 @@ import type {
 } from '../../domain';
 import {
   getAuthContext,
+  selectOrganization,
   setClientAccessContext
 } from '../../api/features/authClient';
 import { clearTenantPersistentBrowserCaches } from '../../lib/browserTenantCaches';
@@ -59,6 +60,7 @@ interface AuthContextValue {
     email: string,
     password: string
   ) => Promise<{ sessionCreated: boolean }>;
+  switchOrganization: (orgId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -91,6 +93,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void queryClient.cancelQueries();
     queryClient.clear();
     void clearTenantPersistentBrowserCaches();
+    clearNavigationSessionRecords();
+  }, [queryClient]);
+
+  const resetAppQueryCacheAndWait = useCallback(async () => {
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    await clearTenantPersistentBrowserCaches();
     clearNavigationSessionRecords();
   }, [queryClient]);
 
@@ -226,6 +235,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session?.user?.sub
   ]);
 
+  const switchOrganization = useCallback(async (orgId: string) => {
+    const normalizedOrgId = String(orgId || '').trim();
+    if (!normalizedOrgId || normalizedOrgId === accessContextRef.current?.orgId) {
+      return;
+    }
+
+    setIsAccessReady(false);
+    setAccessRefreshError('');
+    applyAccessContext(null);
+    try {
+      await resetAppQueryCacheAndWait();
+      await selectOrganization(normalizedOrgId);
+      if (typeof window !== 'undefined') {
+        window.location.assign('/');
+      }
+    } catch (error) {
+      setAccessRefreshError(mapAccessContextErrorMessage(error));
+      await refreshAccessContext();
+      throw error;
+    }
+  }, [applyAccessContext, refreshAccessContext, resetAppQueryCacheAndWait]);
+
   useEffect(() => {
     sessionTokenRef.current = session?.token || '';
     sessionUserIdRef.current = session?.user?.sub || '';
@@ -329,7 +360,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         signInWithPassword,
         signOut,
-        signUpWithPassword
+        signUpWithPassword,
+        switchOrganization
       }}
     >
       {children}

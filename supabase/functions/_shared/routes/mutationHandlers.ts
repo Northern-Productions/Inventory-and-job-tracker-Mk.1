@@ -48,6 +48,7 @@ export type MutationHandlerDeps = {
     actor: string,
     payload: Record<string, unknown>,
   ) => Promise<Record<string, unknown>>;
+  selectOrganization: (client: any, orgId: string) => Promise<Record<string, unknown>>;
   findPendingBoxTransferByDestinationBoxId: (
     client: any,
     orgId: string,
@@ -377,6 +378,10 @@ type MutationHandler = (
 ) => Promise<Record<string, unknown>>;
 
 const mutationHandlers: Record<string, MutationHandler> = {
+  "/auth/organization": async ({ client, normalizedPayload }, deps) => {
+    const orgId = deps.requireString(normalizedPayload.orgId, "orgId");
+    return ok(await deps.selectOrganization(client, orgId));
+  },
   "/profile/username": async ({ client, orgId, actor, normalizedPayload }, deps) => {
     const result = await deps.callMutationRpc(client, "api_request_username_change", orgId, actor, normalizedPayload);
     return ok(result);

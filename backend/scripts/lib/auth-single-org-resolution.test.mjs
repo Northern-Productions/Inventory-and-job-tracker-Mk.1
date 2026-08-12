@@ -25,6 +25,35 @@ test('auth org resolver prefers configured default only when user is a member', 
   assert.equal(decision.reason, 'default-org-approved-membership');
 });
 
+test('auth org resolver prefers an active remembered organization over the configured default', () => {
+  const decision = resolvePilotOrgAccess({
+    defaultOrgId: DEFAULT_ORG,
+    rememberedOrgId: CLIENT_ORG,
+    memberships: [
+      { org_id: DEFAULT_ORG, role: 'owner', status: 'active' },
+      { org_id: CLIENT_ORG, role: 'member', status: 'active' },
+    ],
+  });
+
+  assert.equal(decision.kind, 'approved');
+  assert.equal(decision.orgId, CLIENT_ORG);
+  assert.equal(decision.reason, 'remembered-org-approved-membership');
+});
+
+test('auth org resolver ignores a remembered disabled membership', () => {
+  const decision = resolvePilotOrgAccess({
+    rememberedOrgId: DEFAULT_ORG,
+    memberships: [
+      { org_id: DEFAULT_ORG, role: 'owner', status: 'disabled' },
+      { org_id: CLIENT_ORG, role: 'member', status: 'active' },
+    ],
+  });
+
+  assert.equal(decision.kind, 'approved');
+  assert.equal(decision.orgId, CLIENT_ORG);
+  assert.equal(decision.reason, 'single-approved-membership');
+});
+
 test('auth org resolver uses a single approved non-default membership when default is configured', () => {
   const decision = resolvePilotOrgAccess({
     defaultOrgId: DEFAULT_ORG,
@@ -127,6 +156,7 @@ test('safe unresolved auth context carries denied permissions and no tenant org 
   assert.equal(context.orgId, '');
   assert.equal(context.permissions.inventory.read, false);
   assert.equal(context.permissions.jobs.write, false);
+  assert.equal(context.permissions.team_management.write, false);
 });
 
 test('local backend resolver reads memberships and access requests before choosing an org', async () => {

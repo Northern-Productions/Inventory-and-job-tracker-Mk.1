@@ -10,6 +10,7 @@ const FEATURES = [
   "activity_history",
   "reports",
   "access_management",
+  "team_management",
 ];
 
 function assertEquals(actual: unknown, expected: unknown, message: string) {
@@ -48,6 +49,7 @@ function identity(overrides: Partial<AuthIdentity> = {}): AuthIdentity {
     receivesInAppNotifications: false,
     defaultWarehouse: "",
     pendingRequestCreated: false,
+    organizations: [],
     ...overrides,
   };
 }
@@ -188,11 +190,6 @@ Deno.test("Edge ACL denies non-owner access to owner-only routes", () => {
   for (const role of ["member", "admin"] as const) {
     for (const route of [
       { method: "GET", path: "/owner/reports/asset-total-cost", feature: "reports" },
-      { method: "GET", path: "/owner/team/users", feature: "access_management" },
-      { method: "POST", path: "/owner/team/invite", feature: "access_management" },
-      { method: "POST", path: "/owner/team/change-role", feature: "access_management" },
-      { method: "POST", path: "/owner/team/disable", feature: "access_management" },
-      { method: "POST", path: "/owner/team/reenable", feature: "access_management" },
     ] as const) {
       assertDenied(
         route.method,
@@ -207,6 +204,32 @@ Deno.test("Edge ACL denies non-owner access to owner-only routes", () => {
       );
     }
   }
+});
+
+Deno.test("Edge ACL delegates Team routes only through organization Team permissions", () => {
+  const allowedAdmin = identity({
+    role: "admin",
+    permissions: permissions({ team_management: { read: true, write: true } }),
+  });
+  assertAllows("GET", "/owner/team/users", allowedAdmin, "Delegated Admin should read Team users.");
+  assertAllows("POST", "/owner/team/invite", allowedAdmin, "Delegated Admin should add Team users.");
+
+  assertDenied(
+    "POST",
+    "/owner/team/invite",
+    identity({ role: "admin", permissions: permissions() }),
+    403,
+    "Feature access denied.",
+    "Admin without Team permission must be denied.",
+  );
+  assertDenied(
+    "GET",
+    "/owner/team/users",
+    identity({ role: "member", permissions: permissions({ team_management: { read: true, write: true } }) }),
+    403,
+    "Admin or owner access is required.",
+    "A member cannot gain Team access from an invalid permission map.",
+  );
 });
 
 Deno.test("Edge ACL denies pending and denied users on protected routes", () => {

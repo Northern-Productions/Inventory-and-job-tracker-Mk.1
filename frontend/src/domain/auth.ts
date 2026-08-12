@@ -24,7 +24,8 @@ export type FeatureArea =
   | 'film_orders'
   | 'activity_history'
   | 'reports'
-  | 'access_management';
+  | 'access_management'
+  | 'team_management';
 export type FeatureAccessMode = 'read' | 'write';
 
 export interface FeatureAccess {
@@ -43,6 +44,14 @@ export interface EffectiveAccessContext {
   pendingCount: number;
   receivesInAppNotifications: boolean;
   defaultWarehouse: string;
+  organizations?: OrganizationMembershipOption[];
+}
+
+export interface OrganizationMembershipOption {
+  orgId: string;
+  name: string;
+  role: Exclude<Role, ''>;
+  selected: boolean;
 }
 
 export type AccessRequestStatus = 'pending' | 'approved' | 'denied';
@@ -76,6 +85,27 @@ export interface TeamUserEntry {
   invitedAt: string;
   disabledAt: string;
   updatedAt: string;
+}
+
+export type AddTeamMemberOutcome =
+  | 'added_existing'
+  | 'already_active'
+  | 'disabled_confirmation_required'
+  | 'already_invited'
+  | 'invited_new'
+  | 'invited_existing_unconfirmed'
+  | 'account_unavailable';
+
+export interface AddTeamMemberResult {
+  outcome: AddTeamMemberOutcome;
+  entry: TeamUserEntry | null;
+}
+
+export type ReenableTeamMemberOutcome = 'reenabled' | 'already_active' | 'already_invited';
+
+export interface ReenableTeamMemberResult {
+  outcome: ReenableTeamMemberOutcome;
+  entry: TeamUserEntry;
 }
 
 export interface AdminPermissionEntry {
@@ -121,6 +151,7 @@ export function createDefaultFeatureAccessMap(): FeatureAccessMap {
     film_orders: { read: false, write: false },
     activity_history: { read: false, write: false },
     reports: { read: false, write: false },
-    access_management: { read: false, write: false }
+    access_management: { read: false, write: false },
+    team_management: { read: false, write: false }
   };
 }

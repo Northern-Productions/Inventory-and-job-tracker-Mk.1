@@ -14,4 +14,10 @@ export type AuthIdentity = {
   receivesInAppNotifications: boolean;
   defaultWarehouse: string;
   pendingRequestCreated: boolean;
+  organizations: Array<{
+    orgId: string;
+    name: string;
+    role: "owner" | "admin" | "member";
+    selected: boolean;
+  }>;
 };

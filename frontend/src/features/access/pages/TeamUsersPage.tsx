@@ -8,17 +8,25 @@ import {
   reenableTeamUser
 } from '../../../api/features/accessClient';
 import { Button } from '../../../components/Button';
+import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
 import { Select } from '../../../components/Select';
 import { useToast } from '../../../components/Toast';
 import type { Role, TeamUserEntry, TeamUserStatus } from '../../../domain';
+import { useAuth } from '../../auth/AuthContext';
 
 const TEAM_USERS_QUERY_KEY = ['owner', 'team', 'users'];
-const ROLE_OPTIONS: Array<{ label: string; value: Exclude<Role, ''> }> = [
+const OWNER_ROLE_OPTIONS: Array<{ label: string; value: Exclude<Role, ''> }> = [
   { label: 'Owner', value: 'owner' },
   { label: 'Admin', value: 'admin' },
   { label: 'Member', value: 'member' }
 ];
+const ADMIN_ROLE_OPTIONS = OWNER_ROLE_OPTIONS.filter((option) => option.value !== 'owner');
+
+interface ReenableConfirmation {
+  entry: TeamUserEntry;
+  role: Exclude<Role, ''>;
+}
 
 function formatStatus(status: TeamUserStatus) {
   if (status === 'invited') {
@@ -56,6 +64,7 @@ function formatDate(value: string) {
 }
 
 export default function TeamUsersPage() {
+  const auth = useAuth();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [email, setEmail] = useState('');
@@ -63,6 +72,8 @@ export default function TeamUsersPage() {
   const [role, setRole] = useState<Exclude<Role, ''>>('member');
   const [formError, setFormError] = useState('');
   const [roleDrafts, setRoleDrafts] = useState<Record<string, Exclude<Role, ''>>>({});
+  const [reenableConfirmation, setReenableConfirmation] = useState<ReenableConfirmation | null>(null);
+  const roleOptions = auth.isOwner ? OWNER_ROLE_OPTIONS : ADMIN_ROLE_OPTIONS;
 
   const usersQuery = useQuery({
     queryKey: TEAM_USERS_QUERY_KEY,
@@ -84,25 +95,57 @@ export default function TeamUsersPage() {
 
   const inviteMutation = useMutation({
     mutationFn: inviteTeamUser,
-    onSuccess: async (entry) => {
-      setEmail('');
-      setName('');
-      setRole('member');
+    onSuccess: async (result) => {
       setFormError('');
-      await refreshTeamUsers();
-      toast.push({
-        title: entry.status === 'invited' ? 'Invite sent' : 'Team user found',
-        description:
-          entry.status === 'invited'
-            ? `${entry.email} was invited to this workspace.`
-            : `${entry.email} is already on this workspace team.`,
-        variant: 'success'
-      });
+      if (result.outcome === 'disabled_confirmation_required' && result.entry) {
+        setReenableConfirmation({ entry: result.entry, role });
+        return;
+      }
+      if (result.outcome === 'account_unavailable') {
+        const message = 'This account is not available for organization access. Contact support if this is unexpected.';
+        setFormError(message);
+        toast.push({ title: 'Account unavailable', description: message, variant: 'error' });
+        return;
+      }
+
+      const messageByOutcome = {
+        added_existing: {
+          title: 'User added',
+          description: 'User added to this organization.'
+        },
+        already_active: {
+          title: 'Already a member',
+          description: 'This user is already a member of this organization.'
+        },
+        already_invited: {
+          title: 'Invitation pending',
+          description: 'An invitation is already pending for this user.'
+        },
+        invited_new: {
+          title: 'Invitation sent',
+          description: 'Invitation sent.'
+        },
+        invited_existing_unconfirmed: {
+          title: 'Invitation sent',
+          description: 'The pending account invitation was sent for this organization.'
+        }
+      } as const;
+      const message = messageByOutcome[result.outcome as keyof typeof messageByOutcome];
+      if (!message) {
+        return;
+      }
+      if (result.outcome === 'added_existing' || result.outcome.startsWith('invited_')) {
+        setEmail('');
+        setName('');
+        setRole('member');
+        await refreshTeamUsers();
+      }
+      toast.push({ ...message, variant: 'success' });
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : 'The invite could not be sent.';
+      const message = error instanceof Error ? error.message : 'The team member could not be added.';
       setFormError(message);
-      toast.push({ title: 'Unable to invite user', description: message, variant: 'error' });
+      toast.push({ title: 'Unable to add team member', description: message, variant: 'error' });
     }
   });
 
@@ -146,8 +189,26 @@ export default function TeamUsersPage() {
 
   const reenableMutation = useMutation({
     mutationFn: reenableTeamUser,
-    onSuccess: async (entry) => {
+    onSuccess: async (result) => {
+      const entry = result.entry;
+      setReenableConfirmation(null);
       await refreshTeamUsers();
+      if (result.outcome === 'already_active') {
+        toast.push({
+          title: 'Already active',
+          description: 'This user is already a member of this organization.',
+          variant: 'success'
+        });
+        return;
+      }
+      if (result.outcome === 'already_invited') {
+        toast.push({
+          title: 'Invitation pending',
+          description: 'An invitation is already pending for this user.',
+          variant: 'success'
+        });
+        return;
+      }
       const restoredInvite = entry.status === 'invited';
       toast.push({
         title: restoredInvite ? 'Invite restored' : 'User re-enabled',
@@ -171,10 +232,6 @@ export default function TeamUsersPage() {
     const normalizedName = name.trim();
     if (!normalizedEmail || !normalizedEmail.includes('@')) {
       setFormError('A valid email is required.');
-      return;
-    }
-    if (!normalizedName) {
-      setFormError('Display name is required.');
       return;
     }
     setFormError('');
@@ -208,11 +265,19 @@ export default function TeamUsersPage() {
     await disableMutation.mutateAsync({ userId: entry.userId });
   }
 
-  async function handleReenable(entry: TeamUserEntry) {
-    if (!window.confirm(`Re-enable access for ${entry.email || entry.name}?`)) {
+  function handleReenable(entry: TeamUserEntry) {
+    const selectedRole = roleDrafts[entry.userId] || entry.role;
+    setReenableConfirmation({ entry, role: selectedRole });
+  }
+
+  async function confirmReenable() {
+    if (!reenableConfirmation) {
       return;
     }
-    await reenableMutation.mutateAsync({ userId: entry.userId });
+    await reenableMutation.mutateAsync({
+      userId: reenableConfirmation.entry.userId,
+      role: reenableConfirmation.role
+    });
   }
 
   const actionPending =
@@ -226,10 +291,10 @@ export default function TeamUsersPage() {
       <section className="panel">
         <div className="panel-title-row">
           <div>
-            <p className="eyebrow">Owner Tools</p>
+            <p className="eyebrow">Team Management</p>
             <h2>Team / Users</h2>
             <p className="muted-text">
-              Invite users to this workspace and manage their current organization access.
+              Add existing accounts immediately, or invite new users to create an account.
             </p>
           </div>
         </div>
@@ -243,7 +308,7 @@ export default function TeamUsersPage() {
             placeholder="name@example.com"
           />
           <Input
-            label="Display Name"
+            label="Display Name (new accounts)"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Jane Smith"
@@ -252,7 +317,7 @@ export default function TeamUsersPage() {
             label="Role"
             value={role}
             onChange={(event) => setRole(event.target.value as Exclude<Role, ''>)}
-            options={ROLE_OPTIONS}
+            options={roleOptions}
           />
         </div>
         {formError ? <p className="error-text">{formError}</p> : null}
@@ -261,9 +326,9 @@ export default function TeamUsersPage() {
             type="button"
             onClick={() => void handleInvite()}
             loading={inviteMutation.isPending}
-            loadingLabel="Sending..."
+            loadingLabel="Adding..."
           >
-            Send Invite
+            Add Team Member
           </Button>
         </div>
       </section>
@@ -302,6 +367,9 @@ export default function TeamUsersPage() {
                 teamUsers.map((entry) => {
                   const draftRole = roleDrafts[entry.userId] || roleByUserId[entry.userId] || entry.role;
                   const roleChanged = draftRole !== entry.role;
+                  const ownerTargetBlocked = auth.isAdmin && entry.role === 'owner';
+                  const selfTargetBlocked = auth.isAdmin && entry.userId === auth.session?.user?.sub;
+                  const targetBlocked = ownerTargetBlocked || selfTargetBlocked;
                   return (
                     <tr key={entry.userId}>
                       <td>
@@ -319,6 +387,7 @@ export default function TeamUsersPage() {
                           aria-label={`Role for ${entry.email || entry.name}`}
                           className="table-inline-select"
                           value={draftRole}
+                          disabled={targetBlocked || actionPending}
                           onChange={(event) =>
                             setRoleDrafts((current) => ({
                               ...current,
@@ -326,8 +395,12 @@ export default function TeamUsersPage() {
                             }))
                           }
                         >
-                          {ROLE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
+                          {OWNER_ROLE_OPTIONS.map((option) => (
+                            <option
+                              key={option.value}
+                              value={option.value}
+                              disabled={auth.isAdmin && option.value === 'owner'}
+                            >
                               {option.label}
                             </option>
                           ))}
@@ -342,7 +415,7 @@ export default function TeamUsersPage() {
                             size="sm"
                             variant="secondary"
                             onClick={() => void handleRoleChange(entry)}
-                            disabled={!roleChanged || actionPending}
+                            disabled={!roleChanged || actionPending || targetBlocked}
                             loading={changeRoleMutation.isPending && roleChanged}
                             loadingLabel="Saving..."
                           >
@@ -353,10 +426,8 @@ export default function TeamUsersPage() {
                               type="button"
                               size="sm"
                               variant="secondary"
-                              onClick={() => void handleReenable(entry)}
-                              disabled={actionPending}
-                              loading={reenableMutation.isPending}
-                              loadingLabel="Re-enabling..."
+                              onClick={() => handleReenable(entry)}
+                              disabled={actionPending || targetBlocked}
                             >
                               Re-enable
                             </Button>
@@ -366,7 +437,7 @@ export default function TeamUsersPage() {
                               size="sm"
                               variant="danger"
                               onClick={() => void handleDisable(entry)}
-                              disabled={actionPending}
+                              disabled={actionPending || targetBlocked}
                               loading={disableMutation.isPending}
                               loadingLabel="Disabling..."
                             >
@@ -383,6 +454,42 @@ export default function TeamUsersPage() {
           </table>
         </div>
       </section>
+      <DialogSurface
+        open={Boolean(reenableConfirmation)}
+        onClose={() => {
+          if (!reenableMutation.isPending) {
+            setReenableConfirmation(null);
+          }
+        }}
+        titleId="reenable-team-member-title"
+        descriptionId="reenable-team-member-description"
+      >
+        <div className="dialog-header">
+          <h2 id="reenable-team-member-title">Enable Team Member</h2>
+        </div>
+        <p id="reenable-team-member-description" className="muted-text">
+          This account already exists but is currently disabled in this organization. Enable this user again as{' '}
+          <strong>{reenableConfirmation ? formatRole(reenableConfirmation.role) : ''}</strong>?
+        </p>
+        <div className="dialog-actions">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={reenableMutation.isPending}
+            onClick={() => setReenableConfirmation(null)}
+          >
+            No
+          </Button>
+          <Button
+            type="button"
+            loading={reenableMutation.isPending}
+            loadingLabel="Enabling..."
+            onClick={() => void confirmReenable()}
+          >
+            Yes, Enable User
+          </Button>
+        </div>
+      </DialogSurface>
     </>
   );
 }

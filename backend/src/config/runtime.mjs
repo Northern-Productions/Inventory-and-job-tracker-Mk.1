@@ -33,7 +33,9 @@ export const CORE_WEIGHT_AT_REFERENCE_WIDTH_LBS = {
 export const BOX_STATUSES = new Set(CONTRACT_BOX_STATUSES);
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const MEMBER_FEATURE_AREAS = CONTRACT_FEATURE_AREAS.filter((feature) => feature !== 'access_management');
+export const MEMBER_FEATURE_AREAS = CONTRACT_FEATURE_AREAS.filter(
+  (feature) => feature !== 'access_management' && feature !== 'team_management'
+);
 
 export const ADMIN_FEATURE_AREAS = [...CONTRACT_FEATURE_AREAS];
 

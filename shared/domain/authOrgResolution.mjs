@@ -67,15 +67,18 @@ export function createDeniedFeaturePermissions() {
     activity_history: { read: false, write: false },
     reports: { read: false, write: false },
     access_management: { read: false, write: false },
+    team_management: { read: false, write: false },
   };
 }
 
 export function resolvePilotOrgAccess({
   defaultOrgId = '',
+  rememberedOrgId = '',
   memberships = [],
   accessRequests = [],
 } = {}) {
   const normalizedDefaultOrgId = trim(defaultOrgId);
+  const normalizedRememberedOrgId = trim(rememberedOrgId);
   const approvedMemberships = (Array.isArray(memberships) ? memberships : [])
     .map(normalizeMembership)
     .filter(Boolean)
@@ -84,6 +87,17 @@ export function resolvePilotOrgAccess({
     .map(normalizeAccessRequest)
     .filter(Boolean)
     .sort(sortByRequestedAtThenOrgId);
+
+  const rememberedMembership = normalizedRememberedOrgId
+    ? approvedMemberships.find((entry) => entry.orgId === normalizedRememberedOrgId)
+    : null;
+  if (rememberedMembership) {
+    return {
+      kind: 'approved',
+      orgId: normalizedRememberedOrgId,
+      reason: 'remembered-org-approved-membership',
+    };
+  }
 
   const defaultMembership = normalizedDefaultOrgId
     ? approvedMemberships.find((entry) => entry.orgId === normalizedDefaultOrgId)
@@ -173,6 +187,7 @@ export function buildSafeAccessContext({
   identity,
   decision,
   actor = '',
+  organizations = [],
 } = {}) {
   const statusByKind = {
     pending: 'pending',
@@ -194,5 +209,6 @@ export function buildSafeAccessContext({
     defaultWarehouse: '',
     pendingRequestCreated: false,
     accessResolutionReason: trim(decision?.reason),
+    organizations: Array.isArray(organizations) ? organizations : [],
   };
 }

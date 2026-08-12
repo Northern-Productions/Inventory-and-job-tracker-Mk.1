@@ -128,7 +128,8 @@ export const navItems: NavItem[] = [
     mobileLabel: 'Team / Users',
     desktopPlacement: 'more',
     mobilePlacement: 'more',
-    ownerOnly: true
+    feature: 'team_management',
+    mode: 'read'
   },
   {
     to: '/owner/companies',

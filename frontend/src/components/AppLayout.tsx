@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useIsPhoneLayout } from '../hooks/useIsPhoneLayout';
 import { AccountMenuTrigger } from '../features/auth/AccountControl';
+import { OrganizationSwitcher } from '../features/auth/OrganizationSwitcher';
 import { useDefaultWarehouseLabel } from '../features/inventory/hooks/useDefaultWarehouse';
 import {
   NavigationCoordinatorProvider,
@@ -114,6 +115,7 @@ function AppLayoutShell() {
                 <h1>Window Film Inventory</h1>
               </div>
               <div className="app-header-corner">
+                <OrganizationSwitcher />
                 <span className="app-header-warehouse" title={`Warehouse: ${defaultWarehouseLabel}`}>
                   Warehouse: {defaultWarehouseLabel}
                 </span>

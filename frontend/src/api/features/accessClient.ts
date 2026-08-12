@@ -1,10 +1,13 @@
 // Purpose: Access-management and permission API surface.
 import type {
   AccessRequestEntry,
+  AddTeamMemberOutcome,
+  AddTeamMemberResult,
   AdminPermissionEntry,
   FeatureAccessMap,
   OwnerNotificationPreferences,
   Role,
+  ReenableTeamMemberResult,
   TeamUserEntry,
   UsernameChangeRequestEntry
 } from '../../domain';
@@ -246,13 +249,30 @@ export async function inviteTeamUser(payload: {
   email: string;
   name: string;
   role: Exclude<Role, ''>;
-}): Promise<TeamUserEntry> {
+}): Promise<AddTeamMemberResult> {
   const { data } = await request<unknown>('POST', '/owner/team/invite', { body: payload });
-  const entry = mapTeamUserEntry(data);
-  if (!entry) {
-    throw new Error('Team invite response was not readable.');
+  if (!data || typeof data !== 'object') {
+    throw new Error('Add Team Member response was not readable.');
   }
-  return entry;
+  const source = data as Record<string, unknown>;
+  const outcome = String(source.outcome || '').trim() as AddTeamMemberOutcome;
+  const allowedOutcomes: AddTeamMemberOutcome[] = [
+    'added_existing',
+    'already_active',
+    'disabled_confirmation_required',
+    'already_invited',
+    'invited_new',
+    'invited_existing_unconfirmed',
+    'account_unavailable'
+  ];
+  if (!allowedOutcomes.includes(outcome)) {
+    throw new Error('Add Team Member response was not readable.');
+  }
+  const entry = mapTeamUserEntry(source.entry);
+  if (outcome !== 'account_unavailable' && !entry) {
+    throw new Error('Add Team Member response was not readable.');
+  }
+  return { outcome, entry };
 }
 
 export async function changeTeamUserRole(payload: {
@@ -280,11 +300,20 @@ export async function disableTeamUser(payload: {
 
 export async function reenableTeamUser(payload: {
   userId: string;
-}): Promise<TeamUserEntry> {
+  role: Exclude<Role, ''>;
+}): Promise<ReenableTeamMemberResult> {
   const { data } = await request<unknown>('POST', '/owner/team/reenable', { body: payload });
-  const entry = mapTeamUserEntry(data);
-  if (!entry) {
+  if (!data || typeof data !== 'object') {
     throw new Error('Team re-enable response was not readable.');
   }
-  return entry;
+  const source = data as Record<string, unknown>;
+  const outcome = String(source.outcome || '').trim();
+  const entry = mapTeamUserEntry(source.entry);
+  if (!['reenabled', 'already_active', 'already_invited'].includes(outcome) || !entry) {
+    throw new Error('Team re-enable response was not readable.');
+  }
+  return {
+    outcome: outcome as ReenableTeamMemberResult['outcome'],
+    entry
+  };
 }

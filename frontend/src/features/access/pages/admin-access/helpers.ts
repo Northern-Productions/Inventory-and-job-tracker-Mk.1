@@ -81,7 +81,8 @@ export function sanitizeMemberPermissionsForReadOnly(source: FeatureAccessMap): 
     film_orders: { read: Boolean(source.film_orders?.read), write: false },
     activity_history: { read: Boolean(source.activity_history?.read), write: false },
     reports: { read: Boolean(source.reports?.read), write: false },
-    access_management: { read: false, write: false }
+    access_management: { read: false, write: false },
+    team_management: { read: false, write: false }
   };
 }
 

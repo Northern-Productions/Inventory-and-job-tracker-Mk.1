@@ -16,7 +16,15 @@ type PilotOrgResolutionDecision = {
 
 type PilotOrgResolutionInput = {
   defaultOrgId?: string;
-  memberships?: Array<{ org_id: string; role?: string; created_at?: string }>;
+  rememberedOrgId?: string;
+  memberships?: Array<{
+    org_id: string;
+    org_name?: string;
+    role?: string;
+    status?: string;
+    selected?: boolean;
+    created_at?: string;
+  }>;
   accessRequests?: Array<{ org_id: string; status: string; requested_at?: string }>;
 };
 
@@ -32,6 +40,12 @@ const buildSafeAccessContextTyped = buildSafeAccessContext as (input: {
   };
   decision: PilotOrgResolutionDecision;
   actor: string;
+  organizations?: Array<{
+    orgId: string;
+    name: string;
+    role: "owner" | "admin" | "member";
+    selected: boolean;
+  }>;
 }) => AuthIdentity;
 
 type FetchAuthIdentityDeps = {
@@ -87,6 +101,7 @@ export async function fetchAuthIdentity(
 export async function resolveAuthContext(
   request: Request,
   deps: ResolveAuthContextDeps,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<{ identity: AuthIdentity; client: any }> {
   const authorization = request.headers.get("authorization")?.trim() || "";
   if (!/^Bearer\s+\S+$/i.test(authorization)) {
@@ -95,7 +110,7 @@ export async function resolveAuthContext(
   const token = authorization.replace(/^Bearer\s+/i, "").trim();
 
   deps.pruneAuthIdentityCache();
-  const cached = deps.authIdentityCache.get(token);
+  const cached = options.forceRefresh ? null : deps.authIdentityCache.get(token);
   if (cached && cached.expiresAt > Date.now()) {
     return {
       identity: cached.identity,
@@ -110,13 +125,36 @@ export async function resolveAuthContext(
 
   const client = deps.createUserScopedClient(token);
 
-  const memberships = await deps.rpcOrThrow<Array<{ org_id: string; role?: string; created_at?: string }>>(
+  const memberships = await deps.rpcOrThrow<Array<{
+    org_id: string;
+    org_name?: string;
+    role?: string;
+    status?: string;
+    selected?: boolean;
+    created_at?: string;
+  }>>(
     client,
     "api_list_memberships",
   );
   const accessRequests = await deps.listAccessRequestsForUser(user.userId);
+  const organizations = memberships.map((entry) => {
+    const role = deps.asTrimmedString(entry.role).toLowerCase();
+    return {
+      orgId: deps.asTrimmedString(entry.org_id),
+      name: deps.asTrimmedString(entry.org_name) || "Organization",
+      role: role === "owner" || role === "admin" ? role : "member",
+      selected: entry.selected === true,
+    } as {
+      orgId: string;
+      name: string;
+      role: "owner" | "admin" | "member";
+      selected: boolean;
+    };
+  });
+  const rememberedOrgId = deps.asTrimmedString(memberships.find((entry) => entry.selected === true)?.org_id);
   const decision = resolvePilotOrgAccessTyped({
     defaultOrgId: DEFAULT_ORG_ID,
+    rememberedOrgId,
     memberships,
     accessRequests,
   });
@@ -127,6 +165,7 @@ export async function resolveAuthContext(
       identity: user,
       decision,
       actor,
+      organizations,
     });
     deps.authIdentityCache.set(token, {
       identity,
@@ -136,12 +175,22 @@ export async function resolveAuthContext(
   }
 
   const orgId = decision.orgId;
+  const selectedOrganizations = organizations.map((entry) => ({
+    ...entry,
+    selected: entry.orgId === orgId,
+  }));
   const accessContext = await deps.rpcOrThrow<Record<string, unknown>>(client, "api_get_auth_context", {
     p_org_id: orgId,
   });
 
   const accessStatusRaw = deps.asTrimmedString(accessContext.accessStatus || "pending").toLowerCase();
   const roleRaw = deps.asTrimmedString(accessContext.role).toLowerCase();
+  const permissions = deps.parseFeaturePermissions(accessContext.permissions);
+  if (roleRaw === "owner") {
+    permissions.team_management = { read: true, write: true };
+  } else if (!permissions.team_management) {
+    permissions.team_management = { read: false, write: false };
+  }
   const identity: AuthIdentity = {
     ...user,
     orgId,
@@ -154,7 +203,7 @@ export async function resolveAuthContext(
       roleRaw === "owner" || roleRaw === "admin" || roleRaw === "member"
         ? (roleRaw as "owner" | "admin" | "member")
         : "",
-    permissions: deps.parseFeaturePermissions(accessContext.permissions),
+    permissions,
     isAdminConsoleAllowed:
       accessContext.isAdminConsoleAllowed === true ||
       String(accessContext.isAdminConsoleAllowed).toLowerCase() === "true",
@@ -166,6 +215,7 @@ export async function resolveAuthContext(
     pendingRequestCreated:
       accessContext.pendingRequestCreated === true ||
       String(accessContext.pendingRequestCreated).toLowerCase() === "true",
+    organizations: selectedOrganizations,
   };
 
   if (identity.accessStatus === "pending" && identity.pendingRequestCreated) {

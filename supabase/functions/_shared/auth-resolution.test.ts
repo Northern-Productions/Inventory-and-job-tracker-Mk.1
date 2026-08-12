@@ -131,8 +131,8 @@ Deno.test("Edge ACL blocks org-selection-required users before tenant routes dis
     }
     assertEquals(error.statusCode, 403, "Expected unresolved org access to be forbidden.");
     assert(
-      error.message.includes("more than one organization"),
-      "Expected a business-level multiple-organization message.",
+      error.message.includes("Choose an organization"),
+      "Expected a business-level organization selection message.",
     );
     return;
   }

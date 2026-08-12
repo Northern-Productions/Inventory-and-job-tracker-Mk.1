@@ -1,6 +1,7 @@
 import { Button } from '../../components/Button';
 import { useAuth } from './AuthContext';
 import { UsernameChangeControl } from './UsernameChangeControl';
+import { OrganizationSwitcher } from './OrganizationSwitcher';
 
 interface AccessSplashProps {
   mode: 'pending' | 'denied' | 'org_selection_required' | 'no_access';
@@ -22,7 +23,7 @@ export function AccessSplash({ mode }: AccessSplashProps) {
     org_selection_required: {
       title: 'Organization Selection Needed',
       description:
-        'Your account belongs to more than one organization. Organization switching is not available yet, so no company data can load from this session.'
+        'Choose the organization you want to open. No organization data loads until you make a selection.'
     },
     no_access: {
       title: 'No Organization Access',
@@ -38,6 +39,7 @@ export function AccessSplash({ mode }: AccessSplashProps) {
         <p className="eyebrow">Access Control</p>
         <h1>{title}</h1>
         <p className="auth-gate-copy">{description}</p>
+        {mode === 'org_selection_required' ? <OrganizationSwitcher selectionRequired /> : null}
         <div className="auth-gate-actions access-splash-actions">
           {(mode === 'pending' || mode === 'denied') && (
             <UsernameChangeControl buttonVariant="ghost" />

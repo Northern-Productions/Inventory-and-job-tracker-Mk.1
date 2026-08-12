@@ -133,11 +133,7 @@ export const appRoutes: RouteObject[] = [
       },
       {
         path: '/owner/team',
-        element: withSuspense(
-          <AccessRoute requireOwner>
-            <TeamUsersPage />
-          </AccessRoute>
-        )
+        element: withFeatureRoute(<TeamUsersPage />, 'team_management', 'read')
       },
       {
         path: '/owner/companies',
