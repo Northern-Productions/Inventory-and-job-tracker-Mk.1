@@ -39,6 +39,10 @@ import {
   canOrderMoreFilmForFilmOrder,
   formatFilmOrderDealerLabel,
   getFilmOrderDisplayStatus,
+  getFilmOrderLinkedFeet,
+  getFilmOrderOnTheWayFeet,
+  getFilmOrderOverageFeet,
+  getFilmOrderReceivedFeet,
   getFilmOrderRemainingFeet,
   getNextFilmOrderLinkedBoxToReceive,
   isFilmOrderNeedingAttention,
@@ -167,13 +171,11 @@ function buildReceiveOrderedTarget(order: FilmOrderEntry) {
 
 const FILM_ORDER_STATUS_FILTER_OPTIONS = [
   { label: 'All statuses', value: 'all' },
-  { label: 'Film Order', value: 'FILM_ORDER' },
-  { label: 'Incomplete', value: 'INCOMPLETE' },
-  { label: 'Needs Receiving', value: 'FILM_ON_THE_WAY' },
+  { label: 'Needs Ordering', value: 'FILM_ORDER' },
+  { label: 'Film On The Way', value: 'FILM_ON_THE_WAY' },
   { label: 'Fulfilled / Covered', value: 'FULFILLED_COVERED' },
   { label: 'Manually Fulfilled', value: 'MANUALLY_FULFILLED' },
-  { label: 'Canceled', value: 'CANCELLED' },
-  { label: 'No Longer Needed', value: 'NO_LONGER_NEEDED' }
+  { label: 'Canceled', value: 'CANCELLED' }
 ] as const;
 
 type FilmOrderStatusFilter = (typeof FILM_ORDER_STATUS_FILTER_OPTIONS)[number]['value'];
@@ -183,6 +185,10 @@ const DEFAULT_FILM_ORDER_STATUS_FILTER: FilmOrderStatusFilter = 'FILM_ORDER';
 function parseFilmOrderStatusFilter(value: string | null): FilmOrderStatusFilter {
   if (value === 'FULFILLED') {
     return 'FULFILLED_COVERED';
+  }
+
+  if (value === 'INCOMPLETE' || value === 'NO_LONGER_NEEDED') {
+    return 'FILM_ORDER';
   }
 
   if (FILM_ORDER_STATUS_FILTER_OPTIONS.some((option) => option.value === value)) {
@@ -220,10 +226,8 @@ export default function FilmOrdersPage() {
     () =>
       statusFilter === 'all'
         ? filmOrdersQuery.data || []
-        : (filmOrdersQuery.data || []).filter((order) =>
-            statusFilter === 'FILM_ON_THE_WAY'
-              ? order.status === 'FILM_ON_THE_WAY'
-              : getFilmOrderDisplayStatus(order) === statusFilter
+        : (filmOrdersQuery.data || []).filter(
+            (order) => getFilmOrderDisplayStatus(order) === statusFilter
           ),
     [filmOrdersQuery.data, statusFilter]
   );
@@ -357,9 +361,7 @@ export default function FilmOrdersPage() {
                 );
                 const displayJobLabel = formatJobDisplayLabel(order);
                 const receiveTarget = buildReceiveOrderedTarget(order);
-                const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
                 const canOrderMoreFilm = canOrderMoreFilmForFilmOrder(order);
-                const actionLabel = isReceiveAction ? 'RECEIVE' : 'FILM ORDERED';
 
                 return (
                   <MobileRecordCard key={order.filmOrderId}>
@@ -381,23 +383,35 @@ export default function FilmOrdersPage() {
                       <MobileField label="Warehouse" value={order.warehouse} />
                       <MobileField label="Film" value={`${order.manufacturer} ${order.filmName}`} />
                       <MobileField label="Width" value={order.widthIn} />
-                      <MobileField label="Remaining LF" value={getFilmOrderRemainingFeet(order)} />
+                      <MobileField label="Requested LF" value={order.requestedFeet} />
+                      <MobileField label="Ordered / Linked LF" value={getFilmOrderLinkedFeet(order)} />
+                      <MobileField label="On The Way LF" value={getFilmOrderOnTheWayFeet(order)} />
+                      <MobileField label="Received LF" value={getFilmOrderReceivedFeet(order)} />
+                      <MobileField label="Covered / Allocated LF" value={order.coveredFeet} />
+                      <MobileField label="Remaining To Order LF" value={getFilmOrderRemainingFeet(order)} />
+                      <MobileField label="Order Overage LF" value={getFilmOrderOverageFeet(order)} />
                       <MobileField label="Ordered Box ID" value={<FilmOrderLinkedBoxes order={order} />} />
                       <MobileField label="Install Date" value={formatDate(order.installDate)} />
                       <MobileField label="Created" value={formatDate(order.createdAt)} />
                       <MobileField label="Dealer" value={formatFilmOrderDealerLabel(order)} />
                     </MobileFieldList>
                     <MobileActionStack>
-                      {isReceiveAction || canOrderMoreFilm ? (
+                      {receiveTarget ? (
                         <Button
                           type="button"
                           variant="secondary"
-                          onClick={() =>
-                            navigate(isReceiveAction ? receiveTarget : buildAddBoxTarget(order))
-                          }
-                          disabled={isReceiveAction && !receiveTarget}
+                          onClick={() => navigate(receiveTarget)}
                         >
-                          {actionLabel}
+                          RECEIVE
+                        </Button>
+                      ) : null}
+                      {canOrderMoreFilm ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => navigate(buildAddBoxTarget(order))}
+                        >
+                          FILM ORDERED
                         </Button>
                       ) : null}
                       <Button
@@ -423,7 +437,13 @@ export default function FilmOrdersPage() {
                     <th>Job ID</th>
                     <th>Film</th>
                     <th>Width</th>
-                    <th>Remaining LF</th>
+                    <th>Requested</th>
+                    <th>Ordered / Linked</th>
+                    <th>On The Way</th>
+                    <th>Received</th>
+                    <th>Covered / Allocated</th>
+                    <th>Remaining To Order</th>
+                    <th>Order Overage</th>
                     <th className="col-ordered-box-id">Ordered Box ID</th>
                     <th>Install Date</th>
                     <th>Created</th>
@@ -438,9 +458,7 @@ export default function FilmOrdersPage() {
                     );
                     const displayJobLabel = formatJobDisplayLabel(order);
                     const receiveTarget = buildReceiveOrderedTarget(order);
-                    const isReceiveAction = order.status === 'FILM_ON_THE_WAY';
                     const canOrderMoreFilm = canOrderMoreFilmForFilmOrder(order);
-                    const actionLabel = isReceiveAction ? 'RECEIVE' : 'FILM ORDERED';
 
                     return (
                       <tr key={order.filmOrderId}>
@@ -459,7 +477,13 @@ export default function FilmOrdersPage() {
                           {order.manufacturer} {order.filmName}
                         </td>
                         <td>{order.widthIn}</td>
+                        <td>{order.requestedFeet}</td>
+                        <td>{getFilmOrderLinkedFeet(order)}</td>
+                        <td>{getFilmOrderOnTheWayFeet(order)}</td>
+                        <td>{getFilmOrderReceivedFeet(order)}</td>
+                        <td>{order.coveredFeet}</td>
                         <td>{getFilmOrderRemainingFeet(order)}</td>
+                        <td>{getFilmOrderOverageFeet(order)}</td>
                         <td className="col-ordered-box-id">
                           <FilmOrderLinkedBoxes order={order} />
                         </td>
@@ -468,16 +492,22 @@ export default function FilmOrdersPage() {
                         <td>{formatFilmOrderDealerLabel(order)}</td>
                         <td>
                           <div className="film-order-actions">
-                            {isReceiveAction || canOrderMoreFilm ? (
+                            {receiveTarget ? (
                               <Button
                                 type="button"
                                 variant="secondary"
-                                onClick={() =>
-                                  navigate(isReceiveAction ? receiveTarget : buildAddBoxTarget(order))
-                                }
-                                disabled={isReceiveAction && !receiveTarget}
+                                onClick={() => navigate(receiveTarget)}
                               >
-                                {actionLabel}
+                                RECEIVE
+                              </Button>
+                            ) : null}
+                            {canOrderMoreFilm ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => navigate(buildAddBoxTarget(order))}
+                              >
+                                FILM ORDERED
                               </Button>
                             ) : null}
                             <Button

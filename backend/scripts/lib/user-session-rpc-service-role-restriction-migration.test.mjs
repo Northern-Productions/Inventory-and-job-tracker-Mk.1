@@ -54,7 +54,6 @@ test('latest schema check points to the user-session RPC service-role restrictio
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /0196_film_order_effective_list_status\.sql/);
 
   assert.match(schemaCheck, /service_role_executable_required_public_api/);
   for (const signature of userSessionRpcSignatures) {

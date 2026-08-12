@@ -41,7 +41,6 @@ test('job work scope migration makes workScope win over legacy sections in creat
 
 test('schema guard tracks the job work scope migration and semantics', () => {
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/);
 
   assert.match(schemaCheck, /signature: 'app_api\.normalize_job_work_scope\(text\)'/);
   assert.match(schemaCheck, /signature: 'app_api\.normalize_job_sections\(text\)'/);

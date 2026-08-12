@@ -3,10 +3,11 @@
 ## Start Every Task
 
 1. Read this file, `docs/automation/codex-operating-manual.md`, `docs/automation/task-tiers.md`, `docs/automation/release-doctor.md`, and `docs/automation/sage-codex-workflow.md`.
-2. Run `npm --prefix backend run codex:refresh`.
-3. Classify the task tier before choosing checks.
-4. Read `docs/material-flow-rules.md` before touching inventory, material flow, allocations, film orders, boxes, check-in, check-out, caulk, ownership, or reconciliation.
-5. Use guarded DEV fixtures and authenticated browser verification for workflow or mutation changes.
+2. Run `npm --prefix backend run repo:doctor`. Stop ordinary implementation if it reports `REPOSITORY_UNSAFE_FOR_CODEX`; the doctor never repairs metadata.
+3. Run `npm --prefix backend run codex:refresh`.
+4. Classify the task tier before choosing checks.
+5. Read `docs/material-flow-rules.md` before touching inventory, material flow, allocations, film orders, boxes, check-in, check-out, caulk, ownership, or reconciliation.
+6. Use guarded DEV fixtures and authenticated browser verification for workflow or mutation changes.
 
 ## Default Workflow
 
@@ -32,6 +33,13 @@ See `docs/automation/codex-operating-manual.md#codex-end-to-end-task-ownership` 
 ## Safe Routine Commands
 
 Codex may run local-safe commands such as `git status`, `git diff`, `git log`, `git fetch`, branch checkouts/creation for the task, tests, builds, lint/format checks, local browser checks, and guarded DEV fixture checks after the DEV target is verified.
+
+`repo:doctor` warnings do not authorize cleanup. Protected Git metadata repair still requires explicit Rob/Sage authorization.
+
+## Canonical Tooling
+
+- Derive migration metadata with `npm --prefix backend run migrations:registry`; migration tests should not duplicate unrelated global latest-version values. See `docs/automation/migration-registry.md`.
+- Prefer `npm --prefix backend run diagnostics:readonly` for reusable Tier-6 read-only database investigations that fit its reviewed inventory model. The tool never grants DEV/PROD authority and never repairs data. See `docs/automation/read-only-diagnostics.md`.
 
 ## Forbidden Without Explicit Approval
 

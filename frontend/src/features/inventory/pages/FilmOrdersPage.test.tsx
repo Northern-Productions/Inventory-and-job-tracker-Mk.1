@@ -292,13 +292,11 @@ describe('FilmOrdersPage', () => {
 
     expect(options.map((option) => option.textContent)).toEqual([
       'All statuses',
-      'Film Order',
-      'Incomplete',
-      'Needs Receiving',
+      'Needs Ordering',
+      'Film On The Way',
       'Fulfilled / Covered',
       'Manually Fulfilled',
-      'Canceled',
-      'No Longer Needed'
+      'Canceled'
     ]);
   });
 
@@ -362,7 +360,13 @@ describe('FilmOrdersPage', () => {
       'Job ID',
       'Film',
       'Width',
-      'Remaining LF',
+      'Requested',
+      'Ordered / Linked',
+      'On The Way',
+      'Received',
+      'Covered / Allocated',
+      'Remaining To Order',
+      'Order Overage',
       'Ordered Box ID',
       'Install Date',
       'Created',
@@ -412,21 +416,33 @@ describe('FilmOrdersPage', () => {
       status: 'FILM_ORDER',
       storedStatus: 'FILM_ORDER',
       displayStatus: 'FULFILLED_COVERED',
+      linkedFeet: 60,
+      orderedFeet: 60,
+      receivedFeet: 60,
+      onTheWayFeet: 0,
+      coveredFeet: 60,
+      orderOverageFeet: 0,
       neededFeet: 60,
       fulfilledFeet: 60,
       remainingFeet: 0,
-      remainingToOrderFeet: 60
+      remainingToOrderFeet: 0
     });
     const incompleteOrder = buildFilmOrderEntry({
       filmOrderId: 'FO-INCOMPLETE',
       filmName: 'Partial Roll',
       status: 'FILM_ORDER',
       storedStatus: 'FILM_ORDER',
-      displayStatus: 'INCOMPLETE',
+      displayStatus: 'FILM_ORDER',
+      linkedFeet: 20,
+      orderedFeet: 20,
+      receivedFeet: 0,
+      onTheWayFeet: 20,
+      coveredFeet: 0,
+      orderOverageFeet: 0,
       neededFeet: 60,
-      fulfilledFeet: 20,
+      fulfilledFeet: 0,
       remainingFeet: 40,
-      remainingToOrderFeet: 60
+      remainingToOrderFeet: 40
     });
 
     const { container } = renderPage([fulfilledOrder, incompleteOrder], {
@@ -439,12 +455,12 @@ describe('FilmOrdersPage', () => {
     expect(fulfilledRow).toBeTruthy();
     expect(incompleteRow).toBeTruthy();
     expect(within(fulfilledRow as HTMLTableRowElement).getByText('Fulfilled / Covered')).toBeTruthy();
-    expect(within(fulfilledRow as HTMLTableRowElement).getByText('0')).toBeTruthy();
+    expect(fulfilledRow?.querySelector('td:nth-child(11)')?.textContent).toBe('0');
     expect(
       within(fulfilledRow as HTMLTableRowElement).queryByRole('button', { name: 'FILM ORDERED' })
     ).toBeNull();
-    expect(within(incompleteRow as HTMLTableRowElement).getByText('Incomplete')).toBeTruthy();
-    expect(within(incompleteRow as HTMLTableRowElement).getByText('40')).toBeTruthy();
+    expect(within(incompleteRow as HTMLTableRowElement).getByText('Film Order')).toBeTruthy();
+    expect(incompleteRow?.querySelector('td:nth-child(11)')?.textContent).toBe('40');
     expect(
       within(incompleteRow as HTMLTableRowElement).getByRole('button', { name: 'FILM ORDERED' })
     ).toBeTruthy();

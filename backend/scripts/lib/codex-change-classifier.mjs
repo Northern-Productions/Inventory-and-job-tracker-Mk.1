@@ -34,8 +34,14 @@ function isDocsOrToolingFile(filePath) {
     filePath === 'backend/package.json' ||
     filePath === 'backend/scripts/codex-task-refresh.mjs' ||
     filePath === 'backend/scripts/codex-classify-changes.mjs' ||
+    filePath === 'backend/scripts/repo-doctor.mjs' ||
     filePath === 'backend/scripts/release-doctor.mjs' ||
-    filePath.startsWith('backend/scripts/lib/codex-change-classifier')
+    filePath === 'backend/scripts/migration-registry.mjs' ||
+    filePath === 'backend/scripts/readonly-diagnostics.mjs' ||
+    filePath.startsWith('backend/scripts/lib/codex-change-classifier') ||
+    filePath.startsWith('backend/scripts/lib/migration-registry') ||
+    filePath.startsWith('backend/scripts/lib/readonly-diagnostics') ||
+    filePath.startsWith('backend/scripts/lib/repo-doctor')
   ) {
     return true;
   }

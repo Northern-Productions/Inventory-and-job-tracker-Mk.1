@@ -15,21 +15,29 @@ This manual is the shared operating contract for Rob, Sage, and Codex. It keeps 
 1. Read `AGENTS.md`.
 2. Read this manual.
 3. Read `docs/automation/task-tiers.md`, `docs/automation/release-doctor.md`, and `docs/automation/sage-codex-workflow.md`.
-4. Run:
+4. Run the read-only repository foundation gate:
+
+```powershell
+npm --prefix backend run repo:doctor
+```
+
+Stop ordinary implementation when it reports `REPOSITORY_UNSAFE_FOR_CODEX`. The doctor diagnoses but never repairs, and warnings never authorize cleanup. Protected Git metadata repair requires explicit Rob/Sage authorization.
+
+5. Run:
 
 ```powershell
 npm --prefix backend run codex:refresh
 ```
 
-5. Classify the changed files or requested work:
+6. Classify the changed files or requested work:
 
 ```powershell
 npm --prefix backend run codex:classify -- --base origin/main --head HEAD
 ```
 
-6. Use `docs/automation/task-tiers.md` to pick checks and verification.
-7. Read `docs/material-flow-rules.md` before touching inventory, boxes, allocations, material flow, caulk, film orders, check-in, check-out, ownership, or reconciliation.
-8. Confirm the prompt has explicit release approval before merge, main push, PROD migration, Edge deploy, Vercel deploy, or PROD mutation.
+7. Use `docs/automation/task-tiers.md` to pick checks and verification.
+8. Read `docs/material-flow-rules.md` before touching inventory, boxes, allocations, material flow, caulk, film orders, check-in, check-out, ownership, or reconciliation.
+9. Confirm the prompt has explicit release approval before merge, main push, PROD migration, Edge deploy, Vercel deploy, or PROD mutation.
 
 ## Codex End-to-End Task Ownership
 
@@ -112,6 +120,10 @@ When a verifier or diagnostic is defective, correct or replace it and independen
 Temporary diagnostics may be created outside tracked source when appropriate. They must fail closed, preserve privacy, avoid PROD, leave no residual artifact, and be removed after safe evidence is retained.
 
 Convert a diagnostic or helper into tracked tooling when it is likely to be reused, prevents recurring failures, or materially improves project safety. Tracked tooling requires focused tests, clear documentation, deterministic behavior, privacy and target guards, and production-runtime isolation where applicable.
+
+Use `npm --prefix backend run migrations:registry -- --check` as the canonical migration metadata/coherence check. Migration files remain authoritative; unrelated tests must not hand-maintain the global latest migration. See `docs/automation/migration-registry.md`.
+
+Use `npm --prefix backend run diagnostics:readonly` for reusable Tier-6 read-only database evidence when its conservative inventory model can express the investigation. Raw bespoke harnesses remain permissible when the canonical engine cannot safely represent required evidence, but repeated patterns should be promoted into reviewed tracked inventories/tooling. Diagnostics never authorize a target, mutate or repair data, bypass quiet-window rules, or replace DEV/PROD approval. See `docs/automation/read-only-diagnostics.md`.
 
 ### Genuine Blockers
 

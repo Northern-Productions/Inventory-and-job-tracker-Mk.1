@@ -200,6 +200,8 @@ import {
 } from './runtimeCheckoutOperations.mjs';
 import { enrichOpenFilmOrdersWithJobSchedule, isUnresolvedFilmOrderStatus } from './runtimeFilmOrderSchedule.mjs';
 import { buildPublicFilmOrderLinkedBoxes } from './runtimeJobSummaries.mjs';
+import { buildCurrentFilmRequirementContext } from './runtimeAllocationCoverage.mjs';
+import { buildJobDetailById } from './runtimeJobsRead.mjs';
 
 async function listAudit(client, orgId, params) {
   const from = asTrimmedString(params.from);
@@ -416,7 +418,41 @@ async function buildFilmOrderDetail(client, orgId, filmOrderId) {
     throw new HttpError(404, 'Film order not found.');
   }
 
-  return result;
+  const availability = asTrimmedString(result.requirementContextStatus) ||
+    (result?.requirement?.matchesFilmOrder === true ? 'CURRENT' : 'UNAVAILABLE');
+  const jobId = asTrimmedString(result.jobId);
+  const requirementId = asTrimmedString(result.requirementId);
+  if (availability !== 'CURRENT' || !jobId || !requirementId) {
+    return {
+      ...result,
+      currentRequirement: { availability }
+    };
+  }
+
+  let jobDetail;
+  try {
+    jobDetail = await buildJobDetailById(client, orgId, jobId);
+  } catch (error) {
+    if (error instanceof HttpError && error.statusCode === 404) {
+      return {
+        ...result,
+        requirementContextStatus: 'UNAVAILABLE',
+        currentRequirement: { availability: 'UNAVAILABLE' }
+      };
+    }
+    throw error;
+  }
+
+  const currentRequirement = (Array.isArray(jobDetail?.requirements) ? jobDetail.requirements : [])
+    .find((entry) => asTrimmedString(entry?.requirementId) === requirementId);
+  const context = buildCurrentFilmRequirementContext(currentRequirement, jobDetail?.filmOrders || []);
+
+  return {
+    ...result,
+    currentRequirement: context
+      ? { availability: 'CURRENT', ...context }
+      : { availability: 'UNAVAILABLE' }
+  };
 }
 
 async function buildBoxFilmOrderOrigins(client, orgId, boxId) {

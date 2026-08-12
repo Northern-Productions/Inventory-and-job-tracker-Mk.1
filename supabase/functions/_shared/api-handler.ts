@@ -1707,6 +1707,7 @@ const {
   listActiveAllocations,
   listFilmOrders,
   listFilmOrdersByJob,
+  listFilmOrdersByJobId,
   findFilmOrderById,
   listFilmOrderLinksByFilmOrderId,
   listJobs,
@@ -4789,18 +4790,50 @@ function filmOrderMatchesRequirement(filmOrder: any, requirement: any): boolean 
 function getFilmOnTheWayFeetForRequirement(filmOrders: any[], requirement: any): number {
   let total = 0;
   for (const entry of Array.isArray(filmOrders) ? filmOrders : []) {
-    if (asTrimmedString(entry?.status).toUpperCase() !== "FILM_ON_THE_WAY") {
+    const status = asTrimmedString(entry?.status).toUpperCase();
+    if (status === "CANCELLED" || status === "FULFILLED") {
       continue;
     }
     if (!filmOrderMatchesRequirement(entry, requirement)) {
       continue;
     }
-    // FILM_ON_THE_WAY coverage prefers approved ordered LF; requested LF is a legacy fallback.
+
+    const hasExplicitOnTheWayFeet = entry?.onTheWayFeet !== undefined && entry?.onTheWayFeet !== null;
+    if (!hasExplicitOnTheWayFeet && status !== "FILM_ON_THE_WAY") {
+      continue;
+    }
+
+    // Canonical reads expose only unreceived linked capacity. The status/ordered fallback
+    // keeps older payloads compatible during the migration/Edge rollout sequence.
     const orderedFeet = integerOrZero(entry.orderedFeet);
-    const sourceFeet = orderedFeet > 0 ? orderedFeet : integerOrZero(entry.requestedFeet);
+    const sourceFeet = hasExplicitOnTheWayFeet
+      ? integerOrZero(entry.onTheWayFeet)
+      : orderedFeet > 0
+        ? orderedFeet
+        : integerOrZero(entry.requestedFeet);
     total += computeCoveredFeetForAllocation(sourceFeet, entry?.widthIn, requirement?.widthIn);
   }
   return total;
+}
+
+export function buildCurrentFilmRequirementContext(requirement: any, filmOrders: any[]) {
+  if (!requirement) {
+    return null;
+  }
+
+  const requiredFeet = Math.max(0, integerOrZero(requirement.requiredFeet));
+  const allocatedFeet = Math.max(0, integerOrZero(requirement.allocatedFeet));
+  const onTheWayFeet = Math.max(0, getFilmOnTheWayFeetForRequirement(filmOrders, requirement));
+  const shortageBeforeOrders = Math.max(0, integerOrZero(requirement.remainingFeet));
+
+  return {
+    requirementId: asTrimmedString(requirement.requirementId || requirement.id),
+    requiredFeet,
+    allocatedFeet,
+    onTheWayFeet,
+    stillShortFeet: Math.max(shortageBeforeOrders - onTheWayFeet, 0),
+    status: normalizeRequirementState(requirement),
+  };
 }
 
 function areFilmShortagesFullyOnTheWay(requirements: any[], filmOrders: any[]): boolean {
@@ -7612,7 +7645,7 @@ export async function buildJobDetailById(client: any, orgId: string, jobId: unkn
     caulkAllocations,
   ] = await Promise.all([
     listAllocationsByJobIdDirect(orgId, header.id),
-    listFilmOrdersByJobIdDirect(orgId, header.id),
+    listFilmOrdersByJobId(client, orgId, header.id),
     listJobPhasesByJobId(client, orgId, header.id),
     listJobRequirementsByJobIdDirect(orgId, header),
     listJobCaulkRequirementsByJobIdDirect(orgId, header),
@@ -7976,7 +8009,44 @@ async function buildFilmOrderDetail(client: any, orgId: string, filmOrderId: unk
   if (!result) {
     throw new HttpError(404, "Film order not found.");
   }
-  return result;
+
+  const availability = asTrimmedString(result.requirementContextStatus) ||
+    ((result.requirement as Record<string, unknown> | undefined)?.matchesFilmOrder === true
+      ? "CURRENT"
+      : "UNAVAILABLE");
+  const jobId = asTrimmedString(result.jobId);
+  const requirementId = asTrimmedString(result.requirementId);
+  if (availability !== "CURRENT" || !jobId || !requirementId) {
+    return {
+      ...result,
+      currentRequirement: { availability },
+    };
+  }
+
+  let jobDetail: any;
+  try {
+    jobDetail = await buildJobDetailById(client, orgId, jobId);
+  } catch (error) {
+    if (error instanceof HttpError && error.statusCode === 404) {
+      return {
+        ...result,
+        requirementContextStatus: "UNAVAILABLE",
+        currentRequirement: { availability: "UNAVAILABLE" },
+      };
+    }
+    throw error;
+  }
+
+  const currentRequirement = (Array.isArray(jobDetail?.requirements) ? jobDetail.requirements : [])
+    .find((entry: any) => asTrimmedString(entry?.requirementId) === requirementId);
+  const context = buildCurrentFilmRequirementContext(currentRequirement, jobDetail?.filmOrders || []);
+
+  return {
+    ...result,
+    currentRequirement: context
+      ? { availability: "CURRENT", ...context }
+      : { availability: "UNAVAILABLE" },
+  };
 }
 
 async function buildBoxFilmOrderOrigins(client: any, orgId: string, boxId: string) {

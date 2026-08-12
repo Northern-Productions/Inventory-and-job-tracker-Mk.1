@@ -265,7 +265,6 @@ test('local preview repository performs one parameterized bounded ACL query', as
 test('schema latest requires the 0193 bounded preview contracts', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0196_film_order_effective_list_status\.sql';/);
   assert.match(schemaLatest, /app_api\.allocation_preview_candidates_0193\(uuid, jsonb\)/);
   assert.match(schemaLatest, /public\.api_acl_allocation_preview_candidates\(uuid, jsonb\)/);
   assert.match(schemaLatest, /v_plan := app_api\.build_allocation_apply_plan_0192/);

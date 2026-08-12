@@ -1,16 +1,14 @@
-import { useMemo, useState } from 'react';
-import { useQueries } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { getBox } from '../../../api/features/inventoryClient';
 import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
-import type { Box, FilmOrderDetail, FilmOrderDisplayStatus } from '../../../domain';
+import type { FilmOrderDetail, FilmOrderDisplayStatus } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../lib/url';
-import { inventoryKeys, useFilmOrderDetail } from '../hooks/useInventoryQueries';
+import { useFilmOrderDetail } from '../hooks/useInventoryQueries';
 import { useManualFulfillFilmOrder } from '../hooks/mutations/planning/filmOrderMutations';
 import { canManuallyFulfillFilmOrder, formatFilmOrderDealerLabel } from '../utils/filmOrders';
 
@@ -51,36 +49,6 @@ function formatInitialCost(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? USD_CURRENCY_FORMATTER.format(value) : '--';
 }
 
-interface LinkedBoxInitialCostLookup {
-  box: Box | null;
-  isLoading: boolean;
-}
-
-function renderInitialCost(lookup: LinkedBoxInitialCostLookup | undefined) {
-  if (lookup?.isLoading) {
-    return '...';
-  }
-
-  return formatInitialCost(lookup?.box?.purchaseCost);
-}
-
-function renderInitialCostSummary(summary: {
-  total: number;
-  knownCount: number;
-  missingCount: number;
-  loadingCount: number;
-}) {
-  if (summary.knownCount > 0) {
-    return formatInitialCost(summary.total);
-  }
-
-  if (summary.loadingCount > 0 && summary.missingCount === 0) {
-    return '...';
-  }
-
-  return '--';
-}
-
 function renderChangedData(value: Record<string, unknown> | null | undefined) {
   if (!value || typeof value !== 'object') {
     return null;
@@ -107,42 +75,9 @@ export default function FilmOrderDetailsPage() {
   const manualFulfillMutation = useManualFulfillFilmOrder();
   const [manualFulfillOpen, setManualFulfillOpen] = useState(false);
   const order = detailQuery.data;
-  const linkedBoxIds = useMemo(() => {
-    const seen = new Set<string>();
-    const ids: string[] = [];
-    for (const linkedBox of order?.linkedBoxes || []) {
-      const boxId = String(linkedBox?.boxId || '').trim().toUpperCase();
-      if (boxId && !seen.has(boxId)) {
-        seen.add(boxId);
-        ids.push(boxId);
-      }
-    }
-    return ids;
-  }, [order?.linkedBoxes]);
-  const linkedBoxCostQueries = useQueries({
-    queries: linkedBoxIds.map((boxId) => ({
-      queryKey: inventoryKeys.box(boxId),
-      queryFn: () => getBox(boxId),
-      enabled: Boolean(order && boxId)
-    }))
-  });
-  const linkedBoxCostById = new Map<string, LinkedBoxInitialCostLookup>();
-  for (let index = 0; index < linkedBoxIds.length; index += 1) {
-    const query = linkedBoxCostQueries[index];
-    linkedBoxCostById.set(linkedBoxIds[index], {
-      box: query?.data ?? null,
-      isLoading: Boolean(query?.isLoading || (query?.isFetching && !query.data))
-    });
-  }
   const linkedBoxCostSummary = (order?.linkedBoxes || []).reduce(
     (summary, linkedBox) => {
-      const linkedBoxId = String(linkedBox?.boxId || '').trim().toUpperCase();
-      const lookup = linkedBoxCostById.get(linkedBoxId);
-      const purchaseCost = lookup?.box?.purchaseCost;
-      if (lookup?.isLoading) {
-        summary.loadingCount += 1;
-        return summary;
-      }
+      const purchaseCost = linkedBox.initialCost;
       if (typeof purchaseCost === 'number' && Number.isFinite(purchaseCost)) {
         summary.total += purchaseCost;
         summary.knownCount += 1;
@@ -151,7 +86,7 @@ export default function FilmOrderDetailsPage() {
       }
       return summary;
     },
-    { total: 0, knownCount: 0, missingCount: 0, loadingCount: 0 }
+    { total: 0, knownCount: 0, missingCount: 0 }
   );
 
   async function handleManualFulfillConfirm() {
@@ -235,21 +170,33 @@ export default function FilmOrderDetailsPage() {
 
           <div className="metric-grid film-order-detail-metrics">
             <div>
-              <span className="detail-label">Current Needed LF</span>
-              <strong>{order.neededFeet}</strong>
-              <span className="muted-text">{order.needSource.replace(/_/g, ' ')}</span>
+              <span className="detail-label">Requested LF</span>
+              <strong>{order.requestedFeet}</strong>
+              <span className="muted-text">Historical order amount</span>
             </div>
             <div>
-              <span className="detail-label">Fulfilled LF</span>
-              <strong>{order.fulfilledFeet}</strong>
+              <span className="detail-label">Ordered / Linked LF</span>
+              <strong>{order.linkedFeet}</strong>
             </div>
             <div>
-              <span className="detail-label">Remaining LF</span>
-              <strong>{order.remainingFeet}</strong>
+              <span className="detail-label">On The Way LF</span>
+              <strong>{order.onTheWayFeet}</strong>
             </div>
             <div>
-              <span className="detail-label">Overage LF</span>
-              <strong>{order.overageFeet}</strong>
+              <span className="detail-label">Received LF</span>
+              <strong>{order.receivedFeet}</strong>
+            </div>
+            <div>
+              <span className="detail-label">Covered / Allocated LF</span>
+              <strong>{order.coveredFeet}</strong>
+            </div>
+            <div>
+              <span className="detail-label">Remaining To Order</span>
+              <strong>{order.remainingToOrderFeet}</strong>
+            </div>
+            <div>
+              <span className="detail-label">Order Overage</span>
+              <strong>{order.orderOverageFeet}</strong>
             </div>
             <div>
               <span className="detail-label">Ordered Date</span>
@@ -265,12 +212,34 @@ export default function FilmOrderDetailsPage() {
             </div>
           </div>
 
-          {order.displayStatus === 'NO_LONGER_NEEDED' ? (
-            <div className="notice-card">
-              This film order is linked to a requirement that was removed or changed to a different
-              material/width. It remains traceable, but it is not counted as current job demand.
-            </div>
-          ) : null}
+          <section className="detail-subsection">
+            <h3>Current Requirement</h3>
+            {order.currentRequirement?.availability === 'CURRENT' ? (
+              <div className="metric-grid film-order-detail-metrics">
+                <div>
+                  <span className="detail-label">Required LF</span>
+                  <strong>{order.currentRequirement.requiredFeet}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Allocated LF</span>
+                  <strong>{order.currentRequirement.allocatedFeet}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">On The Way LF</span>
+                  <strong>{order.currentRequirement.onTheWayFeet}</strong>
+                </div>
+                <div>
+                  <span className="detail-label">Still Short LF</span>
+                  <strong>{order.currentRequirement.stillShortFeet}</strong>
+                </div>
+              </div>
+            ) : (
+              <div className="notice-card">
+                Current requirement context is unavailable for this historical order. The order ledger
+                and its fulfillment or cancellation history remain unchanged.
+              </div>
+            )}
+          </section>
 
           <section className="detail-subsection">
             <div className="panel-title-row">
@@ -285,15 +254,13 @@ export default function FilmOrderDetailsPage() {
                       <th>Box</th>
                       <th>Status</th>
                       <th>Initial LF</th>
-                      <th>Ordered LF</th>
+                      <th>Linked LF (Order Width)</th>
                       <th>Received</th>
                       <th>Initial Cost</th>
                     </tr>
                   </thead>
                   <tbody>
                     {order.linkedBoxes.map((box) => {
-                      const linkedBoxId = String(box.boxId || '').trim().toUpperCase();
-
                       return (
                         <tr key={box.boxId}>
                           <td>
@@ -301,9 +268,9 @@ export default function FilmOrderDetailsPage() {
                           </td>
                           <td>{box.status}</td>
                           <td>{box.initialFeet}</td>
-                          <td>{box.orderedFeet}</td>
+                          <td>{box.linkedFeet ?? box.orderedFeet}</td>
                           <td>{box.receivedDate ? formatDate(box.receivedDate) : 'Not received'}</td>
-                          <td>{renderInitialCost(linkedBoxCostById.get(linkedBoxId))}</td>
+                          <td>{formatInitialCost(box.initialCost)}</td>
                         </tr>
                       );
                     })}
@@ -314,17 +281,13 @@ export default function FilmOrderDetailsPage() {
                         Total Initial Cost
                       </th>
                       <td>
-                        {renderInitialCostSummary(linkedBoxCostSummary)}
+                        {linkedBoxCostSummary.knownCount > 0
+                          ? formatInitialCost(linkedBoxCostSummary.total)
+                          : '--'}
                         {linkedBoxCostSummary.missingCount > 0 ? (
                           <span className="muted-text">
                             {' '}
                             ({linkedBoxCostSummary.missingCount} missing)
-                          </span>
-                        ) : null}
-                        {linkedBoxCostSummary.loadingCount > 0 ? (
-                          <span className="muted-text">
-                            {' '}
-                            ({linkedBoxCostSummary.loadingCount} loading)
                           </span>
                         ) : null}
                       </td>

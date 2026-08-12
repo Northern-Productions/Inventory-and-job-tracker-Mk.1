@@ -389,8 +389,14 @@ function mapDbFilmOrderRow(row) {
     widthIn: numericOrNull(row.width_in) ?? 0,
     requestedFeet: integerOrZero(row.requested_feet),
     coveredFeet: integerOrZero(row.covered_feet),
-    orderedFeet: integerOrZero(row.ordered_feet),
+    linkedFeet: integerOrZero(row.linked_feet ?? row.ordered_feet),
+    orderedFeet: integerOrZero(row.linked_feet ?? row.ordered_feet),
+    receivedFeet: integerOrZero(row.received_feet),
+    onTheWayFeet: integerOrZero(row.on_the_way_feet),
     remainingToOrderFeet: integerOrZero(row.remaining_to_order_feet),
+    orderOverageFeet: integerOrZero(row.order_overage_feet ?? row.overage_feet),
+    completedFeet: integerOrZero(row.completed_feet ?? row.fulfilled_feet),
+    orderLedgerVersion: asTrimmedString(row.order_ledger_version ?? row.orderLedgerVersion),
     installDate: formatDateValue(row.job_date),
     crewLeader: asTrimmedString(row.crew_leader),
     status,
@@ -417,11 +423,76 @@ function mapDbFilmOrderRow(row) {
   };
 }
 
+function buildPublicFilmOrderLedger(entry, linkedBoxes) {
+  const requestedFeet = integerOrZero(entry.requestedFeet);
+  const normalizedLinkedBoxes = Array.isArray(linkedBoxes) ? linkedBoxes : [];
+  const hasCanonicalLedger = asTrimmedString(entry.orderLedgerVersion) === 'film-order-ledger-v1';
+  const linkedFeet = hasCanonicalLedger
+    ? integerOrZero(entry.linkedFeet)
+    : normalizedLinkedBoxes.length
+      ? normalizedLinkedBoxes.reduce((sum, box) => sum + integerOrZero(box?.orderedFeet), 0)
+      : integerOrZero(entry.linkedFeet ?? entry.orderedFeet);
+  const receivedFeet = hasCanonicalLedger
+    ? integerOrZero(entry.receivedFeet)
+    : normalizedLinkedBoxes.reduce(
+        (sum, box) => sum + (box?.isReceived ? integerOrZero(box?.orderedFeet) : 0),
+        0
+      );
+  const onTheWayFeet = Math.max(linkedFeet - receivedFeet, 0);
+  const coveredFeet = integerOrZero(entry.coveredFeet);
+  const remainingToOrderFeet = Math.max(requestedFeet - linkedFeet, 0);
+  const orderOverageFeet = Math.max(linkedFeet - requestedFeet, 0);
+  const completedFeet = Math.max(receivedFeet, coveredFeet);
+
+  return {
+    requestedFeet,
+    linkedFeet,
+    receivedFeet,
+    onTheWayFeet,
+    coveredFeet,
+    remainingToOrderFeet,
+    orderOverageFeet,
+    completedFeet
+  };
+}
+
+function derivePublicFilmOrderDisplayStatus(entry, ledger) {
+  const explicitStatus = asTrimmedString(entry.displayStatus).toUpperCase();
+  if (
+    explicitStatus === 'CANCELLED' ||
+    explicitStatus === 'MANUALLY_FULFILLED' ||
+    explicitStatus === 'FILM_ORDER' ||
+    explicitStatus === 'FILM_ON_THE_WAY' ||
+    explicitStatus === 'FULFILLED_COVERED'
+  ) {
+    return explicitStatus;
+  }
+
+  const storedStatus = asTrimmedString(entry.status).toUpperCase();
+  if (storedStatus === 'CANCELLED') {
+    return 'CANCELLED';
+  }
+  if (asTrimmedString(entry.manualFulfilledAt) && storedStatus === 'FULFILLED') {
+    return 'MANUALLY_FULFILLED';
+  }
+  if (storedStatus === 'FULFILLED') {
+    return 'FULFILLED_COVERED';
+  }
+  if (ledger.linkedFeet >= ledger.requestedFeet && ledger.onTheWayFeet > 0) {
+    return 'FILM_ON_THE_WAY';
+  }
+  if (storedStatus === 'FILM_ON_THE_WAY') {
+    return 'FILM_ON_THE_WAY';
+  }
+  return 'FILM_ORDER';
+}
+
 function toPublicFilmOrder(entry, linkedBoxes) {
   const jobId = asTrimmedString(entry.jobId);
   const workScope = asTrimmedString(entry.workScope || entry.sections);
   const sections = asTrimmedString(entry.sections || entry.workScope);
-  const displayStatus = asTrimmedString(entry.displayStatus);
+  const ledger = buildPublicFilmOrderLedger(entry, linkedBoxes);
+  const displayStatus = derivePublicFilmOrderDisplayStatus(entry, ledger);
 
   return {
     filmOrderId: entry.filmOrderId,
@@ -434,10 +505,16 @@ function toPublicFilmOrder(entry, linkedBoxes) {
     manufacturer: entry.manufacturer,
     filmName: entry.filmName,
     widthIn: entry.widthIn,
-    requestedFeet: entry.requestedFeet,
-    coveredFeet: entry.coveredFeet,
-    orderedFeet: entry.orderedFeet,
-    remainingToOrderFeet: entry.remainingToOrderFeet,
+    requestedFeet: ledger.requestedFeet,
+    linkedFeet: ledger.linkedFeet,
+    orderedFeet: ledger.linkedFeet,
+    receivedFeet: ledger.receivedFeet,
+    onTheWayFeet: ledger.onTheWayFeet,
+    coveredFeet: ledger.coveredFeet,
+    remainingToOrderFeet: ledger.remainingToOrderFeet,
+    orderOverageFeet: ledger.orderOverageFeet,
+    completedFeet: ledger.completedFeet,
+    orderLedgerVersion: asTrimmedString(entry.orderLedgerVersion) || 'film-order-ledger-v1',
     installDate: entry.installDate,
     crewLeader: entry.crewLeader,
     status: entry.status,
@@ -445,11 +522,11 @@ function toPublicFilmOrder(entry, linkedBoxes) {
       ? {
           storedStatus: asTrimmedString(entry.storedStatus) || entry.status,
           displayStatus,
-          needSource: asTrimmedString(entry.needSource),
-          neededFeet: integerOrZero(entry.neededFeet),
-          fulfilledFeet: integerOrZero(entry.fulfilledFeet),
-          remainingFeet: integerOrZero(entry.remainingFeet),
-          overageFeet: integerOrZero(entry.overageFeet),
+          needSource: 'ORDER_REQUEST',
+          neededFeet: ledger.requestedFeet,
+          fulfilledFeet: ledger.completedFeet,
+          remainingFeet: ledger.remainingToOrderFeet,
+          overageFeet: ledger.orderOverageFeet,
           ...(asTrimmedString(entry.manualFulfilledAt)
             ? { manualFulfilledAt: entry.manualFulfilledAt }
             : {}),
