@@ -10,7 +10,10 @@ test('docs and tooling changes classify as Tier 0', () => {
   const report = classifyChangedFiles([
     'AGENTS.md',
     'docs/automation/task-tiers.md',
-    'backend/scripts/codex-task-refresh.mjs'
+    'backend/scripts/codex-task-refresh.mjs',
+    'backend/scripts/repo-doctor.mjs',
+    'backend/scripts/lib/repo-doctor.mjs',
+    'backend/scripts/lib/repo-doctor.test.mjs'
   ]);
 
   assert.equal(report.tier, 0);
