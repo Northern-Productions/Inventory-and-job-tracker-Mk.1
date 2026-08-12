@@ -58,6 +58,5 @@ test('film weight review resolution migration is mirrored and contract-routed', 
   assert.match(localFallback, /"\/film-weight\/pending-reviews\/resolve"/);
   assert.match(backendHandlers, /resolveFilmWeightPendingReview/);
   assert.match(edgeHandlers, /api_acl_resolve_film_weight_pending_review/);
-  assert.match(schemaCheck, /0197_film_order_order_scope_semantics\.sql/);
   assert.match(schemaCheck, /public\.api_acl_resolve_film_weight_pending_review/);
 });

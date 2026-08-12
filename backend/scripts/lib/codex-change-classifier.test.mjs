@@ -12,6 +12,8 @@ test('docs and tooling changes classify as Tier 0', () => {
     'docs/automation/task-tiers.md',
     'backend/scripts/codex-task-refresh.mjs',
     'backend/scripts/repo-doctor.mjs',
+    'backend/scripts/migration-registry.mjs',
+    'backend/scripts/lib/migration-registry.test.mjs',
     'backend/scripts/lib/repo-doctor.mjs',
     'backend/scripts/lib/repo-doctor.test.mjs'
   ]);

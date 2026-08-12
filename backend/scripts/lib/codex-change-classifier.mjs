@@ -36,7 +36,9 @@ function isDocsOrToolingFile(filePath) {
     filePath === 'backend/scripts/codex-classify-changes.mjs' ||
     filePath === 'backend/scripts/repo-doctor.mjs' ||
     filePath === 'backend/scripts/release-doctor.mjs' ||
+    filePath === 'backend/scripts/migration-registry.mjs' ||
     filePath.startsWith('backend/scripts/lib/codex-change-classifier') ||
+    filePath.startsWith('backend/scripts/lib/migration-registry') ||
     filePath.startsWith('backend/scripts/lib/repo-doctor')
   ) {
     return true;

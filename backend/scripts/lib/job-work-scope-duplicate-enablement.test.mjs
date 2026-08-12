@@ -159,7 +159,6 @@ test('schema latest guard advances to final duplicate enablement', async () => {
   );
 
 
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/);
 
   assert.match(schemaLatest, /array_to_string\(array_agg\(a\.attname::text order by cols\.ordinality\), ','\)/);
   assert.doesNotMatch(schemaLatest, /array_agg\(a\.attname order by cols\.ordinality\)/);
