@@ -286,6 +286,24 @@ describe('TeamUsersPage', () => {
     );
   });
 
+  it('renders invite failures without leaving an unhandled event promise', async () => {
+    inviteTeamUserMock.mockRejectedValueOnce(new Error('Invitation provider unavailable.'));
+    renderTeamUsersPage();
+    await screen.findByText('Owner One');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), {
+      target: { value: 'new.user@example.com' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add Team Member' }));
+
+    expect(await screen.findByText('Invitation provider unavailable.')).toBeTruthy();
+    expect(toastPushMock).toHaveBeenCalledWith({
+      title: 'Unable to add team member',
+      description: 'Invitation provider unavailable.',
+      variant: 'error'
+    });
+  });
+
   it('shows disabled confirmation with a role snapshot and No performs zero mutation', async () => {
     inviteTeamUserMock.mockResolvedValueOnce({
       outcome: 'disabled_confirmation_required',

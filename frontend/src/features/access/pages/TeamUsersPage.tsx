@@ -235,11 +235,15 @@ export default function TeamUsersPage() {
       return;
     }
     setFormError('');
-    await inviteMutation.mutateAsync({
-      email: normalizedEmail,
-      name: normalizedName,
-      role
-    });
+    try {
+      await inviteMutation.mutateAsync({
+        email: normalizedEmail,
+        name: normalizedName,
+        role
+      });
+    } catch (_error) {
+      // The mutation onError callback owns the user-visible failure state.
+    }
   }
 
   async function handleRoleChange(entry: TeamUserEntry) {
