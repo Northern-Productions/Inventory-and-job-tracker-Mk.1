@@ -22,6 +22,7 @@
     "contract:parity": "node scripts/check-runtime-contract-parity.mjs",
     "codex:refresh": "node scripts/codex-task-refresh.mjs",
     "codex:classify": "node scripts/codex-classify-changes.mjs",
+    "repo:doctor": "node scripts/repo-doctor.mjs",
     "client-pilot:readiness": "node scripts/client-pilot/onboarding-readiness.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
     "release:integrity": "node scripts/release-integrity.mjs",

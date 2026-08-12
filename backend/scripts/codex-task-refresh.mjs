@@ -7,6 +7,11 @@ import {
   getChangedFiles,
   getRepoRoot
 } from './lib/codex-change-classifier.mjs';
+import {
+  formatRepositoryDoctorReport,
+  REPOSITORY_UNSAFE_FOR_CODEX,
+  runRepositoryDoctor
+} from './lib/repo-doctor.mjs';
 
 function parseArgs(argv = []) {
   const options = {};
@@ -62,6 +67,15 @@ function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help || options.h) {
     printUsage();
+    return;
+  }
+
+  const repositoryHealth = runRepositoryDoctor();
+  console.log(formatRepositoryDoctorReport(repositoryHealth));
+  console.log('');
+  if (repositoryHealth.overall === REPOSITORY_UNSAFE_FOR_CODEX) {
+    console.error('[codex-refresh] Repository health is unsafe. Stop ordinary implementation; repo:doctor never repairs metadata.');
+    process.exitCode = 1;
     return;
   }
 
