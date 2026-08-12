@@ -23,6 +23,8 @@
     "codex:refresh": "node scripts/codex-task-refresh.mjs",
     "codex:classify": "node scripts/codex-classify-changes.mjs",
     "repo:doctor": "node scripts/repo-doctor.mjs",
+    "migrations:registry": "node scripts/migration-registry.mjs",
+    "diagnostics:readonly": "node scripts/readonly-diagnostics.mjs",
     "client-pilot:readiness": "node scripts/client-pilot/onboarding-readiness.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
     "release:integrity": "node scripts/release-integrity.mjs",
@@ -78,6 +80,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.4",
     "playwright-core": "^1.59.1"
   }
 }

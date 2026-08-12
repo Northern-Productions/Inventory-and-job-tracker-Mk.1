@@ -121,6 +121,10 @@ Temporary diagnostics may be created outside tracked source when appropriate. Th
 
 Convert a diagnostic or helper into tracked tooling when it is likely to be reused, prevents recurring failures, or materially improves project safety. Tracked tooling requires focused tests, clear documentation, deterministic behavior, privacy and target guards, and production-runtime isolation where applicable.
 
+Use `npm --prefix backend run migrations:registry -- --check` as the canonical migration metadata/coherence check. Migration files remain authoritative; unrelated tests must not hand-maintain the global latest migration. See `docs/automation/migration-registry.md`.
+
+Use `npm --prefix backend run diagnostics:readonly` for reusable Tier-6 read-only database evidence when its conservative inventory model can express the investigation. Raw bespoke harnesses remain permissible when the canonical engine cannot safely represent required evidence, but repeated patterns should be promoted into reviewed tracked inventories/tooling. Diagnostics never authorize a target, mutate or repair data, bypass quiet-window rules, or replace DEV/PROD approval. See `docs/automation/read-only-diagnostics.md`.
+
 ### Genuine Blockers
 
 Stop only when safe continuation is impossible because of a genuine blocker, such as:

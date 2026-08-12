@@ -12,6 +12,12 @@ import {
   REPOSITORY_UNSAFE_FOR_CODEX,
   runRepositoryDoctor
 } from './lib/repo-doctor.mjs';
+import {
+  buildMigrationRegistry,
+  getLatestMigration,
+  MIGRATION_REGISTRY_INCOHERENT
+} from './lib/migration-registry.mjs';
+import { DIAGNOSTIC_CANONICALIZATION_VERSION } from './lib/readonly-diagnostics.mjs';
 
 function parseArgs(argv = []) {
   const options = {};
@@ -75,6 +81,28 @@ function main() {
   console.log('');
   if (repositoryHealth.overall === REPOSITORY_UNSAFE_FOR_CODEX) {
     console.error('[codex-refresh] Repository health is unsafe. Stop ordinary implementation; repo:doctor never repairs metadata.');
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    const migrationRegistry = buildMigrationRegistry();
+    const latestMigration = getLatestMigration(migrationRegistry);
+    console.log('');
+    console.log('[migration-registry]');
+    console.log(`overall: ${migrationRegistry.overall}`);
+    console.log(`latest: ${latestMigration.logicalId} / ${latestMigration.supabaseVersion}`);
+    console.log(`issues: failures=${migrationRegistry.summary.failures}, warnings=${migrationRegistry.summary.warnings}`);
+    if (migrationRegistry.overall === MIGRATION_REGISTRY_INCOHERENT) {
+      console.error('[codex-refresh] Migration registry is incoherent. Stop ordinary implementation.');
+      process.exitCode = 1;
+      return;
+    }
+    console.log('');
+    console.log('[readonly-diagnostics]');
+    console.log(`availability: ready (${DIAGNOSTIC_CANONICALIZATION_VERSION})`);
+  } catch (error) {
+    console.error(`[codex-refresh] ${error?.code || 'MIGRATION_REGISTRY_FAILED'}`);
     process.exitCode = 1;
     return;
   }

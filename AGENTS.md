@@ -36,6 +36,11 @@ Codex may run local-safe commands such as `git status`, `git diff`, `git log`, `
 
 `repo:doctor` warnings do not authorize cleanup. Protected Git metadata repair still requires explicit Rob/Sage authorization.
 
+## Canonical Tooling
+
+- Derive migration metadata with `npm --prefix backend run migrations:registry`; migration tests should not duplicate unrelated global latest-version values. See `docs/automation/migration-registry.md`.
+- Prefer `npm --prefix backend run diagnostics:readonly` for reusable Tier-6 read-only database investigations that fit its reviewed inventory model. The tool never grants DEV/PROD authority and never repairs data. See `docs/automation/read-only-diagnostics.md`.
+
 ## Forbidden Without Explicit Approval
 
 - PROD migrations

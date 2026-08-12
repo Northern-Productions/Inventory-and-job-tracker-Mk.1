@@ -28,7 +28,6 @@ test('caulk requirement actual usage migration is mirrored and schema-guarded', 
 
   assert.equal(supabaseMigration, backendMigration);
 
-  assert.match(schemaCheck, /0197_film_order_order_scope_semantics\.sql/);
 
   assert.match(schemaCheck, /app\.job_caulk_requirements\.actual_used_tubes/);
   assert.match(schemaCheck, /app_api\.record_caulk_requirement_actual_usage_for_checkin/);

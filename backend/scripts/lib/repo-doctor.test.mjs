@@ -263,8 +263,10 @@ test('codex refresh runs repository health before ordinary Git discovery', () =>
   const testDirectory = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.resolve(testDirectory, '..', 'codex-task-refresh.mjs'), 'utf8');
   const doctorCall = source.indexOf('const repositoryHealth = runRepositoryDoctor()');
+  const registryCall = source.indexOf('const migrationRegistry = buildMigrationRegistry()');
   const repositoryDiscovery = source.indexOf('const repoRoot = getRepoRoot()');
 
   assert.ok(doctorCall >= 0);
+  assert.ok(registryCall > doctorCall);
   assert.ok(repositoryDiscovery > doctorCall);
 });

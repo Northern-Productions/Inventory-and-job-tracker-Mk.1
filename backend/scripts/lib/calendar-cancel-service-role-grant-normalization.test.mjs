@@ -72,10 +72,6 @@ test('0190 is exactly mirrored while candidate migration 0189 remains immutable'
   ]);
 
   assert.equal(normalizeSql(supabaseMigration), normalizeSql(backendMigration));
-  assert.match(
-    schemaLatest,
-    /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/,
-  );
   for (const candidateMigration of candidateMigrations) {
     assert.equal(normalizedDigest(candidateMigration), candidateMigrationDigest);
   }

@@ -59,7 +59,6 @@ test('schema latest guard tracks phase workflow status objects', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/);
 
   assert.match(schemaCheck, /app\.job_phases\.workflow_status/);
   assert.match(schemaCheck, /app_api\.normalize_job_phase_workflow_status\(text\)/);

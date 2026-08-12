@@ -105,7 +105,6 @@ test('tenant direct write grants hardening revokes writes for every affected org
 test('schema latest guard requires tenant direct write grants hardening with no allowlist', async () => {
   const schemaCheck = await readFile(schemaCheckPath, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0197_film_order_order_scope_semantics\.sql';/);
   assert.match(schemaCheck, /ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set\(\[\]\)/);
   assert.match(schemaCheck, /ORG_TABLE_DIRECT_WRITE_GRANTEES = \['public', 'anon', 'authenticated'\]/);
   assert.match(schemaCheck, /role_table_grants/);
