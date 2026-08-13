@@ -6,11 +6,20 @@ import { AccessSplash } from './AccessSplash';
 
 const refreshAccessContextMock = vi.fn();
 const signOutMock = vi.fn();
+const switchOrganizationMock = vi.fn();
 
 vi.mock('./AuthContext', () => ({
   useAuth: () => ({
     refreshAccessContext: refreshAccessContextMock,
-    signOut: signOutMock
+    signOut: signOutMock,
+    switchOrganization: switchOrganizationMock,
+    accessContext: {
+      orgId: '',
+      organizations: [
+        { orgId: 'org-1', name: 'First Organization', role: 'admin', selected: false },
+        { orgId: 'org-2', name: 'Second Organization', role: 'member', selected: false }
+      ]
+    }
   })
 }));
 
@@ -22,6 +31,7 @@ describe('AccessSplash', () => {
   beforeEach(() => {
     refreshAccessContextMock.mockReset();
     signOutMock.mockReset();
+    switchOrganizationMock.mockReset();
   });
 
   afterEach(() => {
@@ -32,7 +42,8 @@ describe('AccessSplash', () => {
     render(<AccessSplash mode="org_selection_required" />);
 
     expect(screen.getByText('Organization Selection Needed')).toBeTruthy();
-    expect(screen.getByText(/belongs to more than one organization/i)).toBeTruthy();
+    expect(screen.getByText(/Choose the organization you want to open/i)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Organization' })).toBeTruthy();
     expect(screen.queryByText('Username')).toBeNull();
     fireEvent.click(screen.getByText('Sign Out'));
     expect(signOutMock).toHaveBeenCalled();

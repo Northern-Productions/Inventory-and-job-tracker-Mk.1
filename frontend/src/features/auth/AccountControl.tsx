@@ -149,6 +149,18 @@ export function AccountMenuTrigger() {
         buttonClassName="account-menu-item"
         buttonProps={{ role: 'menuitem' }}
       />
+      <Button
+        type="button"
+        variant="ghost"
+        className="account-menu-item"
+        role="menuitem"
+        onClick={() => {
+          closeMenu();
+          void auth.refreshAccessContext();
+        }}
+      >
+        Refresh Access
+      </Button>
       {installState.installAvailability === 'already_installed' ? (
         <div className="account-menu-meta account-menu-meta-installed" role="status" aria-live="polite">
           App installed on this device

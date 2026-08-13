@@ -77,6 +77,7 @@ import {
   inviteTeamUser,
   reenableTeamUser,
 } from '../services/teamUsers.mjs';
+import { selectOrganization } from '../services/organizationSelection.mjs';
 import { addWarehouse } from '../services/warehouses.mjs';
 import { withMutation } from '../../db/client.mjs';
 import {
@@ -88,6 +89,7 @@ import {
 } from '../services/runtime/runtimeAutoAllocationPlanner.mjs';
 
 const mutationHandlers = {
+  '/auth/organization': async ({ client, params }) => ok(await selectOrganization(client, params)),
   '/profile/username': async ({ client, orgId, authContext, params }) =>
     ok(await requestUsernameChange(client, orgId, authContext, params)),
   '/profile/default-warehouse': async ({ client, orgId, authContext, params }) => {

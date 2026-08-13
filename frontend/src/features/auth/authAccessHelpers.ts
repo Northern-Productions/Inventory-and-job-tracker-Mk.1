@@ -8,6 +8,7 @@ export function normalizeAccessContext(
   return {
     ...nextContext,
     defaultWarehouse: String(nextContext.defaultWarehouse || '').trim().toUpperCase(),
+    organizations: Array.isArray(nextContext.organizations) ? nextContext.organizations : [],
     permissions: {
       ...createDefaultFeatureAccessMap(),
       ...nextContext.permissions

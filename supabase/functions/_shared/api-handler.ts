@@ -95,6 +95,7 @@ import {
 } from "../../../shared/domain/filmAllocationReservations.mjs";
 import { getFilmBoxAllocationEligibility } from "../../../shared/domain/filmBoxAllocationEligibility.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
+import { runTeamMemberOnboarding } from "../../../shared/domain/teamMemberOnboarding.mjs";
 import {
   DELETE_JOB_FAILURE_MESSAGE,
   isCheckedOutBoxAssignedToJob,
@@ -1735,7 +1736,10 @@ const {
   listRollHistoryByBox,
 } = inventoryRepositories;
 
-async function resolveAuthContext(request: Request): Promise<{ identity: AuthIdentity; client: any }> {
+async function resolveAuthContext(
+  request: Request,
+  options: { forceRefresh?: boolean } = {},
+): Promise<{ identity: AuthIdentity; client: any }> {
   return resolveAuthContextFromModule(request, {
     asTrimmedString,
     deriveNameFromEmail,
@@ -1746,7 +1750,7 @@ async function resolveAuthContext(request: Request): Promise<{ identity: AuthIde
     rpcOrThrow,
     parseFeaturePermissions,
     sendNewAccessRequestNotification,
-  });
+  }, options);
 }
 
 function routeParams(method: string, requestUrl: URL, bodyJson: Record<string, unknown> | null) {
@@ -10050,67 +10054,48 @@ async function inviteTeamUser(
   const email = asTrimmedString(payload.email).toLowerCase();
   const name = asTrimmedString(payload.name);
   const role = normalizeTeamRole(payload.role || "member");
-  const prepared = await rpcOrThrow<Record<string, unknown>>(client, "api_prepare_team_invite", {
-    p_org_id: orgId,
-    p_payload: { email, name, role },
-  });
-
-  const action = asTrimmedString(prepared.action);
-  if (action === "already-member" || action === "already-invited") {
-    return prepared;
-  }
-  if (action === "current-disabled") {
-    throw new HttpError(409, "This user is disabled in this organization. Re-enable them instead of inviting again.");
-  }
-  if (action === "existing-user-unsupported") {
-    throw new HttpError(
-      409,
-      "This email already has a login. Attaching existing users without a fresh invite is not enabled yet.",
-    );
-  }
-  if (action !== "invite-new-user") {
-    throw new HttpError(400, "The invite could not be prepared safely.");
-  }
-
-  const serviceClient = createServiceRoleClient();
-  if (!serviceClient) {
-    throw new HttpError(500, "Supabase admin invite is not configured.");
-  }
-
-  const { data, error } = await serviceClient.auth.admin.inviteUserByEmail(email, {
-    data: {
-      name,
-      full_name: name,
-    },
-  });
-  if (error) {
-    throw new HttpError(Number(error.status) || 502, asTrimmedString(error.message) || "Supabase invite could not be sent.");
-  }
-
-  const invitedUser = data?.user || null;
-  const userId = asTrimmedString(invitedUser?.id);
-  if (!userId) {
-    throw new HttpError(502, "Supabase invite did not return a user identifier.");
-  }
-
-  try {
-    return await callMutationRpc(client, "api_record_team_invite", orgId, actor, {
-      userId,
-      email: asTrimmedString(invitedUser?.email).toLowerCase() || email,
-      name,
-      role,
-    });
-  } catch (err) {
-    if (err instanceof HttpError) {
-      throw new HttpError(
-        err.statusCode,
-        `${err.message} Supabase invite may have been sent, but app membership was not recorded. Retry the invite or inspect the target email in Auth before re-sending.`,
-        err.warnings,
-        err.details,
-      );
+  const requireServiceClient = () => {
+    const serviceClient = createServiceRoleClient();
+    if (!serviceClient) {
+      throw new HttpError(500, "Supabase admin invite is not configured.");
     }
-    throw err;
-  }
+    return serviceClient;
+  };
+
+  return await runTeamMemberOnboarding({
+    email,
+    name,
+    role,
+    classify: (nextPayload: Record<string, unknown>) =>
+      rpcOrThrow<Record<string, unknown>>(client, "api_add_team_member", {
+        p_org_id: orgId,
+        p_actor: actor,
+        p_payload: nextPayload,
+      }),
+    inviteNewAccount: async ({ email: nextEmail, name: nextName }: { email: string; name: string }) => {
+      const serviceClient = requireServiceClient();
+      const { data, error } = await serviceClient.auth.admin.inviteUserByEmail(nextEmail, {
+        data: { name: nextName, full_name: nextName },
+      });
+      if (error) {
+        throw error;
+      }
+      return {
+        userId: asTrimmedString(data?.user?.id),
+        email: asTrimmedString(data?.user?.email).toLowerCase() || nextEmail,
+      };
+    },
+    resendPendingInvite: async (nextEmail: string) => {
+      const serviceClient = requireServiceClient();
+      const { error } = await serviceClient.auth.admin.inviteUserByEmail(nextEmail);
+      if (error) {
+        throw error;
+      }
+    },
+    recordMembership: (nextPayload: Record<string, unknown>) =>
+      callMutationRpc(client, "api_record_team_invite", orgId, actor, nextPayload),
+    createError: (statusCode: number, message: string) => new HttpError(statusCode, message),
+  }) as Record<string, unknown>;
 }
 
 async function reconcileAutoPlannedAllocations(
@@ -10231,6 +10216,10 @@ async function dispatchMutation(
     canonicalizeMutationPayloadForRoute,
     callMutationRpc,
     inviteTeamUser,
+    selectOrganization: (selectionClient, selectedOrgId) =>
+      rpcOrThrow<Record<string, unknown>>(selectionClient, "api_select_organization", {
+        p_org_id: selectedOrgId,
+      }),
     findPendingBoxTransferByDestinationBoxId,
     findBoxById,
     listAllocationsByBox,
@@ -10341,7 +10330,12 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
       }
     }
 
-    const { identity, client } = await resolveAuthContext(request);
+    const forceAuthRefresh =
+      logicalPath === "/auth/context" ||
+      logicalPath === "/auth/organizations" ||
+      logicalPath === "/auth/organization" ||
+      logicalPath.startsWith("/owner/team/");
+    const { identity, client } = await resolveAuthContext(request, { forceRefresh: forceAuthRefresh });
     if (logicalPath === "/auth/context") {
       const payload = ok({
         orgId: identity.orgId,
@@ -10352,10 +10346,24 @@ export async function handleApiRequest(request: Request, canonicalName = "api"):
         pendingCount: identity.pendingCount,
         receivesInAppNotifications: identity.receivesInAppNotifications,
         defaultWarehouse: identity.defaultWarehouse || "",
+        organizations: identity.organizations || [],
       });
       const responseBody = JSON.stringify(payload);
       const headers = buildCorsHeaders(request);
       headers.set("Content-Type", "application/json; charset=utf-8");
+      timingStatusCode = 200;
+      timingOk = true;
+      return new Response(responseBody, { status: 200, headers });
+    }
+
+    if (logicalPath === "/auth/organizations") {
+      const responseBody = JSON.stringify(ok({
+        orgId: identity.orgId,
+        organizations: identity.organizations || [],
+      }));
+      const headers = buildCorsHeaders(request);
+      headers.set("Content-Type", "application/json; charset=utf-8");
+      headers.set("Cache-Control", "no-store");
       timingStatusCode = 200;
       timingOk = true;
       return new Response(responseBody, { status: 200, headers });

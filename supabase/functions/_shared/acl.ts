@@ -11,8 +11,18 @@ function isAdminConsoleRoute(logicalPath: string): boolean {
   return String(logicalPath || "").startsWith("/admin/");
 }
 
+function isTeamManagementRoute(logicalPath: string): boolean {
+  return String(logicalPath || "").startsWith("/owner/team/");
+}
+
 export function ensureEffectiveRouteAccess(identity: AuthIdentity, method: string, logicalPath: string): void {
-  if (logicalPath === "/health" || logicalPath === "/auth/context" || logicalPath === "/profile/username") {
+  if (
+    logicalPath === "/health" ||
+    logicalPath === "/auth/context" ||
+    logicalPath === "/auth/organizations" ||
+    logicalPath === "/auth/organization" ||
+    logicalPath === "/profile/username"
+  ) {
     return;
   }
 
@@ -20,7 +30,7 @@ export function ensureEffectiveRouteAccess(identity: AuthIdentity, method: strin
     if (identity.accessStatus === "org_selection_required") {
       throw new HttpError(
         403,
-        "Your account belongs to more than one organization. Organization selection is not available yet.",
+        "Choose an organization before opening workspace data.",
       );
     }
     if (identity.accessStatus === "no_access") {
@@ -43,6 +53,10 @@ export function ensureEffectiveRouteAccess(identity: AuthIdentity, method: strin
   }
 
   if (isAdminConsoleRoute(logicalPath) && identity.role !== "owner" && identity.role !== "admin") {
+    throw new HttpError(403, "Admin or owner access is required.");
+  }
+
+  if (isTeamManagementRoute(logicalPath) && identity.role !== "owner" && identity.role !== "admin") {
     throw new HttpError(403, "Admin or owner access is required.");
   }
 

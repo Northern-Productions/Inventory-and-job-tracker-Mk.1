@@ -1186,6 +1186,31 @@ textarea {
   margin-top: 1rem;
 }
 
+.organization-picker {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.organization-picker-select {
+  min-width: 180px;
+  max-width: 260px;
+  height: 36px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 6px;
+  background: var(--color-control-bg);
+  color: var(--color-control-text);
+  padding: 0 30px 0 10px;
+  font: inherit;
+}
+
+.organization-picker-gate {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+}
+
 .auth-gate .auth-note,
 .auth-gate .error-text {
   margin: 0.75rem 0 0;

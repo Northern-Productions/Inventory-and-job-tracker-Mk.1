@@ -47,7 +47,12 @@ export function useAdminAccessPage() {
         ...current,
         [feature]: {
           ...current[feature],
-          [mode]: !current[feature][mode]
+          ...(feature === 'team_management'
+            ? {
+                read: !(current[feature].read && current[feature].write),
+                write: !(current[feature].read && current[feature].write)
+              }
+            : { [mode]: !current[feature][mode] })
         }
       };
     });

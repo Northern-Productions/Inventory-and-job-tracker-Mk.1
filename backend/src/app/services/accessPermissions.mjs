@@ -176,6 +176,7 @@ async function listAdminFeaturePermissions(client, orgId) {
         on u.id = m.user_id
       where m.org_id = $1
         and m.role = 'admin'
+        and m.status = 'active'
       order by m.created_at asc, m.user_id asc
     `,
     [orgId]
@@ -202,7 +203,7 @@ async function updateAdminFeaturePermissionsInternal(client, orgId, actor, paylo
   const target = await queryRow(
     client,
     `
-      select role
+      select role, status
       from app.organization_members
       where org_id = $1
         and user_id = $2::uuid
@@ -210,8 +211,12 @@ async function updateAdminFeaturePermissionsInternal(client, orgId, actor, paylo
     `,
     [orgId, userId]
   );
-  if (!target || asTrimmedString(target.role).toLowerCase() !== 'admin') {
-    throw new HttpError(400, 'Target user must be an admin.');
+  if (
+    !target ||
+    asTrimmedString(target.role).toLowerCase() !== 'admin' ||
+    asTrimmedString(target.status).toLowerCase() !== 'active'
+  ) {
+    throw new HttpError(400, 'Target user must be an active admin.');
   }
 
   await ensureAdminFeaturePermissions(client, orgId, userId, true, actor);
@@ -223,6 +228,14 @@ async function updateAdminFeaturePermissionsInternal(client, orgId, actor, paylo
     }
     const readValue = String(entry.read).toLowerCase();
     const writeValue = String(entry.write).toLowerCase();
+    if (
+      feature === 'team_management' &&
+      (!['true', 'false'].includes(readValue) ||
+        !['true', 'false'].includes(writeValue) ||
+        readValue !== writeValue)
+    ) {
+      throw new HttpError(400, 'Manage Team Members must be enabled or disabled as one permission.');
+    }
     await client.query(
       `
         update app.admin_feature_permissions

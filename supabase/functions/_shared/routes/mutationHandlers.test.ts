@@ -51,6 +51,9 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
     inviteTeamUser: async () => {
       throw new Error("Unexpected inviteTeamUser call.");
     },
+    selectOrganization: async () => {
+      throw new Error("Unexpected selectOrganization call.");
+    },
     findPendingBoxTransferByDestinationBoxId: async () => null,
     findBoxById: async () => null,
     listAllocationsByBox: async () => [],
@@ -93,6 +96,29 @@ function buildDeps(overrides: Record<string, unknown> = {}) {
 
   return deps as any;
 }
+
+Deno.test("/auth/organization delegates exact selection to the authenticated RPC adapter", async () => {
+  let selectedOrgId = "";
+  const result = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "", actor: "actor", role: "member" } as any,
+    "/auth/organization",
+    { orgId: "org-two" },
+    buildDeps({
+      selectOrganization: async (_client: unknown, orgId: string) => {
+        selectedOrgId = orgId;
+        return { orgId };
+      },
+    }),
+  );
+
+  assertEquals(selectedOrgId, "org-two", "Organization selection should use the supplied active-membership target.");
+  assertEquals(
+    result,
+    { ok: true, data: { orgId: "org-two" }, warnings: [] },
+    "Unexpected organization selection response.",
+  );
+});
 
 Deno.test("/owner/team/invite delegates to server-side invite helper with auth-derived org", async () => {
   const inviteCalls: Array<Record<string, unknown>> = [];

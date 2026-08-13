@@ -29,6 +29,7 @@ const BACKEND_ROUTE_SOURCES = Object.freeze([
 const CONTRACT_ONLY_ROUTES = Object.freeze([
   '/health',
   '/auth/context',
+  '/auth/organization',
   '/profile/username',
   '/profile/default-warehouse',
 ]);
@@ -36,6 +37,7 @@ const CONTRACT_ONLY_ROUTES = Object.freeze([
 const EDGE_ONLY_ROUTE_EXCEPTIONS = Object.freeze([
   '/health',
   '/auth/context',
+  '/auth/organizations',
 ]);
 
 function sortRoutes(routes) {

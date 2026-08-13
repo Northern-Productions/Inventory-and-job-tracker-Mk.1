@@ -29,6 +29,7 @@ function createDeniedFeaturePermissions() {
     activity_history: { read: false, write: false },
     reports: { read: false, write: false },
     access_management: { read: false, write: false },
+    team_management: { read: false, write: false },
   };
 }
 
@@ -41,6 +42,7 @@ function buildOwnerFeaturePermissions() {
     activity_history: { read: true, write: true },
     reports: { read: true, write: true },
     access_management: { read: true, write: true },
+    team_management: { read: true, write: true },
   };
 }
 
@@ -105,6 +107,7 @@ async function getGeneralFeaturePermissions(client, orgId) {
     mapped[feature] = { read: true, write: true };
   });
   mapped.access_management = { read: false, write: false };
+  mapped.team_management = { read: false, write: false };
 
   rows.forEach((row) => {
     const feature = asTrimmedString(row.feature_area);
@@ -153,6 +156,7 @@ async function getMemberEffectiveFeaturePermissionsForUser(client, orgId, userId
   });
 
   mapped.access_management = { read: false, write: false };
+  mapped.team_management = { read: false, write: false };
   return mapped;
 }
 
@@ -164,7 +168,10 @@ async function ensureAdminFeaturePermissions(client, orgId, adminUserId, copyMem
     let readEnabled = true;
     let writeEnabled = true;
 
-    if (copyMemberDefaults && feature !== 'access_management') {
+    if (feature === 'team_management') {
+      readEnabled = false;
+      writeEnabled = false;
+    } else if (copyMemberDefaults && feature !== 'access_management') {
       readEnabled = Boolean(generalPermissions[feature]?.read ?? true);
       writeEnabled = Boolean(generalPermissions[feature]?.write ?? true);
     }
@@ -211,6 +218,7 @@ async function getAdminFeaturePermissions(client, orgId, adminUserId) {
     };
   });
   mapped.access_management = { read: true, write: true };
+  mapped.team_management = { read: false, write: false };
 
   rows.forEach((row) => {
     const feature = asTrimmedString(row.feature_area);
@@ -309,7 +317,13 @@ function mapDatabaseBootstrapError(message) {
 }
 
 function ensureEffectiveRouteAccess(authContext, method, logicalPath) {
-  if (logicalPath === '/health' || logicalPath === '/auth/context' || logicalPath === '/profile/username') {
+  if (
+    logicalPath === '/health' ||
+    logicalPath === '/auth/context' ||
+    logicalPath === '/auth/organizations' ||
+    logicalPath === '/auth/organization' ||
+    logicalPath === '/profile/username'
+  ) {
     return;
   }
 
@@ -317,7 +331,7 @@ function ensureEffectiveRouteAccess(authContext, method, logicalPath) {
     if (authContext.accessStatus === 'org_selection_required') {
       throw new HttpError(
         403,
-        'Your account belongs to more than one organization. Organization selection is not available yet.'
+        'Choose an organization before opening workspace data.'
       );
     }
     if (authContext.accessStatus === 'no_access') {
@@ -343,6 +357,10 @@ function ensureEffectiveRouteAccess(authContext, method, logicalPath) {
   }
 
   if (isAdminConsoleRoute(logicalPath) && !['owner', 'admin'].includes(authContext.role)) {
+    throw new HttpError(403, 'Admin or owner access is required.');
+  }
+
+  if (logicalPath.startsWith('/owner/team/') && !['owner', 'admin'].includes(authContext.role)) {
     throw new HttpError(403, 'Admin or owner access is required.');
   }
 
@@ -450,31 +468,54 @@ async function resolveAuthContext(headers, bodyJson) {
   return withReadClient(async (client) => {
     await client.query(
       `
-        update app.organization_members m
+        with activated as (
+          update app.organization_members m
+          set
+            status = 'active',
+            updated_at = now(),
+            updated_by_actor = 'accepted invite',
+            disabled_at = null,
+            disabled_by_user_id = null
+          from auth.users u
+          where m.user_id = $1::uuid
+            and u.id = m.user_id
+            and m.status = 'invited'
+            and (
+              u.email_confirmed_at is not null
+              or u.confirmed_at is not null
+            )
+          returning m.org_id, m.user_id
+        )
+        update app.access_requests r
         set
-          status = 'active',
-          updated_at = now(),
-          updated_by_actor = 'accepted invite',
-          disabled_at = null,
-          disabled_by_user_id = null
-        from auth.users u
-        where m.user_id = $1::uuid
-          and u.id = m.user_id
-          and m.status = 'invited'
-          and (
-            u.email_confirmed_at is not null
-            or u.confirmed_at is not null
-          )
+          status = 'approved',
+          decided_at = now(),
+          decided_by_user_id = $1::uuid,
+          decided_by_actor = 'accepted invite',
+          decision_note = 'Organization invitation accepted.'
+        from activated a
+        where r.org_id = a.org_id
+          and r.user_id = a.user_id
       `,
       [identity.userId]
     );
     const memberships = await queryRows(
       client,
       `
-        select org_id, role, status, created_at
-        from app.organization_members
-        where user_id = $1
-        order by created_at asc, org_id asc
+        select
+          m.org_id,
+          o.name as org_name,
+          m.role,
+          m.status,
+          m.created_at,
+          preference.selected_org_id = m.org_id as selected
+        from app.organization_members m
+        join app.organizations o
+          on o.id = m.org_id
+        left join app.user_organization_preferences preference
+          on preference.user_id = m.user_id
+        where m.user_id = $1
+        order by m.created_at asc, m.org_id asc
       `,
       [identity.userId]
     );
@@ -489,8 +530,22 @@ async function resolveAuthContext(headers, bodyJson) {
       [identity.userId]
     );
 
+    const organizations = memberships
+      .filter((entry) => asTrimmedString(entry.status).toLowerCase() === 'active')
+      .map((entry) => ({
+        orgId: asTrimmedString(entry.org_id),
+        name: asTrimmedString(entry.org_name) || 'Organization',
+        role: ['owner', 'admin'].includes(asTrimmedString(entry.role).toLowerCase())
+          ? asTrimmedString(entry.role).toLowerCase()
+          : 'member',
+        selected: Boolean(entry.selected),
+      }));
+    const rememberedOrgId = asTrimmedString(
+      memberships.find((entry) => Boolean(entry.selected))?.org_id
+    );
     const decision = resolvePilotOrgAccess({
       defaultOrgId: DEFAULT_ORG_ID,
+      rememberedOrgId,
       memberships,
       accessRequests,
     });
@@ -501,10 +556,15 @@ async function resolveAuthContext(headers, bodyJson) {
         identity,
         decision,
         actor,
+        organizations,
       });
     }
 
     const orgId = decision.orgId;
+    const selectedOrganizations = organizations.map((entry) => ({
+      ...entry,
+      selected: entry.orgId === orgId,
+    }));
     const membership = memberships.find(
       (entry) => entry.org_id === orgId && asTrimmedString(entry.status).toLowerCase() === 'active'
     ) || null;
@@ -535,6 +595,7 @@ async function resolveAuthContext(headers, bodyJson) {
           receivesInAppNotifications: false,
           defaultWarehouse: '',
           pendingRequestCreated: false,
+          organizations: selectedOrganizations,
         };
       }
 
@@ -566,6 +627,7 @@ async function resolveAuthContext(headers, bodyJson) {
         receivesInAppNotifications: false,
         defaultWarehouse: '',
         pendingRequestCreated: inserted.rowCount > 0,
+        organizations: selectedOrganizations,
       };
     }
 
@@ -666,6 +728,7 @@ async function resolveAuthContext(headers, bodyJson) {
       receivesInAppNotifications,
       defaultWarehouse,
       pendingRequestCreated: false,
+      organizations: selectedOrganizations,
     };
   });
 }

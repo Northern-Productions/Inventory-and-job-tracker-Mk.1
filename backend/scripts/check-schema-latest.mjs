@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0197_film_order_order_scope_semantics.sql';
+const LATEST_MIGRATION = '0198_multi_org_member_onboarding.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -22,6 +22,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.admin_feature_permissions' },
   { kind: 'table', signature: 'app.owner_notification_preferences' },
   { kind: 'table', signature: 'app.user_preferences' },
+  { kind: 'table', signature: 'app.user_organization_preferences' },
   { kind: 'table', signature: 'app.owner_companies' },
   { kind: 'table', signature: 'app.inventory_ownership_events' },
   { kind: 'table', signature: 'app.team_user_audit_log' },
@@ -81,13 +82,17 @@ const REQUIRED_OBJECTS = [
   { kind: 'table', signature: 'app.allocation_planner_suppressions' },
   { kind: 'function', signature: 'public.api_list_memberships()' },
   { kind: 'function', signature: 'public.api_get_auth_context(uuid)' },
+  { kind: 'function', signature: 'public.api_select_organization(uuid)' },
   { kind: 'function', signature: 'public.api_list_team_users(uuid)' },
+  { kind: 'function', signature: 'public.api_add_team_member(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_prepare_team_invite(uuid, jsonb)' },
   { kind: 'function', signature: 'public.api_record_team_invite(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_change_team_user_role(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_disable_team_user(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_reenable_team_user(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.activate_confirmed_invite_membership(uuid)' },
+  { kind: 'function', signature: 'app_api.require_team_manager(uuid)' },
+  { kind: 'function', signature: 'app_api.require_team_target_allowed(text, uuid, text, text)' },
   { kind: 'function', signature: 'app_api.default_owner_company_code_for_warehouse(text)' },
   { kind: 'function', signature: 'app_api.default_owner_company_id_for_warehouse(uuid, text)' },
   { kind: 'function', signature: 'app_api.require_owner_company(uuid, uuid, boolean)' },
@@ -596,9 +601,35 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       'perform app_api.activate_confirmed_invite_membership(p_org_id);',
       "and m.status = 'active';",
-      'v_permissions := app_api.member_permissions_for_user_json(p_org_id, v_user_id);'
+      'v_permissions := app_api.member_permissions_for_user_json(p_org_id, v_user_id);',
+      "'team_management', app_api.feature_access_json(true, true)",
+      "'team_management', app_api.feature_access_json(false, false)"
     ],
     excludes: ['v_permissions := app_api.member_permissions_json(p_org_id);']
+  },
+  {
+    signature: 'app_api.require_team_manager(uuid)',
+    includes: [
+      "and m.status = 'active'",
+      "v_role = 'owner'",
+      "v_role = 'admin'",
+      "a.feature_area = 'team_management'",
+      'a.read_enabled and a.write_enabled'
+    ],
+    excludes: ['app_api.require_org_owner(p_org_id)']
+  },
+  {
+    signature: 'public.api_add_team_member(uuid, text, jsonb)',
+    includes: [
+      'perform pg_advisory_xact_lock(hashtextextended(v_email, 0));',
+      'if v_user_count > 1 then',
+      "'outcome', 'already_active'",
+      "'outcome', 'disabled_confirmation_required'",
+      "'action', 'invite-existing-unconfirmed'",
+      "'outcome', 'added_existing'",
+      'v_user.deleted_at is not null'
+    ],
+    excludes: ['update auth.users']
   },
   {
     signature: 'app_api.record_film_weight_sample_from_box(uuid, text, text)',
@@ -1855,6 +1886,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
 
 const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
   'api_list_memberships',
+  'api_select_organization',
   'api_get_auth_context',
   'api_list_access_requests',
   'api_approve_access_request',
@@ -1874,6 +1906,7 @@ const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
   'api_promote_admin_to_owner',
   'api_update_user_default_warehouse',
   'api_list_team_users',
+  'api_add_team_member',
   'api_prepare_team_invite',
   'api_record_team_invite',
   'api_change_team_user_role',
@@ -1882,7 +1915,9 @@ const AUTHENTICATED_PUBLIC_RPC_ALLOWLIST = [
 ];
 
 const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
+  'public.api_list_memberships()',
   'public.api_get_auth_context(uuid)',
+  'public.api_select_organization(uuid)',
   'public.api_list_access_requests(uuid, text)',
   'public.api_approve_access_request(uuid, text, jsonb)',
   'public.api_deny_access_request(uuid, text, jsonb)',
@@ -1901,6 +1936,7 @@ const REQUIRED_AUTHENTICATED_PUBLIC_RPC_SIGNATURES = [
   'public.api_promote_admin_to_owner(uuid, text, jsonb)',
   'public.api_update_user_default_warehouse(uuid, text, jsonb)',
   'public.api_list_team_users(uuid)',
+  'public.api_add_team_member(uuid, text, jsonb)',
   'public.api_prepare_team_invite(uuid, jsonb)',
   'public.api_record_team_invite(uuid, text, jsonb)',
   'public.api_change_team_user_role(uuid, text, jsonb)',

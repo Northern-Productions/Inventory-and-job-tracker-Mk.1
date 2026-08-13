@@ -85,8 +85,8 @@ test('keeps local fallback selectors backed by method-matching local handlers', 
   const readHandlers = readHandlerRoutes('src/app/handlers/readHandlers.mjs');
   const mutationHandlers = readHandlerRoutes('src/app/handlers/mutationHandlers.mjs');
 
-  // Auth context is handled directly before the read-handler dispatcher.
-  const readRouteExceptions = new Set(['/auth/context']);
+  // Auth reads are handled directly before the read-handler dispatcher.
+  const readRouteExceptions = new Set(['/auth/context', '/auth/organizations']);
 
   assert.deepEqual(
     missingRoutes(LOCAL_FALLBACK_READ_PATHS, readHandlers, readRouteExceptions),

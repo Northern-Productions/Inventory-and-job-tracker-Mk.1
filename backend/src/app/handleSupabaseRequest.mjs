@@ -57,6 +57,18 @@ export async function handleSupabaseRequest({ method, logicalPath, requestUrl, b
           pendingCount: integerOrZero(authContext.pendingCount),
           receivesInAppNotifications: Boolean(authContext.receivesInAppNotifications),
           defaultWarehouse: authContext.defaultWarehouse || '',
+          organizations: authContext.organizations || [],
+        }),
+      };
+      return response;
+    }
+
+    if (logicalPath === '/auth/organizations') {
+      response = {
+        statusCode: 200,
+        payload: ok({
+          orgId: authContext.orgId,
+          organizations: authContext.organizations || [],
         }),
       };
       return response;

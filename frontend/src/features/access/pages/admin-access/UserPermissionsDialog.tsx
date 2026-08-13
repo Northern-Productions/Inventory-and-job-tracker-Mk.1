@@ -20,7 +20,8 @@ const ADMIN_FEATURES: FeatureArea[] = [
   'film_orders',
   'activity_history',
   'reports',
-  'access_management'
+  'access_management',
+  'team_management'
 ];
 
 interface UserPermissionsDialogProps {
@@ -132,26 +133,42 @@ export function UserPermissionsDialog({
               className={`feature-row ${roleDraft === 'member' ? 'feature-row-read-only' : ''}`.trim()}
             >
               <span className="feature-label">{formatFeatureLabel(feature)}</span>
-              <label className="field-checkbox">
-                <input
-                  type="checkbox"
-                  checked={Boolean(permissionsDraft[feature]?.read)}
-                  disabled={!authIsOwner || mutationPending}
-                  onChange={() => onTogglePermission(feature, 'read')}
-                />
-                Read
-              </label>
-              {roleDraft === 'admin' ? (
+              {feature === 'team_management' ? (
                 <label className="field-checkbox">
                   <input
                     type="checkbox"
-                    checked={Boolean(permissionsDraft[feature]?.write)}
+                    checked={Boolean(
+                      permissionsDraft[feature]?.read && permissionsDraft[feature]?.write
+                    )}
                     disabled={!authIsOwner || mutationPending}
-                    onChange={() => onTogglePermission(feature, 'write')}
+                    onChange={() => onTogglePermission(feature, 'read')}
                   />
-                  Write
+                  Enabled
                 </label>
-              ) : null}
+              ) : (
+                <>
+                  <label className="field-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(permissionsDraft[feature]?.read)}
+                      disabled={!authIsOwner || mutationPending}
+                      onChange={() => onTogglePermission(feature, 'read')}
+                    />
+                    Read
+                  </label>
+                  {roleDraft === 'admin' ? (
+                    <label className="field-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(permissionsDraft[feature]?.write)}
+                        disabled={!authIsOwner || mutationPending}
+                        onChange={() => onTogglePermission(feature, 'write')}
+                      />
+                      Write
+                    </label>
+                  ) : null}
+                </>
+              )}
             </div>
           ))}
         </div>

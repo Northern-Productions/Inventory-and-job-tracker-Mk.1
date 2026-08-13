@@ -3,6 +3,7 @@ import type {
   DefaultWarehouseUpdateResult,
   EffectiveAccessContext,
   HealthResponse,
+  OrganizationMembershipOption,
   UsernameChangeResult
 } from '../../domain';
 import { request } from '../http';
@@ -31,6 +32,7 @@ export async function getAuthContext(): Promise<EffectiveAccessContext> {
     pendingCount: unknown;
     receivesInAppNotifications: unknown;
     defaultWarehouse: unknown;
+    organizations: unknown;
   }>('GET', '/auth/context');
 
   return {
@@ -45,8 +47,44 @@ export async function getAuthContext(): Promise<EffectiveAccessContext> {
     receivesInAppNotifications:
       data.receivesInAppNotifications === true ||
       String(data.receivesInAppNotifications).toLowerCase() === 'true',
-    defaultWarehouse: String(data.defaultWarehouse || '').trim().toUpperCase()
+    defaultWarehouse: String(data.defaultWarehouse || '').trim().toUpperCase(),
+    organizations: mapOrganizationMemberships(data.organizations)
   };
+}
+
+function mapOrganizationMemberships(value: unknown): OrganizationMembershipOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') {
+      return [];
+    }
+    const entry = raw as Record<string, unknown>;
+    const orgId = String(entry.orgId || '').trim();
+    const role = ensureRole(entry.role);
+    if (!orgId || !role) {
+      return [];
+    }
+    return [{
+      orgId,
+      name: String(entry.name || '').trim() || 'Organization',
+      role,
+      selected: entry.selected === true || String(entry.selected).toLowerCase() === 'true'
+    }];
+  });
+}
+
+export async function selectOrganization(orgId: string): Promise<{ orgId: string }> {
+  const normalizedOrgId = String(orgId || '').trim();
+  if (!normalizedOrgId) {
+    throw new Error('Organization is required.');
+  }
+  const { data } = await request<{ orgId: string }>('POST', '/auth/organization', {
+    body: { orgId: normalizedOrgId }
+  });
+  return { orgId: String(data.orgId || '').trim() };
 }
 
 export async function requestUsernameChange(payload: { username: string }): Promise<UsernameChangeResult> {

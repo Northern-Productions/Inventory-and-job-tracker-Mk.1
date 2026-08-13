@@ -5,7 +5,8 @@ export type FeatureArea =
   | 'film_orders'
   | 'activity_history'
   | 'reports'
-  | 'access_management';
+  | 'access_management'
+  | 'team_management';
 
 export type AccessMode = 'read' | 'write';
 

@@ -193,10 +193,10 @@ test('team user RPC grant migration limits public RPC execution to authenticated
   }
 });
 
-test('team user routes are owner-only access-management routes with local fallback parity', async () => {
+test('team user routes use delegated team-management access with local fallback parity', async () => {
   for (const route of ownerTeamRoutes) {
-    assert.equal(ROUTE_FEATURE_MAP[route], 'access_management', `${route} should be access-management scoped.`);
-    assert.equal(OWNER_ONLY_ROUTES.includes(route), true, `${route} should require owner access.`);
+    assert.equal(ROUTE_FEATURE_MAP[route], 'team_management', `${route} should be team-management scoped.`);
+    assert.equal(OWNER_ONLY_ROUTES.includes(route), false, `${route} should allow delegated Team managers.`);
   }
 
   assert.equal(READ_PATHS.includes('/owner/team/users'), true);
@@ -217,14 +217,14 @@ test('team user routes are owner-only access-management routes with local fallba
   assert.match(edgeMutationHandlers, /api_reenable_team_user/);
 });
 
-test('local team invite service uses server-side Supabase admin invite and reports recovery boundary', async () => {
+test('local team onboarding uses server-side provider calls and the shared recovery boundary', async () => {
   const source = await readFile(localTeamUsersServicePath, 'utf8');
 
   assert.match(source, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(source, /\/auth\/v1\/invite/);
-  assert.match(source, /api_prepare_team_invite/);
+  assert.match(source, /api_add_team_member/);
   assert.match(source, /api_record_team_invite/);
-  assert.match(source, /Supabase invite may have been sent, but app membership was not recorded/);
+  assert.match(source, /runTeamMemberOnboarding/);
   assert.doesNotMatch(source, /password/i);
 });
 

@@ -453,6 +453,36 @@ describe('AppLayout', () => {
     expect(screen.queryByRole('menuitem', { name: 'Weight Chart (pending reviews)' })).toBeNull();
   });
 
+  it('shows Team navigation to an Admin with Manage Team Members permission', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        isOwner: false,
+        isAdmin: true,
+        accessContext: { defaultWarehouse: '', pendingCount: 0, role: 'admin' },
+        hasFeatureAccess: (feature: string) => feature === 'team_management'
+      })
+    );
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('menuitem', { name: 'Team / Users' })).toBeTruthy();
+  });
+
+  it('hides Team navigation from an Admin without Manage Team Members permission', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        isOwner: false,
+        isAdmin: true,
+        accessContext: { defaultWarehouse: '', pendingCount: 0, role: 'admin' },
+        hasFeatureAccess: () => false
+      })
+    );
+    renderLayout('/');
+
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.queryByRole('menuitem', { name: 'Team / Users' })).toBeNull();
+  });
+
   it('shows the Weight Chart pending review dot on mobile More and inside the sheet', () => {
     useIsPhoneLayoutMock.mockReturnValue(true);
     useAppAttentionSummaryMock.mockReturnValue(
