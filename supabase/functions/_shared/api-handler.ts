@@ -90,9 +90,11 @@ import {
   allocationReservesCapacity,
   buildBoxReservationSnapshot,
   getAllocationReservationState,
+  isCheckedOutFilmReservationBoxStatus,
   isOrderedFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
 } from "../../../shared/domain/filmAllocationReservations.mjs";
+import { derivePhysicalFeetFromWeight } from "../../../shared/domain/warehouseAssetAudit.mjs";
 import { getFilmBoxAllocationEligibility } from "../../../shared/domain/filmBoxAllocationEligibility.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
 import { runTeamMemberOnboarding } from "../../../shared/domain/teamMemberOnboarding.mjs";
@@ -6859,17 +6861,7 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   });
   const pendingTransfersByBoxRecordId = await buildPendingTransfersByBoxRecordId(client, orgId, filteredBoxes);
   let filtered = filteredBoxes.map((box) => {
-    const reservationSnapshot = buildBoxReservationSnapshot(box, activeAllocationsByBoxId[box.boxId] || []);
-    const publicBox = toPublicBox({
-      ...box,
-      physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
-      feetAvailable: reservationSnapshot.allocatableNowFeet,
-      allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
-      allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
-      allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,
-      activeAllocatedFeet: reservationSnapshot.activeAllocatedFeet,
-      allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
-    });
+    const publicBox = projectInventorySearchBox(box, activeAllocationsByBoxId[box.boxId] || []);
     const pendingTransfer = findPendingTransferForBox(box, pendingTransfersByBoxRecordId);
     if (!pendingTransfer) {
       return publicBox;
@@ -6908,6 +6900,34 @@ async function buildSearchBoxes(client: any, orgId: string, params: Record<strin
   }
 
   return filtered;
+}
+
+export function projectInventorySearchBox(box: any, allocations: any[] = []) {
+  const usesPhysicalCapacity =
+    isPhysicalFilmReservationBoxStatus(box?.status) || isCheckedOutFilmReservationBoxStatus(box?.status);
+  const weightDerivedPhysicalFeet = usesPhysicalCapacity
+    ? derivePhysicalFeetFromWeight(box, Math.max(0, integerOrZero(box?.initialFeet)))
+    : null;
+  const reservationSnapshot = buildBoxReservationSnapshot(
+    weightDerivedPhysicalFeet === null
+      ? box
+      : {
+          ...box,
+          physicalFeetAvailable: weightDerivedPhysicalFeet,
+        },
+    allocations,
+  );
+
+  return toPublicBox({
+    ...box,
+    physicalFeetAvailable: reservationSnapshot.physicalFeetAvailable,
+    feetAvailable: reservationSnapshot.allocatableNowFeet,
+    allocatableNowFeet: reservationSnapshot.allocatableNowFeet,
+    allocatedWithInstallDateFeet: reservationSnapshot.allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet: reservationSnapshot.allocatedWithoutInstallDateFeet,
+    activeAllocatedFeet: reservationSnapshot.activeAllocatedFeet,
+    allocationPlanningFeet: reservationSnapshot.allocatableNowFeet,
+  });
 }
 
 export async function buildAllocationJobList(client: any, orgId: string) {
