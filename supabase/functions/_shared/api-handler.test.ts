@@ -11,6 +11,7 @@ import {
   loadCheckedOutJobBoxRows,
   loadCaulkPlanningByJobContexts,
   maybeLogCaulkFallbackCoverageDecision,
+  projectInventorySearchBox,
   shouldUseCache,
   statusFromRpcError,
   toSafeDeleteJobError,
@@ -67,6 +68,199 @@ async function assertRejectsWithMessage(
 
   throw new Error(`${message}\nExpected function to reject.`);
 }
+
+function buildInventoryProjectionBox(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "box-record",
+    orgId: "org-1",
+    boxId: "IL1-PROJECTION",
+    warehouse: "IL1",
+    manufacturer: "3M",
+    filmName: "Prestige 40",
+    filmKey: "3M|PRESTIGE 40",
+    widthIn: 60,
+    status: "IN_STOCK",
+    initialFeet: 50,
+    feetAvailable: 50,
+    storedFeetAvailable: 50,
+    physicalFeetAvailable: null,
+    lastRollWeightLbs: 11.5,
+    coreWeightLbs: 1,
+    lfWeightLbsPerFt: 0.5,
+    ...overrides,
+  };
+}
+
+function buildInventoryProjectionAllocation(overrides: Record<string, unknown> = {}) {
+  return {
+    allocationId: "allocation-1",
+    boxId: "IL1-PROJECTION",
+    jobId: "job-1",
+    jobNumber: "1001",
+    requirementId: "requirement-1",
+    allocatedFeet: 8,
+    status: "ACTIVE",
+    installDate: "2026-08-20",
+    allocationKind: "REQUIREMENT",
+    allocationSource: "MANUAL",
+    ...overrides,
+  };
+}
+
+function inventoryProjectionMetrics(box: Record<string, unknown>) {
+  return {
+    physicalFeetAvailable: box.physicalFeetAvailable,
+    feetAvailable: box.feetAvailable,
+    allocatableNowFeet: box.allocatableNowFeet,
+    allocatedWithInstallDateFeet: box.allocatedWithInstallDateFeet,
+    allocatedWithoutInstallDateFeet: box.allocatedWithoutInstallDateFeet,
+  };
+}
+
+Deno.test("Edge inventory search uses canonical weight-first LF across the reservation matrix", () => {
+  const noReservation = projectInventorySearchBox(buildInventoryProjectionBox(), []);
+  assertEquals(
+    inventoryProjectionMetrics(noReservation),
+    {
+      physicalFeetAvailable: 21,
+      feetAvailable: 21,
+      allocatableNowFeet: 21,
+      allocatedWithInstallDateFeet: 0,
+      allocatedWithoutInstallDateFeet: 0,
+    },
+    "Expected the observed raw 50 LF box to project as 21 physical and 21 allocatable LF.",
+  );
+
+  const reservationCases = [
+    ["scheduled requirement", {}],
+    ["unscheduled requirement", { installDate: "" }],
+    ["manual allocation", { allocationSource: "MANUAL" }],
+    ["auto-planned allocation", { allocationSource: "AUTO_PLANNED" }],
+    ["film-order receipt allocation", { allocationSource: "FILM_ORDER_RECEIPT" }],
+    ["direct-to-job-site allocation", { allocationSource: "DIRECT_TO_JOB_SITE" }],
+  ] as const;
+  for (const [name, allocationOverrides] of reservationCases) {
+    const projected = projectInventorySearchBox(
+      buildInventoryProjectionBox(),
+      [buildInventoryProjectionAllocation(allocationOverrides)],
+    );
+    assertEquals(projected.physicalFeetAvailable, 21, `Expected ${name} to preserve canonical physical LF.`);
+    assertEquals(projected.allocatableNowFeet, 13, `Expected ${name} to reserve 8 of 21 LF.`);
+    assertEquals(projected.feetAvailable, 13, `Expected ${name} public availability to match allocatable LF.`);
+  }
+
+  const checkedOut = projectInventorySearchBox(
+    buildInventoryProjectionBox({ status: "CHECKED_OUT" }),
+    [buildInventoryProjectionAllocation({ status: "FULFILLED" })],
+  );
+  assertEquals(
+    inventoryProjectionMetrics(checkedOut),
+    {
+      physicalFeetAvailable: 21,
+      feetAvailable: 13,
+      allocatableNowFeet: 13,
+      allocatedWithInstallDateFeet: 0,
+      allocatedWithoutInstallDateFeet: 0,
+    },
+    "Expected a checked-out fulfilled claim to reserve weight-derived physical LF without changing its public buckets.",
+  );
+
+  const transfer = projectInventorySearchBox(buildInventoryProjectionBox({ status: "TRANSFER" }), []);
+  assertEquals(transfer.physicalFeetAvailable, 21, "Expected TRANSFER to use canonical physical LF.");
+  assertEquals(transfer.allocatableNowFeet, 21, "Expected transfer metadata alone not to consume LF.");
+
+  const ordered = projectInventorySearchBox(
+    buildInventoryProjectionBox({ status: "ORDERED" }),
+    [buildInventoryProjectionAllocation()],
+  );
+  assertEquals(ordered.physicalFeetAvailable, 50, "Expected ORDERED to preserve initial-capacity semantics.");
+  assertEquals(ordered.allocatableNowFeet, 42, "Expected ORDERED availability to subtract reservations from initial LF.");
+
+  const incompleteWeight = projectInventorySearchBox(
+    buildInventoryProjectionBox({ feetAvailable: 37, storedFeetAvailable: 37, lastRollWeightLbs: null }),
+    [],
+  );
+  assertEquals(incompleteWeight.physicalFeetAvailable, 37, "Expected incomplete weight metadata to use the canonical stored fallback.");
+  assertEquals(incompleteWeight.allocatableNowFeet, 37, "Expected incomplete-weight availability to use the stored fallback.");
+
+  const invalidWeight = projectInventorySearchBox(
+    buildInventoryProjectionBox({ feetAvailable: 36, storedFeetAvailable: 36, lfWeightLbsPerFt: 0 }),
+    [],
+  );
+  assertEquals(invalidWeight.physicalFeetAvailable, 36, "Expected invalid weight metadata to use the canonical stored fallback.");
+
+  const capped = projectInventorySearchBox(
+    buildInventoryProjectionBox({ lastRollWeightLbs: 31 }),
+    [],
+  );
+  assertEquals(capped.physicalFeetAvailable, 50, "Expected weight-derived LF to cap at initial LF.");
+
+  const rounded = projectInventorySearchBox(
+    buildInventoryProjectionBox({ lastRollWeightLbs: 11.9975 }),
+    [],
+  );
+  assertEquals(rounded.physicalFeetAvailable, 22, "Expected the canonical two-decimal intermediate to round before flooring.");
+
+  const clamped = projectInventorySearchBox(
+    buildInventoryProjectionBox({ lastRollWeightLbs: 0.5 }),
+    [],
+  );
+  assertEquals(clamped.physicalFeetAvailable, 0, "Expected negative effective roll weight to clamp to zero LF.");
+  assertEquals(clamped.allocatableNowFeet, 0, "Expected clamped physical LF to have zero allocatable LF.");
+
+  const overReserved = projectInventorySearchBox(
+    buildInventoryProjectionBox(),
+    [buildInventoryProjectionAllocation({ allocatedFeet: 30 })],
+  );
+  assertEquals(overReserved.physicalFeetAvailable, 21, "Expected over-reservation not to change physical LF.");
+  assertEquals(overReserved.allocatableNowFeet, 0, "Expected reservations above physical LF to clamp availability to zero.");
+
+  const excluded = projectInventorySearchBox(
+    buildInventoryProjectionBox(),
+    [
+      buildInventoryProjectionAllocation({ allocationId: "cancelled", status: "CANCELLED" }),
+      buildInventoryProjectionAllocation({ allocationId: "extra", allocationKind: "EXTRA" }),
+      buildInventoryProjectionAllocation({ allocationId: "unbound-requirement", requirementId: "" }),
+      buildInventoryProjectionAllocation({ allocationId: "unbound-job", jobId: "", jobNumber: "" }),
+    ],
+  );
+  assertEquals(excluded.allocatableNowFeet, 21, "Expected canonical non-reserving allocation exclusions to remain unchanged.");
+
+  for (const projected of [noReservation, checkedOut, transfer, capped, rounded, clamped, overReserved, excluded]) {
+    assertEquals(
+      projected.allocatableNowFeet >= 0 && projected.allocatableNowFeet <= projected.physicalFeetAvailable,
+      true,
+      "Expected physical inventory availability to remain within zero and physical LF.",
+    );
+  }
+});
+
+Deno.test("Edge inventory search projection matches canonical box-detail reservation output", async () => {
+  const allocations = [buildInventoryProjectionAllocation()];
+  const searchProjection = projectInventorySearchBox(buildInventoryProjectionBox(), allocations);
+  const detailResponse = await dispatchReadWithHandlers(
+    {},
+    "org-1",
+    "/boxes/get",
+    { boxId: "IL1-PROJECTION" },
+    {} as any,
+    {
+      requireString: (value: unknown) => String(value || "").trim(),
+      asTrimmedString: (value: unknown) => String(value || "").trim(),
+      findBoxById: async () => buildInventoryProjectionBox({ physicalFeetAvailable: 21 }),
+      listAllocationsByBox: async () => allocations,
+      buildBoxFilmOrderOrigins: async () => [],
+      findJobById: async () => null,
+      toPublicBox: (box: Record<string, unknown>) => inventoryProjectionMetrics(box),
+    } as any,
+  );
+
+  assertEquals(
+    inventoryProjectionMetrics(searchProjection),
+    detailResponse.data,
+    "Expected list and detail to expose the same canonical physical, reservation, and allocatable LF.",
+  );
+});
 
 Deno.test("Edge response cache bypasses mutation-sensitive operational reads", () => {
   const operationalRoutes = [

@@ -17,15 +17,21 @@ vi.mock('./features/sharedClient', () => ({
   requestReadWithFallback: vi.fn()
 }));
 
-import { getBox, getBoxTransferPlan, searchBoxes, suggestNextBoxId } from './client';
+import { getBox, getBoxTransferPlan, searchBoxes, suggestNextBoxId, syncOfflineInventorySnapshot } from './client';
 import { APIError } from './http';
-import { getOfflineBox, searchOfflineBoxes, upsertOfflineInventoryBox } from '../lib/offlineInventory';
+import {
+  getOfflineBox,
+  replaceOfflineInventoryBoxes,
+  searchOfflineBoxes,
+  upsertOfflineInventoryBox
+} from '../lib/offlineInventory';
 import { getClientOfflineInventoryScope, requestReadWithFallback } from './features/sharedClient';
 
 const requestReadWithFallbackMock = vi.mocked(requestReadWithFallback);
 const getClientOfflineInventoryScopeMock = vi.mocked(getClientOfflineInventoryScope);
 const searchOfflineBoxesMock = vi.mocked(searchOfflineBoxes);
 const getOfflineBoxMock = vi.mocked(getOfflineBox);
+const replaceOfflineInventoryBoxesMock = vi.mocked(replaceOfflineInventoryBoxes);
 const upsertOfflineInventoryBoxMock = vi.mocked(upsertOfflineInventoryBox);
 const offlineScope = { userId: 'user-a', orgId: 'org-a' };
 
@@ -69,6 +75,7 @@ describe('inventory API client', () => {
     getClientOfflineInventoryScopeMock.mockReset();
     searchOfflineBoxesMock.mockReset();
     getOfflineBoxMock.mockReset();
+    replaceOfflineInventoryBoxesMock.mockReset();
     upsertOfflineInventoryBoxMock.mockReset();
     getClientOfflineInventoryScopeMock.mockReturnValue(offlineScope);
   });
@@ -283,6 +290,48 @@ describe('inventory API client', () => {
     expect(upsertOfflineInventoryBoxMock).toHaveBeenCalledWith(
       offlineScope,
       expect.objectContaining({ boxId: 'IL1-REMOTE' })
+    );
+  });
+
+  it('keeps corrected canonical LF when a detail cache upsert is followed by warehouse snapshot replacement', async () => {
+    const correctedBox = buildBox({
+      boxId: 'IL1-PROJECTION',
+      initialFeet: 50,
+      feetAvailable: 21,
+      physicalFeetAvailable: 21,
+      allocatableNowFeet: 21,
+      allocationPlanningFeet: 21,
+      lastRollWeightLbs: 11.5,
+      coreWeightLbs: 1,
+      lfWeightLbsPerFt: 0.5
+    });
+    requestReadWithFallbackMock
+      .mockResolvedValueOnce(correctedBox)
+      .mockResolvedValueOnce([correctedBox]);
+
+    await getBox('IL1-PROJECTION');
+    await syncOfflineInventorySnapshot('IL1', offlineScope);
+
+    expect(upsertOfflineInventoryBoxMock).toHaveBeenCalledWith(
+      offlineScope,
+      expect.objectContaining({
+        boxId: 'IL1-PROJECTION',
+        physicalFeetAvailable: 21,
+        allocatableNowFeet: 21,
+        feetAvailable: 21
+      })
+    );
+    expect(replaceOfflineInventoryBoxesMock).toHaveBeenCalledWith(
+      offlineScope,
+      'IL1',
+      [
+        expect.objectContaining({
+          boxId: 'IL1-PROJECTION',
+          physicalFeetAvailable: 21,
+          allocatableNowFeet: 21,
+          feetAvailable: 21
+        })
+      ]
     );
   });
 

@@ -111,32 +111,32 @@ describe('InventoryTable', () => {
     expect(onSelect).toHaveBeenCalledWith('IL1-5130');
   });
 
-  it('shows derived physical on-hand feet while keeping available feet allocatable', () => {
+  it('shows the corrected canonical 21 LF for both on-hand and zero-reservation availability', () => {
     useIsPhoneLayoutMock.mockReturnValue(false);
 
     render(
       <InventoryTable
         boxes={[
           buildBox({
-            boxId: '6890',
-            feetAvailable: 99,
-            physicalFeetAvailable: 99,
-            allocatableNowFeet: 99,
-            allocationPlanningFeet: 99,
-            initialFeet: 100,
-            lastRollWeightLbs: 24.65,
-            coreWeightLbs: 1.3333,
-            lfWeightLbsPerFt: 0.233167
+            boxId: 'PROJECTION',
+            feetAvailable: 21,
+            physicalFeetAvailable: 21,
+            allocatableNowFeet: 21,
+            allocationPlanningFeet: 21,
+            initialFeet: 50,
+            lastRollWeightLbs: 11.5,
+            coreWeightLbs: 1,
+            lfWeightLbsPerFt: 0.5
           })
         ]}
         onSelect={vi.fn()}
       />
     );
 
-    const row = screen.getByRole('button', { name: 'IL1-6890' }).closest('tr');
+    const row = screen.getByRole('button', { name: 'IL1-PROJECTION' }).closest('tr');
     expect(row).toBeTruthy();
-    expect(within(row as HTMLTableRowElement).getByText('100')).toBeTruthy();
-    expect(within(row as HTMLTableRowElement).getByText('99')).toBeTruthy();
+    expect(within(row as HTMLTableRowElement).getAllByText('21')).toHaveLength(2);
+    expect(within(row as HTMLTableRowElement).queryByText('50')).toBeNull();
   });
 
   it('renders dealer on the mobile card layout', () => {
