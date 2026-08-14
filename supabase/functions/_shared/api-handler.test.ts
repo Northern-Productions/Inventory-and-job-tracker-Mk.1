@@ -10,6 +10,7 @@ import {
   fetchWarehouseBoxRowsForInventory,
   loadCheckedOutJobBoxRows,
   loadCaulkPlanningByJobContexts,
+  mapDbFilmOrderLinkRow,
   maybeLogCaulkFallbackCoverageDecision,
   projectInventorySearchBox,
   shouldUseCache,
@@ -27,6 +28,41 @@ function assertEquals(actual: unknown, expected: unknown, message: string) {
     throw new Error(`${message}\nExpected: ${expectedJson}\nActual: ${actualJson}`);
   }
 }
+
+Deno.test("Edge Film Order link mapper preserves immutable receipt history fields", () => {
+  const mapped = mapDbFilmOrderLinkRow({
+    link_id: "link-1",
+    film_order_id: "order-1",
+    box_id: "box-1",
+    ordered_feet: 60,
+    auto_allocated_feet: 0,
+    receipt_contribution_feet: 35,
+    receipt_source_width_in: "60.0000",
+    receipt_finalized_at: "2026-08-13T12:00:00.000Z",
+    receipt_finalized_by: "authenticated-actor",
+    receipt_capture_source: "LIVE_RECEIPT",
+    created_at: "2026-08-13T11:00:00.000Z",
+    created_by: "authenticated-actor",
+  });
+
+  assertEquals(
+    {
+      receiptContributionFeet: mapped?.receiptContributionFeet,
+      receiptSourceWidthIn: mapped?.receiptSourceWidthIn,
+      receiptFinalizedAt: mapped?.receiptFinalizedAt,
+      receiptFinalizedBy: mapped?.receiptFinalizedBy,
+      receiptCaptureSource: mapped?.receiptCaptureSource,
+    },
+    {
+      receiptContributionFeet: 35,
+      receiptSourceWidthIn: 60,
+      receiptFinalizedAt: "2026-08-13T12:00:00.000Z",
+      receiptFinalizedBy: "authenticated-actor",
+      receiptCaptureSource: "LIVE_RECEIPT",
+    },
+    "mapped Film Order links must retain the finalized receipt snapshot",
+  );
+});
 
 function canonicalizeJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) {

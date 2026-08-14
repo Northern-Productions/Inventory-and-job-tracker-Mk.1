@@ -84,6 +84,11 @@ function createFilmOrderLinkRow(overrides = {}) {
     box_id: 'IL1-ORDERED-1',
     ordered_feet: 100,
     auto_allocated_feet: 0,
+    receipt_contribution_feet: null,
+    receipt_source_width_in: null,
+    receipt_finalized_at: null,
+    receipt_finalized_by: null,
+    receipt_capture_source: null,
     created_at: '2026-04-23T09:05:00Z',
     created_by: 'tester',
     ...overrides,
@@ -160,6 +165,7 @@ function createRecordingClient() {
     Array.isArray(state.filmOrderLinks) ? state.filmOrderLinks : state.filmOrderLink ? [state.filmOrderLink] : [];
 
   const saveBoxState = (row) => {
+    const previousBox = getBoxes().find((entry) => entry.box_id === row.box_id) || null;
     if (Array.isArray(state.boxes)) {
       const index = state.boxes.findIndex((entry) => entry.box_id === row.box_id);
       if (index >= 0) {
@@ -169,6 +175,26 @@ function createRecordingClient() {
       }
     }
     state.box = row;
+
+    const becameReceived =
+      row.received_date &&
+      String(row.status || '').toUpperCase() !== 'ORDERED' &&
+      (!previousBox?.received_date || String(previousBox?.status || '').toUpperCase() === 'ORDERED');
+    if (becameReceived) {
+      for (const link of getLinks().filter((entry) => entry.box_id === row.box_id)) {
+        if (link.receipt_contribution_feet !== null && link.receipt_contribution_feet !== undefined) {
+          continue;
+        }
+        saveLinkState({
+          ...link,
+          receipt_contribution_feet: Math.max(0, Number(row.initial_feet || 0)),
+          receipt_source_width_in: Number(row.width_in || 0),
+          receipt_finalized_at: '2026-04-23T10:00:00Z',
+          receipt_finalized_by: 'warehouse-user',
+          receipt_capture_source: 'LIVE_RECEIPT',
+        });
+      }
+    }
   };
 
   const saveLinkState = (row) => {
@@ -397,8 +423,10 @@ function createRecordingClient() {
       }
 
       if (sql.includes('insert into app.film_order_box_links') && sql.includes('on conflict (org_id, link_id) do update set')) {
+        const existingLink = getLinks().find((entry) => entry.link_id === params[1]) || null;
         const row = {
-          id: state.filmOrderLink?.id || 'film-order-link-row-1',
+          ...(existingLink || {}),
+          id: existingLink?.id || state.filmOrderLink?.id || 'film-order-link-row-1',
           org_id: params[0],
           link_id: params[1],
           film_order_id: params[2],
@@ -588,7 +616,7 @@ test('recalculateFilmOrder trusts corrected linked box LF instead of stale link 
   assert.equal(client.state.filmOrder.resolved_by, '');
 });
 
-test('recalculateFilmOrder uses physical LF and synced linked allocation after received-box LF correction', async () => {
+test('recalculateFilmOrder keeps finalized receipt LF after physical allocation reconciliation', async () => {
   const client = createRecordingClient();
   client.state.box = createBoxRow({
     initial_feet: 82,
@@ -609,6 +637,11 @@ test('recalculateFilmOrder uses physical LF and synced linked allocation after r
   client.state.filmOrderLink = createFilmOrderLinkRow({
     ordered_feet: 82,
     auto_allocated_feet: 82,
+    receipt_contribution_feet: 82,
+    receipt_source_width_in: 36,
+    receipt_finalized_at: '2026-04-23T10:00:00Z',
+    receipt_finalized_by: 'warehouse-user',
+    receipt_capture_source: 'LIVE_RECEIPT',
   });
   client.state.allocations = [
     createAllocationRow({
@@ -622,12 +655,13 @@ test('recalculateFilmOrder uses physical LF and synced linked allocation after r
   await recalculateFilmOrder(client, 'org-1', 'FO-RECEIVE-1', 'warehouse-user');
 
   assert.equal(client.state.filmOrder.covered_feet, 80);
-  assert.equal(client.state.filmOrder.ordered_feet, 80);
-  assert.equal(client.state.filmOrder.remaining_to_order_feet, 2);
-  assert.equal(client.state.filmOrder.status, 'FILM_ORDER');
-  assert.equal(client.state.filmOrder.resolved_at, null);
-  assert.equal(client.state.filmOrder.resolved_by, '');
+  assert.equal(client.state.filmOrder.ordered_feet, 82);
+  assert.equal(client.state.filmOrder.remaining_to_order_feet, 0);
+  assert.equal(client.state.filmOrder.status, 'FULFILLED');
+  assert.equal(client.state.filmOrder.resolved_at, '2026-04-23T10:00:00.000Z');
+  assert.equal(client.state.filmOrder.resolved_by, 'warehouse-user');
   assert.equal(client.state.filmOrderLink.auto_allocated_feet, 80);
+  assert.equal(client.state.filmOrderLink.receipt_contribution_feet, 82);
 });
 
 test('receiveOrderedBox preserves existing core metrics when core type is omitted', async () => {

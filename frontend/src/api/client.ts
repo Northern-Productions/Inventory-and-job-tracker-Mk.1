@@ -97,6 +97,7 @@ export {
 } from './features/jobsClient';
 export {
   cancelJob,
+  correctFilmOrderReceipt,
   createFilmOrder,
   deleteFilmOrder,
   getFilmCatalog,

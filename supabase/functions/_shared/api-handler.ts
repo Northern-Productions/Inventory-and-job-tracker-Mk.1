@@ -91,11 +91,15 @@ import {
   buildBoxReservationSnapshot,
   getAllocationReservationState,
   isCheckedOutFilmReservationBoxStatus,
-  isOrderedFilmReservationBoxStatus,
   isPhysicalFilmReservationBoxStatus,
 } from "../../../shared/domain/filmAllocationReservations.mjs";
 import { derivePhysicalFeetFromWeight } from "../../../shared/domain/warehouseAssetAudit.mjs";
 import { getFilmBoxAllocationEligibility } from "../../../shared/domain/filmBoxAllocationEligibility.mjs";
+import {
+  getFilmOrderLinkCoveredFeet,
+  getFilmOrderLinkReceivedFeet,
+  getFilmOrderReceiptHistoryStatus,
+} from "../../../shared/domain/filmOrderReceiptContract.mjs";
 import { getSameDayCrewConflictJobs } from "../../../shared/domain/sameDayCrewConflicts.mjs";
 import { runTeamMemberOnboarding } from "../../../shared/domain/teamMemberOnboarding.mjs";
 import {
@@ -2009,7 +2013,7 @@ async function listFilmOrderLinksByFilmOrderIds(orgId: string, filmOrderIds: str
     const { data, error } = await serviceClient
       .schema("app")
       .from("film_order_box_links")
-      .select("link_id, film_order_id, box_id, ordered_feet, auto_allocated_feet, created_at, created_by")
+      .select("link_id, film_order_id, box_id, ordered_feet, auto_allocated_feet, receipt_contribution_feet, receipt_source_width_in, receipt_finalized_at, receipt_finalized_by, receipt_capture_source, created_at, created_by")
       .eq("org_id", orgId)
       .in("film_order_id", batchIds);
     throwOnSupabaseError(error, "Unable to load film-order linked boxes");
@@ -2029,7 +2033,7 @@ async function listFilmOrderLinksByBoxIdDirect(orgId: string, boxId: string) {
   const { data, error } = await serviceClient
     .schema("app")
     .from("film_order_box_links")
-    .select("link_id, film_order_id, box_id, ordered_feet, auto_allocated_feet, created_at, created_by")
+    .select("link_id, film_order_id, box_id, ordered_feet, auto_allocated_feet, receipt_contribution_feet, receipt_source_width_in, receipt_finalized_at, receipt_finalized_by, receipt_capture_source, created_at, created_by")
     .eq("org_id", orgId)
     .eq("box_id", normalizedBoxId)
     .order("created_at", { ascending: false })
@@ -2042,6 +2046,11 @@ async function listFilmOrderLinksByBoxIdDirect(orgId: string, boxId: string) {
     boxId: asTrimmedString(row.box_id),
     orderedFeet: integerOrZero(row.ordered_feet),
     autoAllocatedFeet: integerOrZero(row.auto_allocated_feet),
+    receiptContributionFeet: integerOrNull(row.receipt_contribution_feet),
+    receiptSourceWidthIn: numericOrNull(row.receipt_source_width_in),
+    receiptFinalizedAt: formatTimestamp(row.receipt_finalized_at),
+    receiptFinalizedBy: asTrimmedString(row.receipt_finalized_by),
+    receiptCaptureSource: asTrimmedString(row.receipt_capture_source),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
   }));
@@ -2727,7 +2736,7 @@ async function loadJobStagingValidationState(
   });
 }
 
-function mapDbFilmOrderLinkRow(row: any) {
+export function mapDbFilmOrderLinkRow(row: any) {
   if (!row) {
     return null;
   }
@@ -2738,6 +2747,11 @@ function mapDbFilmOrderLinkRow(row: any) {
     boxId: asTrimmedString(row.box_id).toUpperCase(),
     orderedFeet: integerOrZero(row.ordered_feet),
     autoAllocatedFeet: integerOrZero(row.auto_allocated_feet),
+    receiptContributionFeet: integerOrNull(row.receipt_contribution_feet),
+    receiptSourceWidthIn: numericOrNull(row.receipt_source_width_in),
+    receiptFinalizedAt: formatTimestamp(row.receipt_finalized_at),
+    receiptFinalizedBy: asTrimmedString(row.receipt_finalized_by),
+    receiptCaptureSource: asTrimmedString(row.receipt_capture_source),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
   };
@@ -5876,11 +5890,21 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
   const linkedBoxesByFilmOrderId: Record<
     string,
     Array<{
+      linkId: string;
       boxId: string;
       orderedFeet: number;
+      linkedFeet: number;
+      receivedFeet: number;
+      onTheWayFeet: number;
       autoAllocatedFeet: number;
       dealer: string;
       isReceived: boolean;
+      receiptHistoryStatus: string;
+      receiptContributionFeet: number | null;
+      receiptSourceWidthIn: number | null;
+      receiptFinalizedAt: string;
+      receiptFinalizedBy: string;
+      receiptCaptureSource: string;
     }>
   > = {};
   if (!normalizedFilmOrderIds.length) {
@@ -5943,14 +5967,28 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     }
     const box = boxById[boxId] as Record<string, unknown>;
     const filmOrder = filmOrderById[filmOrderId];
+    if (!filmOrder) {
+      continue;
+    }
+    const receiptHistoryStatus = getFilmOrderReceiptHistoryStatus(link, box);
+    const linkedFeet = getFilmOrderLinkCoveredFeet(filmOrder, link, box);
+    const receivedFeet = getFilmOrderLinkReceivedFeet(filmOrder, link, box);
     linkedBoxesByFilmOrderId[filmOrderId].push({
+      linkId: asTrimmedString((link as Record<string, unknown>).linkId),
       boxId,
-      orderedFeet: filmOrder
-        ? getLinkedBoxCoveredFeetForFilmOrder(filmOrder, link, box)
-        : getLinkedBoxPhysicalFeet(link, box),
+      orderedFeet: linkedFeet,
+      linkedFeet,
+      receivedFeet,
+      onTheWayFeet: Math.max(linkedFeet - receivedFeet, 0),
       autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).autoAllocatedFeet),
       dealer: asTrimmedString(box.dealer),
-      isReceived: isReceivedLinkedBoxStatus(box.status),
+      isReceived: receiptHistoryStatus === "FINALIZED",
+      receiptHistoryStatus,
+      receiptContributionFeet: integerOrNull((link as Record<string, unknown>).receiptContributionFeet),
+      receiptSourceWidthIn: numericOrNull((link as Record<string, unknown>).receiptSourceWidthIn),
+      receiptFinalizedAt: asTrimmedString((link as Record<string, unknown>).receiptFinalizedAt),
+      receiptFinalizedBy: asTrimmedString((link as Record<string, unknown>).receiptFinalizedBy),
+      receiptCaptureSource: asTrimmedString((link as Record<string, unknown>).receiptCaptureSource),
     });
   }
 
@@ -5971,49 +6009,9 @@ async function buildPublicFilmOrderLinkedBoxes(
   return linkedBoxesByFilmOrderId[asTrimmedString(filmOrderId)] || [];
 }
 
-function hasReceivedLinkedBoxStatus(status: unknown) {
-  const normalizedStatus = asTrimmedString(status).toUpperCase();
-  return normalizedStatus !== "" && normalizedStatus !== "ORDERED";
-}
-
-function getLinkedBoxPhysicalFeet(link: any, box: any, allocations: any[] = []): number {
-  if (isOrderedFilmReservationBoxStatus(box?.status)) {
-    const orderedBoxFeet = integerOrZero(box?.initialFeet);
-    if (orderedBoxFeet > 0) {
-      return orderedBoxFeet;
-    }
-
-    return integerOrZero(link?.orderedFeet || link?.ordered_feet);
-  }
-
-  if (isPhysicalFilmReservationBoxStatus(box?.status)) {
-    if (box?.physicalFeetAvailable !== null && box?.physicalFeetAvailable !== undefined) {
-      return integerOrZero(box.physicalFeetAvailable);
-    }
-
-    const reservationSnapshot = buildBoxReservationSnapshot(box, allocations);
-    if (
-      reservationSnapshot.physicalFeetAvailable !== null &&
-      reservationSnapshot.physicalFeetAvailable !== undefined
-    ) {
-      return integerOrZero(reservationSnapshot.physicalFeetAvailable);
-    }
-  }
-
-  const correctedBoxFeet = integerOrZero(box?.initialFeet);
-  if (correctedBoxFeet > 0) {
-    return correctedBoxFeet;
-  }
-
-  return integerOrZero(link?.orderedFeet || link?.ordered_feet);
-}
-
 function getLinkedBoxCoveredFeetForFilmOrder(filmOrder: any, link: any, box: any, allocations: any[] = []): number {
-  return computeCoveredFeetForAllocation(
-    getLinkedBoxPhysicalFeet(link, box, allocations),
-    box?.widthIn || filmOrder?.widthIn,
-    filmOrder?.widthIn,
-  );
+  void allocations;
+  return getFilmOrderLinkCoveredFeet(filmOrder, link, box);
 }
 
 function getLinkedFilmOrderAllocatedFeet(allocations: any[], filmOrderId: string): number {
@@ -6071,6 +6069,8 @@ async function summarizeFilmOrderLinkedBoxes(
       hasLinkedBoxes: false,
       allLinkedBoxesReceived: false,
       orderedFeet: 0,
+      receivedFeet: 0,
+      receiptHistoryComplete: true,
     };
   }
 
@@ -6080,11 +6080,15 @@ async function summarizeFilmOrderLinkedBoxes(
       hasLinkedBoxes: false,
       allLinkedBoxesReceived: false,
       orderedFeet: 0,
+      receivedFeet: 0,
+      receiptHistoryComplete: true,
     };
   }
 
   let orderedFeet = 0;
+  let receivedFeet = 0;
   let allLinkedBoxesReceived = true;
+  let receiptHistoryComplete = true;
 
   for (const link of links) {
     const linkRecord = link as Record<string, unknown>;
@@ -6106,8 +6110,13 @@ async function summarizeFilmOrderLinkedBoxes(
       : linkRecord;
 
     orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(order, syncedLink, box, allocations);
-    if (!hasReceivedLinkedBoxStatus(box.status)) {
+    receivedFeet += getFilmOrderLinkReceivedFeet(order, syncedLink, box);
+    const receiptStatus = getFilmOrderReceiptHistoryStatus(syncedLink, box);
+    if (receiptStatus !== "FINALIZED") {
       allLinkedBoxesReceived = false;
+    }
+    if (receiptStatus === "MISSING") {
+      receiptHistoryComplete = false;
     }
   }
 
@@ -6115,6 +6124,8 @@ async function summarizeFilmOrderLinkedBoxes(
     hasLinkedBoxes: true,
     allLinkedBoxesReceived,
     orderedFeet,
+    receivedFeet,
+    receiptHistoryComplete,
   };
 }
 
@@ -9556,6 +9567,9 @@ async function recalculateFilmOrderAfterAllocationMutation(
   }
 
   const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId, existing, serviceClient);
+  if (!linkedBoxSummary.receiptHistoryComplete) {
+    return;
+  }
   const orderedFeet = linkedBoxSummary.orderedFeet;
 
   const requestedFeet = integerOrZero(existing.requestedFeet);

@@ -11,13 +11,19 @@ import type {
   JobListEntry
 } from '../../../../../domain';
 import { inventoryKeys } from '../../inventoryQueryKeys';
-import { useCreateFilmOrder, useDeleteFilmOrder } from './filmOrderMutations';
+import {
+  useCorrectFilmOrderReceipt,
+  useCreateFilmOrder,
+  useDeleteFilmOrder
+} from './filmOrderMutations';
 
 const createFilmOrderMock = vi.fn();
 const deleteFilmOrderMock = vi.fn();
+const correctFilmOrderReceiptMock = vi.fn();
 
 vi.mock('../../../../../api/features/filmOrdersClient', () => ({
   getFilmOrderDetail: vi.fn(),
+  correctFilmOrderReceipt: (...args: unknown[]) => correctFilmOrderReceiptMock(...args),
   createFilmOrder: (...args: unknown[]) => createFilmOrderMock(...args),
   deleteFilmOrder: (...args: unknown[]) => deleteFilmOrderMock(...args)
 }));
@@ -166,6 +172,7 @@ describe('film order mutation identity caches', () => {
   beforeEach(() => {
     createFilmOrderMock.mockReset();
     deleteFilmOrderMock.mockReset();
+    correctFilmOrderReceiptMock.mockReset();
   });
 
   it('canonical create sends jobId and avoids same-number legacy detail cache patching', async () => {
@@ -377,5 +384,47 @@ describe('film order mutation identity caches', () => {
     });
     expect(queryClient.getQueryState(inventoryKeys.job('1234'))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(inventoryKeys.allocationJob('1234'))?.isInvalidated).toBe(true);
+  });
+
+  it('canonical receipt correction invalidates exact Film Order and Job Details caches', async () => {
+    const queryClient = createQueryClient();
+    const legacyJobCache = { source: 'legacy-job' };
+    const legacyAllocationJobCache = { source: 'legacy-allocation-job' };
+
+    queryClient.setQueryData(inventoryKeys.filmOrder('FO-1'), buildFilmOrder());
+    queryClient.setQueryData(inventoryKeys.jobById(JOB_ID), buildDetail());
+    queryClient.setQueryData(inventoryKeys.job('1234'), legacyJobCache);
+    queryClient.setQueryData(inventoryKeys.allocationJob('1234'), legacyAllocationJobCache);
+    correctFilmOrderReceiptMock.mockResolvedValueOnce({
+      result: {
+        filmOrderId: 'FO-1',
+        linkId: 'link-1',
+        boxId: 'IL1-100',
+        previousReceivedFeet: 60,
+        correctedReceivedFeet: 52
+      },
+      warnings: []
+    });
+
+    const { result } = renderHook(() => useCorrectFilmOrderReceipt(), {
+      wrapper: createWrapper(queryClient)
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        filmOrderId: 'FO-1',
+        jobId: JOB_ID,
+        jobNumber: '1234',
+        linkId: 'link-1',
+        boxId: 'IL1-100',
+        correctedReceivedFeet: 52,
+        reason: 'Receiving footage entered incorrectly.'
+      });
+    });
+
+    expect(queryClient.getQueryState(inventoryKeys.filmOrder('FO-1'))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(inventoryKeys.jobById(JOB_ID))?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryData(inventoryKeys.job('1234'))).toEqual(legacyJobCache);
+    expect(queryClient.getQueryData(inventoryKeys.allocationJob('1234'))).toEqual(legacyAllocationJobCache);
   });
 });

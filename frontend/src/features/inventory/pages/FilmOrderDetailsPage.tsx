@@ -4,12 +4,17 @@ import { Button } from '../../../components/Button';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { DeferredLoadingState } from '../../../components/DeferredLoadingState';
 import { useToast } from '../../../components/Toast';
-import type { FilmOrderDetail, FilmOrderDisplayStatus } from '../../../domain';
+import type { FilmOrderDetail, FilmOrderDetailLinkedBox, FilmOrderDisplayStatus } from '../../../domain';
 import { formatDate } from '../../../lib/date';
 import { formatJobDisplayLabel } from '../../../lib/jobDisplay';
 import { safeDecodePathParam } from '../../../lib/url';
+import { useAuth } from '../../auth/AuthContext';
+import { CorrectFilmOrderReceiptDialog } from '../components/CorrectFilmOrderReceiptDialog';
 import { useFilmOrderDetail } from '../hooks/useInventoryQueries';
-import { useManualFulfillFilmOrder } from '../hooks/mutations/planning/filmOrderMutations';
+import {
+  useCorrectFilmOrderReceipt,
+  useManualFulfillFilmOrder
+} from '../hooks/mutations/planning/filmOrderMutations';
 import { canManuallyFulfillFilmOrder, formatFilmOrderDealerLabel } from '../utils/filmOrders';
 
 function buildJobHref(order: Pick<FilmOrderDetail, 'jobId' | 'jobNumber'>) {
@@ -57,8 +62,12 @@ function renderChangedData(value: Record<string, unknown> | null | undefined) {
   const boxId = String(value.boxId || '').trim();
   const initialFeet = Number(value.initialFeet);
   const status = String(value.status || '').trim();
+  const receiptContributionFeet = Number(value.receiptContributionFeet);
+  const receivedFeet = Number(value.receivedFeet);
   const parts = [
     boxId ? `Box ${boxId}` : '',
+    Number.isFinite(receiptContributionFeet) ? `Receipt ${receiptContributionFeet} LF` : '',
+    Number.isFinite(receivedFeet) ? `${receivedFeet} credited LF` : '',
     Number.isFinite(initialFeet) ? `${initialFeet} LF` : '',
     status
   ].filter(Boolean);
@@ -68,12 +77,15 @@ function renderChangedData(value: Record<string, unknown> | null | undefined) {
 
 export default function FilmOrderDetailsPage() {
   const params = useParams();
+  const auth = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
   const filmOrderId = safeDecodePathParam(params.filmOrderId);
   const detailQuery = useFilmOrderDetail(filmOrderId);
   const manualFulfillMutation = useManualFulfillFilmOrder();
+  const correctReceiptMutation = useCorrectFilmOrderReceipt();
   const [manualFulfillOpen, setManualFulfillOpen] = useState(false);
+  const [receiptToCorrect, setReceiptToCorrect] = useState<FilmOrderDetailLinkedBox | null>(null);
   const order = detailQuery.data;
   const linkedBoxCostSummary = (order?.linkedBoxes || []).reduce(
     (summary, linkedBox) => {
@@ -110,6 +122,36 @@ export default function FilmOrderDetailsPage() {
       toast.push({
         title: 'Unable to fulfill film order',
         description: error instanceof Error ? error.message : 'The film order could not be marked fulfilled.',
+        variant: 'error'
+      });
+    }
+  }
+
+  async function handleReceiptCorrection(correctedReceivedFeet: number, reason: string) {
+    if (!order || !receiptToCorrect?.linkId) {
+      return;
+    }
+
+    try {
+      await correctReceiptMutation.mutateAsync({
+        filmOrderId: order.filmOrderId,
+        jobId: order.jobId,
+        jobNumber: order.jobNumber,
+        linkId: receiptToCorrect.linkId,
+        boxId: receiptToCorrect.boxId,
+        correctedReceivedFeet,
+        reason
+      });
+      setReceiptToCorrect(null);
+      toast.push({
+        title: 'Received LF corrected',
+        description: `${receiptToCorrect.boxId} now contributes ${correctedReceivedFeet} LF to this Film Order.`,
+        variant: 'success'
+      });
+    } catch (error) {
+      toast.push({
+        title: 'Unable to correct Received LF',
+        description: error instanceof Error ? error.message : 'The receipt history could not be corrected.',
         variant: 'error'
       });
     }
@@ -212,6 +254,13 @@ export default function FilmOrderDetailsPage() {
             </div>
           </div>
 
+          {order.receiptHistoryComplete === false ? (
+            <div className="notice-card">
+              Historical receipt evidence is incomplete for {order.receiptHistoryMissingCount || 1} linked
+              box{order.receiptHistoryMissingCount === 1 ? '' : 'es'}. Current inventory LF is not being used as a substitute.
+            </div>
+          ) : null}
+
           <section className="detail-subsection">
             <h3>Current Requirement</h3>
             {order.currentRequirement?.availability === 'CURRENT' ? (
@@ -253,10 +302,12 @@ export default function FilmOrderDetailsPage() {
                     <tr>
                       <th>Box</th>
                       <th>Status</th>
-                      <th>Initial LF</th>
-                      <th>Linked LF (Order Width)</th>
-                      <th>Received</th>
+                      <th>Live Initial LF</th>
+                      <th>Recorded Receipt LF</th>
+                      <th>Credited LF (Order Width)</th>
+                      <th>Receipt</th>
                       <th>Initial Cost</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -268,16 +319,36 @@ export default function FilmOrderDetailsPage() {
                           </td>
                           <td>{box.status}</td>
                           <td>{box.initialFeet}</td>
+                          <td>{box.receiptContributionFeet ?? '--'}</td>
                           <td>{box.linkedFeet ?? box.orderedFeet}</td>
-                          <td>{box.receivedDate ? formatDate(box.receivedDate) : 'Not received'}</td>
+                          <td>
+                            {box.receiptFinalizedAt
+                              ? formatDate(box.receiptFinalizedAt)
+                              : box.receiptHistoryStatus === 'MISSING'
+                                ? 'History unavailable'
+                                : 'Not received'}
+                          </td>
                           <td>{formatInitialCost(box.initialCost)}</td>
+                          <td>
+                            {auth.hasFeatureAccess('film_orders', 'write') &&
+                            box.linkId &&
+                            box.receiptHistoryStatus === 'FINALIZED' ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setReceiptToCorrect(box)}
+                              >
+                                Correct Received LF
+                              </Button>
+                            ) : null}
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
                     <tr>
-                      <th scope="row" colSpan={5}>
+                      <th scope="row" colSpan={7}>
                         Total Initial Cost
                       </th>
                       <td>
@@ -342,6 +413,14 @@ export default function FilmOrderDetailsPage() {
         pendingLabel="Fulfilling..."
         onCancel={() => setManualFulfillOpen(false)}
         onConfirm={() => void handleManualFulfillConfirm()}
+      />
+      <CorrectFilmOrderReceiptDialog
+        open={Boolean(receiptToCorrect)}
+        filmOrderId={order?.filmOrderId || filmOrderId}
+        receipt={receiptToCorrect}
+        pending={correctReceiptMutation.isPending}
+        onCancel={() => setReceiptToCorrect(null)}
+        onConfirm={handleReceiptCorrection}
       />
     </section>
   );

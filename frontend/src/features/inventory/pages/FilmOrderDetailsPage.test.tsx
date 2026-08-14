@@ -9,7 +9,9 @@ import FilmOrderDetailsPage from './FilmOrderDetailsPage';
 
 const getFilmOrderDetailMock = vi.fn();
 const manualFulfillFilmOrderMock = vi.fn();
+const correctFilmOrderReceiptMock = vi.fn();
 const toastPushMock = vi.fn();
+let canWriteFilmOrders = true;
 
 vi.mock('../../../api/features/filmOrdersClient', () => ({
   getFilmOrderDetail: (...args: unknown[]) => getFilmOrderDetailMock(...args),
@@ -18,7 +20,15 @@ vi.mock('../../../api/features/filmOrdersClient', () => ({
   createFilmOrder: vi.fn(),
   cancelJob: vi.fn(),
   deleteFilmOrder: vi.fn(),
-  manualFulfillFilmOrder: (...args: unknown[]) => manualFulfillFilmOrderMock(...args)
+  manualFulfillFilmOrder: (...args: unknown[]) => manualFulfillFilmOrderMock(...args),
+  correctFilmOrderReceipt: (...args: unknown[]) => correctFilmOrderReceiptMock(...args)
+}));
+
+vi.mock('../../auth/AuthContext', () => ({
+  useAuth: () => ({
+    hasFeatureAccess: (feature: string, mode: string) =>
+      feature === 'film_orders' && mode === 'write' ? canWriteFilmOrders : true
+  })
 }));
 
 vi.mock('../../../components/Toast', () => ({
@@ -55,7 +65,10 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
     remainingToOrderFeet: 130,
     orderOverageFeet: 0,
     completedFeet: 100,
-    orderLedgerVersion: 'film-order-ledger-v1',
+    orderLedgerVersion: 'film-order-ledger-v2',
+    receiptLedgerVersion: 'film-order-receipt-v1',
+    receiptHistoryComplete: true,
+    receiptHistoryMissingCount: 0,
     installDate: '2026-05-21',
     crewLeader: 'Napo',
     status: 'FILM_ORDER',
@@ -120,6 +133,12 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
         onTheWayFeet: 0,
         autoAllocatedFeet: 0,
         isReceived: true,
+        receiptHistoryStatus: 'FINALIZED',
+        receiptContributionFeet: 100,
+        receiptSourceWidthIn: 60,
+        receiptFinalizedAt: '2026-05-20T12:00:00Z',
+        receiptFinalizedBy: 'tester',
+        receiptCaptureSource: 'LIVE_RECEIPT',
         isDirectToJobSite: false,
         initialFeet: 100,
         feetAvailable: 100,
@@ -167,7 +186,9 @@ describe('FilmOrderDetailsPage', () => {
   beforeEach(() => {
     getFilmOrderDetailMock.mockReset();
     manualFulfillFilmOrderMock.mockReset();
+    correctFilmOrderReceiptMock.mockReset();
     toastPushMock.mockReset();
+    canWriteFilmOrders = true;
     getFilmOrderDetailMock.mockResolvedValue(buildDetail());
     manualFulfillFilmOrderMock.mockResolvedValue({
       result: {
@@ -175,6 +196,16 @@ describe('FilmOrderDetailsPage', () => {
         status: 'FULFILLED'
       },
       warnings: ['Film order manually marked fulfilled. Linked boxes and physical LF were not changed.']
+    });
+    correctFilmOrderReceiptMock.mockResolvedValue({
+      result: {
+        filmOrderId: 'FO-1',
+        linkId: 'link-1',
+        boxId: 'IL1-100',
+        previousReceivedFeet: 100,
+        correctedReceivedFeet: 52
+      },
+      warnings: []
     });
   });
 
@@ -247,6 +278,7 @@ describe('FilmOrderDetailsPage', () => {
             onTheWayFeet: 12,
             autoAllocatedFeet: 0,
             isReceived: false,
+            receiptHistoryStatus: 'PENDING',
             isDirectToJobSite: false,
             initialFeet: 12,
             feetAvailable: 12,
@@ -306,6 +338,10 @@ describe('FilmOrderDetailsPage', () => {
             onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
+            receiptHistoryStatus: 'FINALIZED',
+            receiptContributionFeet: 100,
+            receiptSourceWidthIn: 60,
+            receiptFinalizedAt: '2026-05-20T12:00:00Z',
             isDirectToJobSite: false,
             initialFeet: 100,
             feetAvailable: 100,
@@ -324,6 +360,10 @@ describe('FilmOrderDetailsPage', () => {
             onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
+            receiptHistoryStatus: 'FINALIZED',
+            receiptContributionFeet: 75,
+            receiptSourceWidthIn: 60,
+            receiptFinalizedAt: '2026-05-20T12:00:00Z',
             isDirectToJobSite: false,
             initialFeet: 75,
             feetAvailable: 75,
@@ -363,6 +403,10 @@ describe('FilmOrderDetailsPage', () => {
             onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
+            receiptHistoryStatus: 'FINALIZED',
+            receiptContributionFeet: 100,
+            receiptSourceWidthIn: 60,
+            receiptFinalizedAt: '2026-05-20T12:00:00Z',
             isDirectToJobSite: false,
             initialFeet: 100,
             feetAvailable: 100,
@@ -381,6 +425,10 @@ describe('FilmOrderDetailsPage', () => {
             onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
+            receiptHistoryStatus: 'FINALIZED',
+            receiptContributionFeet: 75,
+            receiptSourceWidthIn: 60,
+            receiptFinalizedAt: '2026-05-20T12:00:00Z',
             isDirectToJobSite: false,
             initialFeet: 75,
             feetAvailable: 75,
@@ -421,6 +469,10 @@ describe('FilmOrderDetailsPage', () => {
             onTheWayFeet: 0,
             autoAllocatedFeet: 0,
             isReceived: true,
+            receiptHistoryStatus: 'FINALIZED',
+            receiptContributionFeet: 75,
+            receiptSourceWidthIn: 60,
+            receiptFinalizedAt: '2026-05-20T12:00:00Z',
             isDirectToJobSite: false,
             initialFeet: 75,
             feetAvailable: 75,
@@ -471,6 +523,54 @@ describe('FilmOrderDetailsPage', () => {
         variant: 'success'
       })
     );
+  });
+
+  it('corrects one finalized receipt through the deliberate audited workflow', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Correct Received LF' }));
+    expect(screen.getByRole('heading', { name: 'Correct Received LF' })).toBeTruthy();
+    expect(screen.getByText(/currently records 100 LF received/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Corrected Received LF'), { target: { value: '52' } });
+    fireEvent.change(screen.getByLabelText('Correction reason'), {
+      target: { value: 'Receiving footage entered incorrectly.' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Correction' }));
+
+    await waitFor(() =>
+      expect(correctFilmOrderReceiptMock).toHaveBeenCalledWith({
+        filmOrderId: 'FO-1',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4024',
+        linkId: 'link-1',
+        boxId: 'IL1-100',
+        correctedReceivedFeet: 52,
+        reason: 'Receiving footage entered incorrectly.'
+      })
+    );
+    expect(toastPushMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Received LF corrected', variant: 'success' })
+    );
+  });
+
+  it('requires a changed whole LF value and a reason before correction', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Correct Received LF' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Correction' }));
+    expect(screen.getByText(/different from the recorded receipt/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Corrected Received LF'), { target: { value: '52' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Correction' }));
+    expect(screen.getByText(/correction reason is required/i)).toBeTruthy();
+    expect(correctFilmOrderReceiptMock).not.toHaveBeenCalled();
+  });
+
+  it('does not expose receipt correction to users without Film Order write access', async () => {
+    canWriteFilmOrders = false;
+    renderPage();
+    await screen.findByRole('heading', { name: 'FO-1' });
+    expect(screen.queryByRole('button', { name: 'Correct Received LF' })).toBeNull();
   });
 
   it('keeps the order status historical when the current requirement is unbound', async () => {

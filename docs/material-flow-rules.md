@@ -10,7 +10,7 @@ If a requested change conflicts with these rules, warn Rob and Sage before imple
 
 - A box's real physically usable LF is authoritative.
 - Total active allocation claims against a box must never exceed that physical usable LF.
-- Stored derived fields, status pills, film order rows, and job readiness must be recalculated from physical box reality.
+- Stored inventory capacity and job readiness must be recalculated from physical box reality. Finalized Film Order receipt totals are historical purchasing records and instead recalculate from their immutable receipt snapshots.
 - Stored allocation rows are claims, not proof that material still physically exists.
 
 ## Box LF Availability Rules
@@ -86,10 +86,14 @@ Lower-priority claims are reduced or cancelled first.
 
 ## Film Order Fulfillment And Linked-Box Sync Rules
 
-- Film orders must not remain fulfilled or on-the-way based on stale linked-box LF.
-- Linked box coverage must recalculate from the current box LF/width reality.
-- If a linked ordered box is corrected from 230 LF to 100 LF, the film order must recalculate from 100 LF.
-- If linked boxes no longer cover the film order requirement, the film order returns to Film Order / short status.
+- Before receipt, a linked `ORDERED` box follows its live Initial LF and width so receiving corrections made before finalization remain accurate.
+- Finalizing receipt captures one immutable physical-LF contribution and source-width snapshot on the Film Order link.
+- After finalization, Film Order received/remaining/status calculations use the captured receipt contribution. Current physical LF, available LF, roll weight, allocations, checkout/check-in, transfer, return, zeroing, and ordinary Initial LF edits must not rewrite it.
+- If a linked ordered box is corrected from 230 LF to 100 LF before receipt, the finalized receipt contribution and Film Order coverage use 100 LF.
+- A finalized receipt may change only through the explicit Film Order `Correct Received LF` workflow. That workflow requires Film Order write access and a reason, preserves the old/new values, actor, and timestamp in Film Order history, and does not edit the box's Initial or current LF.
+- Multiple finalized receipt links add their width-adjusted historical contributions, so split receipts such as 35 LF plus 25 LF can fulfill a 60 LF order.
+- A received link with no deterministic receipt history fails closed and is reported as incomplete. Current box data must never be substituted for missing historical evidence.
+- If captured or explicitly corrected receipt contributions no longer cover the Film Order, the order returns to Film Order / short status according to the existing status contract.
 - Any originating job requirement must also recalculate readiness.
 
 ## Width Compatibility And Coverage Multiplier Rule
@@ -134,7 +138,8 @@ Recalculate affected material state after:
 - Confirm active scheduled and placeholder allocations both count against capacity.
 - Confirm the write path cannot leave active claims above physical LF.
 - Confirm lower-priority reduction/cancellation uses the allocation priority rules.
-- Confirm film orders recalculate from current linked box reality.
+- Confirm pending Film Orders use pre-receipt linked-box expectations while finalized Film Orders use immutable receipt contributions.
+- Confirm ordinary box and material-flow mutations cannot rewrite finalized receipt history, and explicit corrections remain authorized and auditable.
 - Confirm job readiness recalculates from backed material, not stale rows.
 - Confirm width compatibility uses `floor(box width / required width)`.
 - Check frontend, local backend, Supabase Edge/API, SQL/RPC, tests, and schema/latest parity.

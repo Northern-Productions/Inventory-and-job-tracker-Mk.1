@@ -3,6 +3,8 @@ import type {
   CancelJobPayload,
   CancelJobResult,
   CreateFilmOrderPayload,
+  CorrectFilmOrderReceiptPayload,
+  CorrectFilmOrderReceiptResult,
   DeleteFilmOrderPayload,
   FilmCatalogEntry,
   FilmCatalogResponse,
@@ -76,4 +78,16 @@ export async function manualFulfillFilmOrder(
     result: response.data,
     warnings: response.warnings
   };
+}
+
+export async function correctFilmOrderReceipt(
+  payload: CorrectFilmOrderReceiptPayload
+): Promise<{ result: CorrectFilmOrderReceiptResult; warnings: string[] }> {
+  assertFeatureAccess('film_orders', 'write');
+  const response = await request<CorrectFilmOrderReceiptResult>(
+    'POST',
+    '/film-orders/correct-received-lf',
+    { body: payload }
+  );
+  return { result: response.data, warnings: response.warnings };
 }

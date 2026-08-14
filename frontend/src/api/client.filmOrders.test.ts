@@ -19,6 +19,7 @@ vi.mock('./http', () => {
 
 import {
   cancelJob,
+  correctFilmOrderReceipt,
   createFilmOrder,
   deleteFilmOrder,
   getFilmOrderDetail,
@@ -261,6 +262,41 @@ describe('film orders API client identity payloads', () => {
         jobId: '11111111-1111-4111-8111-111111111111',
         jobNumber: '1234',
         filmOrderId: 'FO-1'
+      }
+    });
+  });
+
+  it('posts receipt corrections only through the explicit Film Order history route', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        filmOrderId: 'FO-1',
+        linkId: 'link-1',
+        boxId: 'IL1-100',
+        previousReceivedFeet: 60,
+        correctedReceivedFeet: 52
+      },
+      warnings: []
+    });
+
+    await correctFilmOrderReceipt({
+      filmOrderId: 'FO-1',
+      jobId: '11111111-1111-4111-8111-111111111111',
+      jobNumber: '1234',
+      linkId: 'link-1',
+      boxId: 'IL1-100',
+      correctedReceivedFeet: 52,
+      reason: 'Receiving footage entered incorrectly.'
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/film-orders/correct-received-lf', {
+      body: {
+        filmOrderId: 'FO-1',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '1234',
+        linkId: 'link-1',
+        boxId: 'IL1-100',
+        correctedReceivedFeet: 52,
+        reason: 'Receiving footage entered incorrectly.'
       }
     });
   });

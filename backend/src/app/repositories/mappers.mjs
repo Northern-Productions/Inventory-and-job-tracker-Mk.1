@@ -397,6 +397,11 @@ function mapDbFilmOrderRow(row) {
     orderOverageFeet: integerOrZero(row.order_overage_feet ?? row.overage_feet),
     completedFeet: integerOrZero(row.completed_feet ?? row.fulfilled_feet),
     orderLedgerVersion: asTrimmedString(row.order_ledger_version ?? row.orderLedgerVersion),
+    receiptLedgerVersion: asTrimmedString(row.receipt_ledger_version ?? row.receiptLedgerVersion),
+    receiptHistoryComplete: row.receipt_history_complete ?? row.receiptHistoryComplete,
+    receiptHistoryMissingCount: integerOrZero(
+      row.receipt_history_missing_count ?? row.receiptHistoryMissingCount
+    ),
     installDate: formatDateValue(row.job_date),
     crewLeader: asTrimmedString(row.crew_leader),
     status,
@@ -426,7 +431,9 @@ function mapDbFilmOrderRow(row) {
 function buildPublicFilmOrderLedger(entry, linkedBoxes) {
   const requestedFeet = integerOrZero(entry.requestedFeet);
   const normalizedLinkedBoxes = Array.isArray(linkedBoxes) ? linkedBoxes : [];
-  const hasCanonicalLedger = asTrimmedString(entry.orderLedgerVersion) === 'film-order-ledger-v1';
+  const hasCanonicalLedger = ['film-order-ledger-v1', 'film-order-ledger-v2'].includes(
+    asTrimmedString(entry.orderLedgerVersion)
+  );
   const linkedFeet = hasCanonicalLedger
     ? integerOrZero(entry.linkedFeet)
     : normalizedLinkedBoxes.length
@@ -515,6 +522,15 @@ function toPublicFilmOrder(entry, linkedBoxes) {
     orderOverageFeet: ledger.orderOverageFeet,
     completedFeet: ledger.completedFeet,
     orderLedgerVersion: asTrimmedString(entry.orderLedgerVersion) || 'film-order-ledger-v1',
+    ...(asTrimmedString(entry.receiptLedgerVersion)
+      ? { receiptLedgerVersion: entry.receiptLedgerVersion }
+      : {}),
+    ...(typeof entry.receiptHistoryComplete === 'boolean'
+      ? {
+          receiptHistoryComplete: entry.receiptHistoryComplete,
+          receiptHistoryMissingCount: integerOrZero(entry.receiptHistoryMissingCount)
+        }
+      : {}),
     installDate: entry.installDate,
     crewLeader: entry.crewLeader,
     status: entry.status,
@@ -559,6 +575,13 @@ function mapDbFilmOrderLinkRow(row) {
     boxId: asTrimmedString(row.box_id),
     orderedFeet: integerOrZero(row.ordered_feet),
     autoAllocatedFeet: integerOrZero(row.auto_allocated_feet),
+    receiptContributionFeet: integerOrNull(
+      row.receipt_contribution_feet ?? row.receiptContributionFeet
+    ),
+    receiptSourceWidthIn: numericOrNull(row.receipt_source_width_in ?? row.receiptSourceWidthIn),
+    receiptFinalizedAt: formatTimestamp(row.receipt_finalized_at ?? row.receiptFinalizedAt),
+    receiptFinalizedBy: asTrimmedString(row.receipt_finalized_by ?? row.receiptFinalizedBy),
+    receiptCaptureSource: asTrimmedString(row.receipt_capture_source ?? row.receiptCaptureSource),
     createdAt: formatTimestamp(row.created_at),
     createdBy: asTrimmedString(row.created_by),
   };

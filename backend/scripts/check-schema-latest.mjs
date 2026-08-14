@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0198_multi_org_member_onboarding.sql';
+const LATEST_MIGRATION = '0199_film_order_receipt_history.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -73,6 +73,13 @@ const REQUIRED_OBJECTS = [
   { kind: 'column', signature: 'app.allocation_planner_suppressions.phase_id' },
   { kind: 'column', signature: 'app.film_orders.requirement_id' },
   { kind: 'table', signature: 'app.film_order_events' },
+  { kind: 'column', signature: 'app.film_order_box_links.receipt_contribution_feet' },
+  { kind: 'column', signature: 'app.film_order_box_links.receipt_source_width_in' },
+  { kind: 'column', signature: 'app.film_order_box_links.receipt_finalized_at' },
+  { kind: 'column', signature: 'app.film_order_box_links.receipt_finalized_by' },
+  { kind: 'column', signature: 'app.film_order_box_links.receipt_capture_source' },
+  { kind: 'constraint', signature: 'app.film_order_box_links.film_order_box_links_receipt_history_complete' },
+  { kind: 'index', signature: 'app.idx_film_order_links_org_receipt_finalized' },
   { kind: 'table', signature: 'app.film_weight_profiles' },
   { kind: 'table', signature: 'app.film_weight_samples' },
   { kind: 'table', signature: 'app.film_weight_pending_reviews' },
@@ -190,8 +197,17 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_acl_film_orders_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_film_orders_manual_fulfill(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_manual_fulfill(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_film_orders_correct_received_lf(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'public.api_acl_film_orders_correct_received_lf(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
   { kind: 'function', signature: 'app_api.film_order_ledger_projection(uuid, text[])' },
+  { kind: 'function', signature: 'app_api.film_order_link_receipt_status(app.film_order_box_links, app.boxes)' },
+  { kind: 'function', signature: 'app_api.film_order_link_covered_feet(app.film_order_box_links, app.boxes, numeric)' },
+  { kind: 'function', signature: 'app_api.film_order_link_received_feet(app.film_order_box_links, app.boxes, numeric)' },
+  { kind: 'function', signature: 'app_api.finalize_film_order_link_receipt(uuid, text, text, text, timestamp with time zone)' },
+  { kind: 'function', signature: 'app_api.guard_film_order_receipt_history_update()' },
+  { kind: 'trigger', signature: 'app.film_order_box_links.trg_0199_guard_film_order_receipt_history' },
+  { kind: 'trigger', signature: 'app.film_order_box_links.trg_0199_capture_film_order_receipt_on_link' },
   { kind: 'function', signature: 'public.api_list_film_orders_by_job_id(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_acl_list_film_orders_by_job_id(uuid, uuid)' },
   { kind: 'function', signature: 'public.api_acl_record_film_weight_sample_from_box(uuid, text, jsonb)' },
@@ -731,16 +747,21 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   {
     signature: 'app_api.film_order_ledger_projection(uuid, text[])',
     includes: [
-      'app_api.compute_covered_feet_from_allocation(',
-      'app_api.box_physical_feet_available(b)',
+      'app_api.film_order_link_covered_feet(',
+      'app_api.film_order_link_received_feet(',
+      'receipt_contribution_feet',
+      'missing_receipt_history_count',
       'remaining_to_order_feet',
       'order_overage_feet',
       'on_the_way_feet',
       "'need_source', 'ORDER_REQUEST'",
       "then 'FILM_ON_THE_WAY'",
-      "then 'FULFILLED_COVERED'"
+      "then 'FULFILLED_COVERED'",
+      "'receipt_ledger_version', 'film-order-receipt-v1'",
+      "'order_ledger_version', 'film-order-ledger-v2'"
     ],
     excludes: [
+      'app_api.box_physical_feet_available(b)',
       'job_requirements',
       "'CURRENT_REQUIREMENT'",
       'update app.film_orders',
@@ -754,15 +775,14 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_link_count > 0',
       'update app.film_order_box_links l',
       "a.status in ('ACTIVE', 'FULFILLED')",
-      'app_api.compute_covered_feet_from_allocation(',
-      'coalesce(b.initial_feet, l.ordered_feet, 0)',
-      'app_api.box_physical_feet_available(b)',
-      "upper(coalesce(b.status::text, '')) <> 'ORDERED'",
+      'app_api.film_order_link_covered_feet(',
+      'app_api.film_order_link_receipt_status(',
+      'v_missing_receipt_history_count',
       'v_received_link_count = v_link_count',
       'v_manually_fulfilled',
       'FILM_ORDER_MANUALLY_FULFILLED'
     ],
-    excludes: ['coalesce(sum(l.ordered_feet)']
+    excludes: ['coalesce(sum(l.ordered_feet)', 'app_api.box_physical_feet_available(b)']
   },
   {
     signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)',

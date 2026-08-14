@@ -428,6 +428,11 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       orderOverageFeet: deps.integerOrZero(row.order_overage_feet ?? row.overage_feet),
       completedFeet: deps.integerOrZero(row.completed_feet ?? row.fulfilled_feet),
       orderLedgerVersion: deps.asTrimmedString(row.order_ledger_version ?? row.orderLedgerVersion),
+      receiptLedgerVersion: deps.asTrimmedString(row.receipt_ledger_version ?? row.receiptLedgerVersion),
+      receiptHistoryComplete: row.receipt_history_complete ?? row.receiptHistoryComplete,
+      receiptHistoryMissingCount: deps.integerOrZero(
+        row.receipt_history_missing_count ?? row.receiptHistoryMissingCount
+      ),
       installDate: deps.formatDateValue(row.job_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       status,
@@ -457,7 +462,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
   function buildPublicFilmOrderLedger(entry: any, linkedBoxes: any[]) {
     const requestedFeet = deps.integerOrZero(entry.requestedFeet);
     const normalizedLinkedBoxes = Array.isArray(linkedBoxes) ? linkedBoxes : [];
-    const hasCanonicalLedger = deps.asTrimmedString(entry.orderLedgerVersion) === "film-order-ledger-v1";
+    const hasCanonicalLedger = ["film-order-ledger-v1", "film-order-ledger-v2"].includes(
+      deps.asTrimmedString(entry.orderLedgerVersion)
+    );
     const linkedFeet = hasCanonicalLedger
       ? deps.integerOrZero(entry.linkedFeet)
       : normalizedLinkedBoxes.length
@@ -546,6 +553,15 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       orderOverageFeet: ledger.orderOverageFeet,
       completedFeet: ledger.completedFeet,
       orderLedgerVersion: deps.asTrimmedString(entry.orderLedgerVersion) || "film-order-ledger-v1",
+      ...(deps.asTrimmedString(entry.receiptLedgerVersion)
+        ? { receiptLedgerVersion: entry.receiptLedgerVersion }
+        : {}),
+      ...(typeof entry.receiptHistoryComplete === "boolean"
+        ? {
+            receiptHistoryComplete: entry.receiptHistoryComplete,
+            receiptHistoryMissingCount: deps.integerOrZero(entry.receiptHistoryMissingCount),
+          }
+        : {}),
       installDate: entry.installDate,
       crewLeader: entry.crewLeader,
       status: entry.status,

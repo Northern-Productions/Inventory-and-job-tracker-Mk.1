@@ -125,12 +125,19 @@ export interface AllocationPreview {
 }
 
 export interface FilmOrderLinkedBox {
+  linkId?: string;
   boxId: string;
   dealer?: string;
   orderedFeet: number;
   autoAllocatedFeet: number;
   isReceived: boolean;
   isDirectToJobSite?: boolean;
+  receiptHistoryStatus?: 'PENDING' | 'FINALIZED' | 'MISSING';
+  receiptContributionFeet?: number | null;
+  receiptSourceWidthIn?: number | null;
+  receiptFinalizedAt?: string | null;
+  receiptFinalizedBy?: string | null;
+  receiptCaptureSource?: string | null;
 }
 
 export type FilmOrderOrigin = 'MANUAL' | 'AUTO_SHORTAGE';
@@ -176,6 +183,9 @@ export interface FilmOrderEntry {
   orderOverageFeet?: number;
   completedFeet?: number;
   orderLedgerVersion?: string;
+  receiptLedgerVersion?: string;
+  receiptHistoryComplete?: boolean;
+  receiptHistoryMissingCount?: number;
   installDate: string;
   crewLeader: string;
   status: FilmOrderStatus;
@@ -203,7 +213,6 @@ export interface FilmOrderListResponse {
 }
 
 export interface FilmOrderDetailLinkedBox extends FilmOrderLinkedBox {
-  linkId?: string;
   linkedFeet?: number;
   receivedFeet?: number;
   onTheWayFeet?: number;
@@ -213,6 +222,24 @@ export interface FilmOrderDetailLinkedBox extends FilmOrderLinkedBox {
   orderDate?: string | null;
   receivedDate?: string | null;
   initialCost?: number | null;
+}
+
+export interface CorrectFilmOrderReceiptPayload {
+  filmOrderId: string;
+  jobId?: string;
+  jobNumber?: string;
+  linkId: string;
+  boxId: string;
+  correctedReceivedFeet: number;
+  reason: string;
+}
+
+export interface CorrectFilmOrderReceiptResult {
+  filmOrderId: string;
+  linkId: string;
+  boxId: string;
+  previousReceivedFeet: number;
+  correctedReceivedFeet: number;
 }
 
 export interface FilmOrderHistoryEvent {

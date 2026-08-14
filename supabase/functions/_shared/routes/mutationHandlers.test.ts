@@ -3878,3 +3878,69 @@ Deno.test("/jobs/complete reloads canonical detail by jobId after route-owned pl
     "Expected canonical /jobs/complete to reload by jobId after planner reconciliation.",
   );
 });
+
+Deno.test("/film-orders/correct-received-lf delegates one tenant-scoped audited correction RPC", async () => {
+  const rpcCalls: Array<Record<string, unknown>> = [];
+  const payload = {
+    filmOrderId: "FO-1",
+    linkId: "link-1",
+    boxId: "IL1-100",
+    correctedReceivedFeet: 52,
+    reason: "Receiving footage entered incorrectly.",
+  };
+
+  const response = await dispatchMutationWithHandlers(
+    {},
+    { orgId: "org-from-auth", actor: "tester", role: "owner" } as any,
+    "/film-orders/correct-received-lf",
+    payload,
+    buildDeps({
+      callMutationRpc: async (
+        _client: unknown,
+        fn: string,
+        orgId: string,
+        actor: string,
+        rpcPayload: Record<string, unknown>,
+      ) => {
+        rpcCalls.push({ fn, orgId, actor, payload: rpcPayload });
+        return {
+          filmOrderId: "FO-1",
+          linkId: "link-1",
+          boxId: "IL1-100",
+          previousReceivedFeet: 60,
+          correctedReceivedFeet: 52,
+          warnings: ["Receipt history corrected."],
+        };
+      },
+    }),
+  );
+
+  assertEquals(
+    rpcCalls,
+    [
+      {
+        fn: "api_acl_film_orders_correct_received_lf",
+        orgId: "org-from-auth",
+        actor: "tester",
+        payload,
+      },
+    ],
+    "Expected receipt correction to use the authenticated tenant and audited RPC only.",
+  );
+  assertEquals(
+    response,
+    {
+      ok: true,
+      data: {
+        filmOrderId: "FO-1",
+        linkId: "link-1",
+        boxId: "IL1-100",
+        previousReceivedFeet: 60,
+        correctedReceivedFeet: 52,
+        warnings: ["Receipt history corrected."],
+      },
+      warnings: ["Receipt history corrected."],
+    },
+    "Expected the correction response and warning contract to remain intact.",
+  );
+});

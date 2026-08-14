@@ -7,6 +7,7 @@ export {
 } from './runtime/runtimeAuditFilmReads.mjs';
 export {
   createFilmOrder,
+  correctFilmOrderReceipt,
   deleteFilmOrder,
   manualFulfillFilmOrder,
 } from './runtime/runtimeJobsMutations.mjs';

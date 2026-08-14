@@ -1646,6 +1646,22 @@ async function manualFulfillFilmOrder(client, orgId, payload, actor) {
   );
 }
 
+async function correctFilmOrderReceipt(client, orgId, payload, actor) {
+  const row = await queryRow(
+    client,
+    `
+      select public.api_acl_film_orders_correct_received_lf(
+        $1::uuid,
+        $2::text,
+        $3::jsonb
+      ) as result
+    `,
+    [orgId, asTrimmedString(actor), JSON.stringify(payload || {})]
+  );
+  const result = row?.result || {};
+  return ok(result, Array.isArray(result.warnings) ? result.warnings : []);
+}
+
 async function deleteBox(client, orgId, payload, actor) {
   const boxId = requireString(payload.boxId, 'BoxID');
   const reason = asTrimmedString(payload.reason) || 'Deleted from box details.';
@@ -1714,5 +1730,6 @@ export {
   clearAllocationPlannerSuppression,
   deleteFilmOrder,
   manualFulfillFilmOrder,
+  correctFilmOrderReceipt,
   deleteBox,
 };
