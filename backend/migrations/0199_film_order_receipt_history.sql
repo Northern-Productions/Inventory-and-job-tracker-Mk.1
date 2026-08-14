@@ -1232,7 +1232,8 @@ begin
   select pg_get_functiondef('public.api_film_orders_correct_received_lf(uuid, text, jsonb)'::regprocedure)
   into v_correction_def;
 
-  if position('receipt_contribution_feet' in v_ledger_def) = 0
+  if position('film_order_link_covered_feet' in v_ledger_def) = 0
+     or position('film_order_link_received_feet' in v_ledger_def) = 0
      or position('film-order-ledger-v2' in v_ledger_def) = 0
      or position('box_physical_feet_available' in v_ledger_def) > 0 then
     raise exception 'Film Order receipt ledger guard failed.';

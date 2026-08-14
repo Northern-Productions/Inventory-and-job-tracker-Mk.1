@@ -59,6 +59,10 @@ test('migration 0199 ledger reads finalized snapshots and never live physical LF
   assert.match(ledger, /film-order-receipt-v1/);
   assert.match(ledger, /film-order-ledger-v2/);
   assert.doesNotMatch(ledger, /box_physical_feet_available/);
+  assert.match(
+    migration,
+    /if position\('film_order_link_covered_feet' in v_ledger_def\) = 0\s+or position\('film_order_link_received_feet' in v_ledger_def\) = 0/
+  );
 });
 
 test('migration 0199 finalizes from receipt-time Initial LF and preserves width', async () => {
