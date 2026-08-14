@@ -2,6 +2,11 @@
 import { getSameDayCrewConflictJobs } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 import { getFilmBoxAllocationEligibility } from '../../../../../shared/domain/filmBoxAllocationEligibility.mjs';
 import {
+  getFilmOrderLinkCoveredFeet,
+  getFilmOrderLinkReceivedFeet,
+  getFilmOrderReceiptHistoryStatus,
+} from '../../../../../shared/domain/filmOrderReceiptContract.mjs';
+import {
   HttpError,
   ZEROED_BOX_AUTO_CANCEL_NOTE,
   queryRow,
@@ -187,7 +192,6 @@ import {
   listRollHistoryByBox,
   listRollHistoryByJob,
   appendRollHistoryEntry,
-  computeCoveredFeetForAllocation,
   isSplitCoveragePair,
   planCoverageAllocation,
   matchesBoxSearchQuery,
@@ -828,7 +832,10 @@ async function sumFilmOrderOrderedFeet(client, orgId, filmOrderId) {
   for (let index = 0; index < links.length; index += 1) {
     const box = await findBoxById(client, orgId, links[index].boxId);
     if (box) {
-      total += getLinkedBoxCoveredFeetForFilmOrder(filmOrder, links[index], box);
+      const coveredFeet = getLinkedBoxCoveredFeetForFilmOrder(filmOrder, links[index], box);
+      if (coveredFeet !== null) {
+        total += coveredFeet;
+      }
     }
   }
 
@@ -865,11 +872,8 @@ function getLinkedBoxPhysicalFeet(link, box, allocations = []) {
 }
 
 function getLinkedBoxCoveredFeetForFilmOrder(filmOrder, link, box, allocations = []) {
-  return computeCoveredFeetForAllocation(
-    getLinkedBoxPhysicalFeet(link, box, allocations),
-    box?.widthIn || filmOrder?.widthIn,
-    filmOrder?.widthIn
-  );
+  void allocations;
+  return getFilmOrderLinkCoveredFeet(filmOrder, link, box);
 }
 
 function getLinkedBoxRemainingPhysicalFeet(link, box, allocations = []) {
@@ -906,18 +910,15 @@ async function syncFilmOrderLinkAllocatedFeet(client, orgId, link, allocations) 
   });
 }
 
-function hasReceivedLinkedBoxStatus(status) {
-  const normalizedStatus = asTrimmedString(status).toUpperCase();
-  return normalizedStatus !== '' && normalizedStatus !== 'ORDERED';
-}
-
 async function summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
   const filmOrder = await findFilmOrderById(client, orgId, filmOrderId);
   if (!filmOrder) {
     return {
       hasLinkedBoxes: false,
       allLinkedBoxesReceived: false,
-      orderedFeet: 0
+      orderedFeet: 0,
+      receivedFeet: 0,
+      receiptHistoryComplete: true
     };
   }
 
@@ -926,12 +927,16 @@ async function summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
     return {
       hasLinkedBoxes: false,
       allLinkedBoxesReceived: false,
-      orderedFeet: 0
+      orderedFeet: 0,
+      receivedFeet: 0,
+      receiptHistoryComplete: true
     };
   }
 
   let orderedFeet = 0;
+  let receivedFeet = 0;
   let allLinkedBoxesReceived = true;
+  let receiptHistoryComplete = true;
 
   for (let index = 0; index < links.length; index += 1) {
     const link = links[index];
@@ -944,16 +949,29 @@ async function summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
     const allocations = await listAllocationsByBox(client, orgId, box.boxId);
     const syncedLink = await syncFilmOrderLinkAllocatedFeet(client, orgId, link, allocations);
 
-    orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(filmOrder, syncedLink, box, allocations);
-    if (!hasReceivedLinkedBoxStatus(box.status)) {
+    const receiptStatus = getFilmOrderReceiptHistoryStatus(syncedLink, box);
+    const linkedFeet = getLinkedBoxCoveredFeetForFilmOrder(filmOrder, syncedLink, box, allocations);
+    const linkReceivedFeet = getFilmOrderLinkReceivedFeet(filmOrder, syncedLink, box);
+    if (linkedFeet !== null) {
+      orderedFeet += linkedFeet;
+    }
+    if (linkReceivedFeet !== null) {
+      receivedFeet += linkReceivedFeet;
+    }
+    if (receiptStatus !== 'FINALIZED') {
       allLinkedBoxesReceived = false;
+    }
+    if (receiptStatus === 'MISSING') {
+      receiptHistoryComplete = false;
     }
   }
 
   return {
     hasLinkedBoxes: true,
     allLinkedBoxesReceived,
-    orderedFeet
+    orderedFeet,
+    receivedFeet,
+    receiptHistoryComplete
   };
 }
 
@@ -966,6 +984,9 @@ async function recalculateFilmOrder(client, orgId, filmOrderId, user) {
   const updated = cloneValue(existing);
   updated.coveredFeet = await sumFilmOrderCoveredFeet(client, orgId, filmOrderId);
   const linkedBoxSummary = await summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId);
+  if (!linkedBoxSummary.receiptHistoryComplete) {
+    return existing;
+  }
   updated.orderedFeet = linkedBoxSummary.orderedFeet;
   updated.remainingToOrderFeet = Math.max(updated.requestedFeet - updated.orderedFeet, 0);
 

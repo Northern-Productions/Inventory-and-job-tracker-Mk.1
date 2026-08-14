@@ -405,6 +405,9 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const status = deps.asTrimmedString(row.status) || "FILM_ORDER";
     const displayStatus = deps.asTrimmedString(row.display_status ?? row.displayStatus);
     const needSource = deps.asTrimmedString(row.need_source ?? row.needSource);
+    const receiptHistoryComplete = row.receipt_history_complete ?? row.receiptHistoryComplete;
+    const rawReceivedFeet = row.received_feet ?? row.receivedFeet;
+    const rawOnTheWayFeet = row.on_the_way_feet ?? row.onTheWayFeet;
     return {
       id: row.id,
       orgId: row.org_id,
@@ -422,12 +425,20 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       coveredFeet: deps.integerOrZero(row.covered_feet),
       linkedFeet: deps.integerOrZero(row.linked_feet ?? row.ordered_feet),
       orderedFeet: deps.integerOrZero(row.linked_feet ?? row.ordered_feet),
-      receivedFeet: deps.integerOrZero(row.received_feet),
-      onTheWayFeet: deps.integerOrZero(row.on_the_way_feet),
+      receivedFeet:
+        receiptHistoryComplete === false && rawReceivedFeet == null ? null : deps.integerOrZero(rawReceivedFeet),
+      onTheWayFeet:
+        receiptHistoryComplete === false && rawOnTheWayFeet == null ? null : deps.integerOrZero(rawOnTheWayFeet),
       remainingToOrderFeet: deps.integerOrZero(row.remaining_to_order_feet),
       orderOverageFeet: deps.integerOrZero(row.order_overage_feet ?? row.overage_feet),
       completedFeet: deps.integerOrZero(row.completed_feet ?? row.fulfilled_feet),
       orderLedgerVersion: deps.asTrimmedString(row.order_ledger_version ?? row.orderLedgerVersion),
+      receiptLedgerVersion: deps.asTrimmedString(row.receipt_ledger_version ?? row.receiptLedgerVersion),
+      receiptTotalsSource: deps.asTrimmedString(row.receipt_totals_source ?? row.receiptTotalsSource),
+      receiptHistoryComplete,
+      receiptHistoryMissingCount: deps.integerOrZero(
+        row.receipt_history_missing_count ?? row.receiptHistoryMissingCount
+      ),
       installDate: deps.formatDateValue(row.job_date),
       crewLeader: deps.asTrimmedString(row.crew_leader),
       status,
@@ -454,26 +465,55 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     };
   }
 
+  function hasIncompleteFilmOrderReceiptHistory(entry: any, linkedBoxes: any[]) {
+    return (
+      entry.receiptHistoryComplete === false ||
+      (Array.isArray(linkedBoxes) &&
+        linkedBoxes.some(
+          (box) => deps.asTrimmedString(box?.receiptHistoryStatus).toUpperCase() === "MISSING",
+        ))
+    );
+  }
+
   function buildPublicFilmOrderLedger(entry: any, linkedBoxes: any[]) {
     const requestedFeet = deps.integerOrZero(entry.requestedFeet);
     const normalizedLinkedBoxes = Array.isArray(linkedBoxes) ? linkedBoxes : [];
-    const hasCanonicalLedger = deps.asTrimmedString(entry.orderLedgerVersion) === "film-order-ledger-v1";
-    const linkedFeet = hasCanonicalLedger
+    const receiptHistoryIncomplete = hasIncompleteFilmOrderReceiptHistory(entry, normalizedLinkedBoxes);
+    const hasCanonicalLedger = ["film-order-ledger-v1", "film-order-ledger-v2"].includes(
+      deps.asTrimmedString(entry.orderLedgerVersion)
+    );
+    const linkedFeet = receiptHistoryIncomplete
+      ? deps.integerOrZero(entry.linkedFeet ?? entry.orderedFeet)
+      : hasCanonicalLedger
       ? deps.integerOrZero(entry.linkedFeet)
       : normalizedLinkedBoxes.length
         ? normalizedLinkedBoxes.reduce((sum, box) => sum + deps.integerOrZero(box?.orderedFeet), 0)
         : deps.integerOrZero(entry.linkedFeet ?? entry.orderedFeet);
-    const receivedFeet = hasCanonicalLedger
+    const receivedFeet = receiptHistoryIncomplete
+      ? entry.receivedFeet == null
+        ? null
+        : deps.integerOrZero(entry.receivedFeet)
+      : hasCanonicalLedger
       ? deps.integerOrZero(entry.receivedFeet)
       : normalizedLinkedBoxes.reduce(
           (sum, box) => sum + (box?.isReceived ? deps.integerOrZero(box?.orderedFeet) : 0),
           0,
         );
-    const onTheWayFeet = Math.max(linkedFeet - receivedFeet, 0);
+    const onTheWayFeet = receiptHistoryIncomplete
+      ? entry.onTheWayFeet == null
+        ? null
+        : deps.integerOrZero(entry.onTheWayFeet)
+      : Math.max(linkedFeet - receivedFeet, 0);
     const coveredFeet = deps.integerOrZero(entry.coveredFeet);
-    const remainingToOrderFeet = Math.max(requestedFeet - linkedFeet, 0);
-    const orderOverageFeet = Math.max(linkedFeet - requestedFeet, 0);
-    const completedFeet = Math.max(receivedFeet, coveredFeet);
+    const remainingToOrderFeet = receiptHistoryIncomplete
+      ? deps.integerOrZero(entry.remainingToOrderFeet)
+      : Math.max(requestedFeet - linkedFeet, 0);
+    const orderOverageFeet = receiptHistoryIncomplete
+      ? deps.integerOrZero(entry.orderOverageFeet ?? entry.overageFeet)
+      : Math.max(linkedFeet - requestedFeet, 0);
+    const completedFeet = receiptHistoryIncomplete
+      ? deps.integerOrZero(entry.completedFeet ?? entry.fulfilledFeet)
+      : Math.max(receivedFeet, coveredFeet);
 
     return {
       requestedFeet,
@@ -509,7 +549,7 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     if (storedStatus === "FULFILLED") {
       return "FULFILLED_COVERED";
     }
-    if (ledger.linkedFeet >= ledger.requestedFeet && ledger.onTheWayFeet > 0) {
+    if (ledger.linkedFeet >= ledger.requestedFeet && (ledger.onTheWayFeet ?? 0) > 0) {
       return "FILM_ON_THE_WAY";
     }
     if (storedStatus === "FILM_ON_THE_WAY") {
@@ -524,6 +564,17 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
     const sections = deps.asTrimmedString(entry.sections || entry.workScope);
     const ledger = buildPublicFilmOrderLedger(entry, linkedBoxes);
     const displayStatus = derivePublicFilmOrderDisplayStatus(entry, ledger);
+    const derivedMissingReceiptCount = Array.isArray(linkedBoxes)
+      ? linkedBoxes.filter(
+        (box) => deps.asTrimmedString(box?.receiptHistoryStatus).toUpperCase() === "MISSING"
+      ).length
+      : 0;
+    const receiptHistoryComplete = typeof entry.receiptHistoryComplete === "boolean"
+      ? entry.receiptHistoryComplete
+      : derivedMissingReceiptCount === 0;
+    const receiptHistoryMissingCount = typeof entry.receiptHistoryComplete === "boolean"
+      ? deps.integerOrZero(entry.receiptHistoryMissingCount)
+      : derivedMissingReceiptCount;
 
     return {
       filmOrderId: entry.filmOrderId,
@@ -546,6 +597,16 @@ export function createInventoryRepositories(deps: RepositoryDeps) {
       orderOverageFeet: ledger.orderOverageFeet,
       completedFeet: ledger.completedFeet,
       orderLedgerVersion: deps.asTrimmedString(entry.orderLedgerVersion) || "film-order-ledger-v1",
+      ...(deps.asTrimmedString(entry.receiptLedgerVersion)
+        ? { receiptLedgerVersion: entry.receiptLedgerVersion }
+        : {}),
+      ...(deps.asTrimmedString(entry.receiptTotalsSource)
+        ? { receiptTotalsSource: entry.receiptTotalsSource }
+        : !receiptHistoryComplete
+          ? { receiptTotalsSource: "STORED_LEGACY_AGGREGATE" }
+          : {}),
+      receiptHistoryComplete,
+      receiptHistoryMissingCount,
       installDate: entry.installDate,
       crewLeader: entry.crewLeader,
       status: entry.status,

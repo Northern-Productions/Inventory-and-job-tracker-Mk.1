@@ -256,20 +256,27 @@ export function getFilmOrderLinkedFeet(
 
 export function getFilmOrderReceivedFeet(
   order: Partial<Pick<FilmOrderEntry, 'receivedFeet' | 'coveredFeet'>>
-): number {
+): number | null {
+  if (order.receivedFeet === null) {
+    return null;
+  }
   const receivedFeet = Number(order.receivedFeet);
   return Number.isFinite(receivedFeet) ? Math.max(receivedFeet, 0) : 0;
 }
 
 export function getFilmOrderOnTheWayFeet(
   order: Partial<Pick<FilmOrderEntry, 'onTheWayFeet' | 'linkedFeet' | 'orderedFeet' | 'receivedFeet'>>
-): number {
+): number | null {
+  if (order.onTheWayFeet === null) {
+    return null;
+  }
   const onTheWayFeet = Number(order.onTheWayFeet);
   if (Number.isFinite(onTheWayFeet)) {
     return Math.max(onTheWayFeet, 0);
   }
 
-  return Math.max(getFilmOrderLinkedFeet(order) - getFilmOrderReceivedFeet(order), 0);
+  const receivedFeet = getFilmOrderReceivedFeet(order);
+  return receivedFeet === null ? null : Math.max(getFilmOrderLinkedFeet(order) - receivedFeet, 0);
 }
 
 export function getFilmOrderOverageFeet(
@@ -330,6 +337,12 @@ export function addOptimisticLinkedBoxToFilmOrder(
       isReceived: Boolean(linkedBox.isReceived)
     }
   ];
+  if (order.receiptHistoryComplete === false) {
+    return {
+      ...order,
+      linkedBoxes: nextLinkedBoxes
+    };
+  }
   const derivedState = deriveFilmOrderStatusFromLinkedBoxes(
     {
       ...order,
@@ -339,12 +352,13 @@ export function addOptimisticLinkedBoxToFilmOrder(
     options
   );
 
+  const receivedFeet = getFilmOrderReceivedFeet(order);
   return {
     ...order,
     linkedFeet: nextOrderedFeet,
     orderedFeet: nextOrderedFeet,
-    receivedFeet: Math.max(0, Number(order.receivedFeet || 0)),
-    onTheWayFeet: Math.max(nextOrderedFeet - Math.max(0, Number(order.receivedFeet || 0)), 0),
+    receivedFeet,
+    onTheWayFeet: receivedFeet === null ? null : Math.max(nextOrderedFeet - receivedFeet, 0),
     remainingToOrderFeet: nextRemainingToOrderFeet,
     orderOverageFeet: Math.max(nextOrderedFeet - Math.max(0, Number(order.requestedFeet || 0)), 0),
     status: derivedState.status,
@@ -379,6 +393,13 @@ export function markFilmOrderLinkedBoxReceived(
 
   if (!didUpdate) {
     return order;
+  }
+
+  if (order.receiptHistoryComplete === false) {
+    return {
+      ...order,
+      linkedBoxes: nextLinkedBoxes
+    };
   }
 
   const derivedState = deriveFilmOrderStatusFromLinkedBoxes(

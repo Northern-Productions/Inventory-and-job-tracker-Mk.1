@@ -10,6 +10,8 @@ import {
   getFilmOrderDisplayStatus,
   getFilmOrderLinkedBoxes,
   getFilmOrderLinkedBoxIds,
+  getFilmOrderOnTheWayFeet,
+  getFilmOrderReceivedFeet,
   getFilmOrderRemainingFeet,
   getNextFilmOrderLinkedBoxToReceive,
   hasFilmOrdersNeedingAttention,
@@ -398,5 +400,69 @@ describe('filmOrders helpers', () => {
       resolvedAt: '2026-04-18T12:00:00Z',
       resolvedBy: 'Pending...'
     });
+  });
+
+  it('preserves unknown receipt totals and fulfilled status across optimistic legacy-history events', () => {
+    const legacyOrder = {
+      filmOrderId: 'FO-LEGACY',
+      jobNumber: '2941',
+      warehouse: 'IL1' as const,
+      manufacturer: '3M Solar',
+      filmName: 'Prestige 60',
+      widthIn: 60,
+      requestedFeet: 80,
+      linkedFeet: 80,
+      coveredFeet: 0,
+      orderedFeet: 80,
+      receivedFeet: null,
+      onTheWayFeet: null,
+      remainingToOrderFeet: 0,
+      receiptHistoryComplete: false,
+      receiptHistoryMissingCount: 1,
+      receiptTotalsSource: 'STORED_LEGACY_AGGREGATE' as const,
+      installDate: '2026-04-18',
+      crewLeader: 'Crew',
+      status: 'FULFILLED' as const,
+      sourceBoxId: '',
+      origin: 'MANUAL' as const,
+      createdAt: '2026-04-18T10:00:00Z',
+      createdBy: 'tester',
+      resolvedAt: '2026-04-18T12:00:00Z',
+      resolvedBy: 'tester',
+      notes: '',
+      linkedBoxes: [
+        {
+          boxId: 'IL1-LEGACY',
+          dealer: 'Legacy Dealer',
+          orderedFeet: 80,
+          autoAllocatedFeet: 0,
+          isReceived: false
+        }
+      ]
+    };
+
+    expect(getFilmOrderReceivedFeet(legacyOrder)).toBeNull();
+    expect(getFilmOrderOnTheWayFeet(legacyOrder)).toBeNull();
+
+    const withAnotherLink = addOptimisticLinkedBoxToFilmOrder(legacyOrder, {
+      boxId: 'IL1-NEW',
+      dealer: 'Dealer',
+      orderedFeet: 10
+    });
+    expect(withAnotherLink.status).toBe('FULFILLED');
+    expect(withAnotherLink.orderedFeet).toBe(80);
+    expect(withAnotherLink.receivedFeet).toBeNull();
+    expect(withAnotherLink.linkedBoxes).toHaveLength(2);
+
+    const withReceiptFlag = markFilmOrderLinkedBoxReceived(legacyOrder, 'IL1-LEGACY', {
+      actor: 'Pending...',
+      now: '2026-04-18T13:00:00Z'
+    });
+    expect(withReceiptFlag.status).toBe('FULFILLED');
+    expect(withReceiptFlag.orderedFeet).toBe(80);
+    expect(withReceiptFlag.receivedFeet).toBeNull();
+    expect(withReceiptFlag.linkedBoxes[0]?.isReceived).toBe(true);
+    expect(isFilmOrderNeedingAttention(withReceiptFlag)).toBe(false);
+    expect(hasFilmOrdersNeedingAttention([withReceiptFlag])).toBe(false);
   });
 });

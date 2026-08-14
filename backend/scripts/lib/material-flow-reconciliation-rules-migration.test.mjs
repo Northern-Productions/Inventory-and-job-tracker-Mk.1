@@ -78,6 +78,8 @@ test('schema latest checks material-flow migration semantics', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
   assert.match(schemaLatest, /app_api\.compute_covered_feet_from_allocation\(/);
-  assert.match(schemaLatest, /coalesce\(b\.initial_feet, l\.ordered_feet, 0\)/);
+  assert.match(schemaLatest, /app_api\.film_order_link_covered_feet\(/);
+  assert.match(schemaLatest, /receipt_contribution_feet/);
+  assert.match(schemaLatest, /missing_receipt_history_count/);
   assert.match(schemaLatest, /v_material_reconciliation_result := app_api\.reconcile_box_checkin_allocations/);
 });

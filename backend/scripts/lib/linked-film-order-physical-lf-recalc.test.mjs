@@ -35,10 +35,12 @@ test('linked film-order recalculation uses corrected physical LF for received bo
   assert.match(migration, /linked film-order physical LF recalculation guard failed/);
 });
 
-test('schema latest guards linked film-order physical LF recalculation semantics', async () => {
+test('schema latest records that receipt history supersedes physical LF for Film Orders', async () => {
   const schemaLatest = await readFile(schemaLatestPath, 'utf8');
 
   assert.match(schemaLatest, /update app\.film_order_box_links l/);
   assert.match(schemaLatest, /a\.status in \('ACTIVE', 'FULFILLED'\)/);
-  assert.match(schemaLatest, /app_api\.box_physical_feet_available\(b\)/);
+  assert.match(schemaLatest, /app_api\.film_order_link_covered_feet/);
+  assert.match(schemaLatest, /app_api\.film_order_link_received_feet/);
+  assert.match(schemaLatest, /'app_api\.box_physical_feet_available\(b\)'/);
 });

@@ -1,12 +1,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   createFilmOrder,
+  correctFilmOrderReceipt,
   deleteFilmOrder,
   manualFulfillFilmOrder
 } from '../../../../../api/features/filmOrdersClient';
 import type {
   AllocationJobDetail,
   CreateFilmOrderPayload,
+  CorrectFilmOrderReceiptPayload,
   DeleteFilmOrderPayload,
   JobDetail
 } from '../../../../../domain';
@@ -334,6 +336,37 @@ export function useManualFulfillFilmOrder() {
         queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
         ...(jobId ? [queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(jobId) })] : []),
         ...(!jobId && variables.jobNumber
+          ? [
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })
+            ]
+          : [])
+      ]);
+
+      void syncOfflineInventoryQueries(queryClient);
+    }
+  });
+}
+
+export function useCorrectFilmOrderReceipt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationKey: inventoryKeys.correctFilmOrderReceiptMutation,
+    mutationFn: (payload: CorrectFilmOrderReceiptPayload) => correctFilmOrderReceipt(payload),
+    onSuccess: async (_data, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrder(variables.filmOrderId) }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrders }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.filmOrderRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.jobsCalendarRoot }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJobs }),
+        queryClient.invalidateQueries({ queryKey: inventoryKeys.reportsRoot }),
+        ...(variables.jobId
+          ? [queryClient.invalidateQueries({ queryKey: inventoryKeys.jobById(variables.jobId) })]
+          : []),
+        ...(!variables.jobId && variables.jobNumber
           ? [
               queryClient.invalidateQueries({ queryKey: inventoryKeys.job(variables.jobNumber) }),
               queryClient.invalidateQueries({ queryKey: inventoryKeys.allocationJob(variables.jobNumber) })

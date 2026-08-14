@@ -20,7 +20,12 @@ import {
   transferCaulkStock,
   upsertCaulkProduct,
 } from '../services/caulk.mjs';
-import { createFilmOrder, deleteFilmOrder, manualFulfillFilmOrder } from '../services/filmOrders.mjs';
+import {
+  correctFilmOrderReceipt,
+  createFilmOrder,
+  deleteFilmOrder,
+  manualFulfillFilmOrder,
+} from '../services/filmOrders.mjs';
 import { resolveFilmWeightPendingReview } from '../services/filmWeightProfiles.mjs';
 import {
   bulkTransferOwnership,
@@ -266,6 +271,8 @@ const mutationHandlers = {
     deleteFilmOrder(client, orgId, params, authContext.actor),
   '/film-orders/manual-fulfill': async ({ client, orgId, authContext, params }) =>
     manualFulfillFilmOrder(client, orgId, params, authContext.actor),
+  '/film-orders/correct-received-lf': async ({ client, orgId, authContext, params }) =>
+    correctFilmOrderReceipt(client, orgId, params, authContext.actor),
   '/film-weight/pending-reviews/resolve': async ({ client, orgId, authContext, params }) =>
     ok(await resolveFilmWeightPendingReview(client, orgId, authContext.actor, params)),
   '/boxes/update': async ({ client, orgId, authContext, params }) =>

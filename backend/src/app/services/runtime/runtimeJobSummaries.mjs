@@ -2,6 +2,11 @@
 import { buildCurrentCheckedOutAllocationIdSet } from '../../../../../shared/checkoutSemantics.mjs';
 import { hasSameDayCrewConflict } from '../../../../../shared/domain/sameDayCrewConflicts.mjs';
 import {
+  getFilmOrderLinkCoveredFeet,
+  getFilmOrderLinkReceivedFeet,
+  getFilmOrderReceiptHistoryStatus,
+} from '../../../../../shared/domain/filmOrderReceiptContract.mjs';
+import {
   chooseCurrentJobPhaseGroup,
   compareJobPhasesByNumber,
   getJobPhaseWorkflowStatus,
@@ -191,7 +196,6 @@ import {
   listRollHistoryByBox,
   listRollHistoryByJob,
   appendRollHistoryEntry,
-  computeCoveredFeetForAllocation,
   isSplitCoveragePair,
   matchesBoxSearchQuery,
   rankBoxSearchCandidates,
@@ -1105,11 +1109,6 @@ async function buildPublicFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
   return groupedLinkedBoxes[asTrimmedString(filmOrderId)] || [];
 }
 
-function isReceivedLinkedBoxStatus(status) {
-  const normalizedStatus = asTrimmedString(status).toUpperCase();
-  return normalizedStatus !== '' && normalizedStatus !== 'ORDERED';
-}
-
 async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmOrders, boxById = {}) {
   const normalizedFilmOrders = Array.isArray(filmOrders) ? filmOrders : [];
   const filmOrderIds = Array.from(
@@ -1165,18 +1164,27 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmO
 
     const box = linkedBoxById[boxId];
     const filmOrder = filmOrderById[filmOrderId] || {};
-    const orderedFeet = computeCoveredFeetForAllocation(
-      Math.max(0, Number(box?.initialFeet || link.orderedFeet || 0) || 0),
-      box?.widthIn || filmOrder?.widthIn,
-      filmOrder?.widthIn
-    );
+    const receiptHistoryStatus = getFilmOrderReceiptHistoryStatus(link, box);
+    const linkedFeet = getFilmOrderLinkCoveredFeet(filmOrder, link, box);
+    const receivedFeet = getFilmOrderLinkReceivedFeet(filmOrder, link, box);
 
     grouped[filmOrderId].push({
+      linkId: link.linkId,
       boxId,
-      orderedFeet,
+      orderedFeet: integerOrZero(link.orderedFeet),
+      linkedFeet,
+      receivedFeet,
+      onTheWayFeet:
+        linkedFeet === null || receivedFeet === null ? null : Math.max(linkedFeet - receivedFeet, 0),
       autoAllocatedFeet: link.autoAllocatedFeet,
       dealer: asTrimmedString(box.dealer),
-      isReceived: isReceivedLinkedBoxStatus(box.status),
+      isReceived: receiptHistoryStatus === 'FINALIZED',
+      receiptHistoryStatus,
+      receiptContributionFeet: link.receiptContributionFeet,
+      receiptSourceWidthIn: link.receiptSourceWidthIn,
+      receiptFinalizedAt: link.receiptFinalizedAt,
+      receiptFinalizedBy: link.receiptFinalizedBy,
+      receiptCaptureSource: link.receiptCaptureSource,
       ...(box.directToJobSite === true ? { isDirectToJobSite: true } : {})
     });
   }

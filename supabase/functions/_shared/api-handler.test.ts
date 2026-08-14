@@ -10,6 +10,7 @@ import {
   fetchWarehouseBoxRowsForInventory,
   loadCheckedOutJobBoxRows,
   loadCaulkPlanningByJobContexts,
+  mapDbFilmOrderLinkRow,
   maybeLogCaulkFallbackCoverageDecision,
   projectInventorySearchBox,
   shouldUseCache,
@@ -27,6 +28,41 @@ function assertEquals(actual: unknown, expected: unknown, message: string) {
     throw new Error(`${message}\nExpected: ${expectedJson}\nActual: ${actualJson}`);
   }
 }
+
+Deno.test("Edge Film Order link mapper preserves immutable receipt history fields", () => {
+  const mapped = mapDbFilmOrderLinkRow({
+    link_id: "link-1",
+    film_order_id: "order-1",
+    box_id: "box-1",
+    ordered_feet: 60,
+    auto_allocated_feet: 0,
+    receipt_contribution_feet: 35,
+    receipt_source_width_in: "60.0000",
+    receipt_finalized_at: "2026-08-13T12:00:00.000Z",
+    receipt_finalized_by: "authenticated-actor",
+    receipt_capture_source: "LIVE_RECEIPT",
+    created_at: "2026-08-13T11:00:00.000Z",
+    created_by: "authenticated-actor",
+  });
+
+  assertEquals(
+    {
+      receiptContributionFeet: mapped?.receiptContributionFeet,
+      receiptSourceWidthIn: mapped?.receiptSourceWidthIn,
+      receiptFinalizedAt: mapped?.receiptFinalizedAt,
+      receiptFinalizedBy: mapped?.receiptFinalizedBy,
+      receiptCaptureSource: mapped?.receiptCaptureSource,
+    },
+    {
+      receiptContributionFeet: 35,
+      receiptSourceWidthIn: 60,
+      receiptFinalizedAt: "2026-08-13T12:00:00.000Z",
+      receiptFinalizedBy: "authenticated-actor",
+      receiptCaptureSource: "LIVE_RECEIPT",
+    },
+    "mapped Film Order links must retain the finalized receipt snapshot",
+  );
+});
 
 function canonicalizeJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -981,6 +1017,65 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
       remainingFeet: 100,
     },
     "Expected Edge public film order mapper to derive a compatible order-scoped legacy fallback.",
+  );
+});
+
+Deno.test("Edge Film Order mapper preserves incomplete legacy aggregates without numeric-zero coercion", () => {
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async () => {
+      throw new Error("Unexpected RPC call.");
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    integerOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : null;
+    },
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+  });
+  const entry = repositories.mapDbFilmOrderRow({
+    film_order_id: "legacy-order",
+    job_number: "legacy-job",
+    warehouse: "IL1",
+    manufacturer: "Example",
+    film_name: "Legacy Film",
+    width_in: 60,
+    requested_feet: 80,
+    linked_feet: 80,
+    ordered_feet: 80,
+    received_feet: null,
+    on_the_way_feet: null,
+    covered_feet: 0,
+    remaining_to_order_feet: 0,
+    order_overage_feet: 0,
+    completed_feet: 0,
+    status: "FILM_ON_THE_WAY",
+    stored_status: "FILM_ON_THE_WAY",
+    display_status: "FILM_ON_THE_WAY",
+    order_ledger_version: "film-order-ledger-v2",
+    receipt_ledger_version: "film-order-receipt-v2",
+    receipt_history_complete: false,
+    receipt_history_missing_count: 1,
+    receipt_totals_source: "STORED_LEGACY_AGGREGATE",
+  });
+  const mapped = repositories.toPublicFilmOrder(entry, [{ receiptHistoryStatus: "MISSING" }]);
+
+  assertEquals(mapped.receivedFeet, null, "Expected a missing receipt total to remain unknown.");
+  assertEquals(mapped.onTheWayFeet, null, "Expected derived on-way LF to remain unknown.");
+  assertEquals(mapped.displayStatus, "FILM_ON_THE_WAY", "Expected the stored status to remain stable.");
+  assertEquals(
+    mapped.receiptTotalsSource,
+    "STORED_LEGACY_AGGREGATE",
+    "Expected incomplete history to identify the stored aggregate source.",
   );
 });
 
