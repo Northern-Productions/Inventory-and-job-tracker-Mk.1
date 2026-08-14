@@ -92,7 +92,9 @@ Lower-priority claims are reduced or cancelled first.
 - If a linked ordered box is corrected from 230 LF to 100 LF before receipt, the finalized receipt contribution and Film Order coverage use 100 LF.
 - A finalized receipt may change only through the explicit Film Order `Correct Received LF` workflow. That workflow requires Film Order write access and a reason, preserves the old/new values, actor, and timestamp in Film Order history, and does not edit the box's Initial or current LF.
 - Multiple finalized receipt links add their width-adjusted historical contributions, so split receipts such as 35 LF plus 25 LF can fulfill a 60 LF order.
-- A received link with no deterministic receipt history fails closed and is reported as incomplete. Current box data must never be substituted for missing historical evidence.
+- A received link with no deterministic receipt history fails closed and is reported as incomplete. Its per-link receipt contribution is unknown, never numeric zero, and current box data must never be substituted for missing historical evidence.
+- While any legacy link remains incomplete, reads preserve the Film Order's stored aggregate and stored status rather than recomputing them from incomplete links. The UI labels that aggregate as legacy history and marks each unknown link as unavailable.
+- An authorized `Correct Received LF` action may establish the first complete snapshot for an incomplete legacy link from a deliberately supplied historical LF. Ordinary Box Edit and other material-flow operations cannot populate or overwrite that snapshot.
 - If captured or explicitly corrected receipt contributions no longer cover the Film Order, the order returns to Film Order / short status according to the existing status contract.
 - Any originating job requirement must also recalculate readiness.
 

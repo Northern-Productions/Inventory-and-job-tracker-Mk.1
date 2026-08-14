@@ -832,7 +832,10 @@ async function sumFilmOrderOrderedFeet(client, orgId, filmOrderId) {
   for (let index = 0; index < links.length; index += 1) {
     const box = await findBoxById(client, orgId, links[index].boxId);
     if (box) {
-      total += getLinkedBoxCoveredFeetForFilmOrder(filmOrder, links[index], box);
+      const coveredFeet = getLinkedBoxCoveredFeetForFilmOrder(filmOrder, links[index], box);
+      if (coveredFeet !== null) {
+        total += coveredFeet;
+      }
     }
   }
 
@@ -946,9 +949,15 @@ async function summarizeFilmOrderLinkedBoxes(client, orgId, filmOrderId) {
     const allocations = await listAllocationsByBox(client, orgId, box.boxId);
     const syncedLink = await syncFilmOrderLinkAllocatedFeet(client, orgId, link, allocations);
 
-    orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(filmOrder, syncedLink, box, allocations);
-    receivedFeet += getFilmOrderLinkReceivedFeet(filmOrder, syncedLink, box);
     const receiptStatus = getFilmOrderReceiptHistoryStatus(syncedLink, box);
+    const linkedFeet = getLinkedBoxCoveredFeetForFilmOrder(filmOrder, syncedLink, box, allocations);
+    const linkReceivedFeet = getFilmOrderLinkReceivedFeet(filmOrder, syncedLink, box);
+    if (linkedFeet !== null) {
+      orderedFeet += linkedFeet;
+    }
+    if (linkReceivedFeet !== null) {
+      receivedFeet += linkReceivedFeet;
+    }
     if (receiptStatus !== 'FINALIZED') {
       allLinkedBoxesReceived = false;
     }

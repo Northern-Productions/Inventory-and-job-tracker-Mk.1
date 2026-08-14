@@ -177,8 +177,8 @@ export interface FilmOrderEntry {
   linkedFeet?: number;
   coveredFeet: number;
   orderedFeet: number;
-  receivedFeet?: number;
-  onTheWayFeet?: number;
+  receivedFeet?: number | null;
+  onTheWayFeet?: number | null;
   remainingToOrderFeet: number;
   orderOverageFeet?: number;
   completedFeet?: number;
@@ -186,6 +186,7 @@ export interface FilmOrderEntry {
   receiptLedgerVersion?: string;
   receiptHistoryComplete?: boolean;
   receiptHistoryMissingCount?: number;
+  receiptTotalsSource?: 'CAPTURED_SNAPSHOTS' | 'STORED_LEGACY_AGGREGATE';
   installDate: string;
   crewLeader: string;
   status: FilmOrderStatus;
@@ -213,9 +214,9 @@ export interface FilmOrderListResponse {
 }
 
 export interface FilmOrderDetailLinkedBox extends FilmOrderLinkedBox {
-  linkedFeet?: number;
-  receivedFeet?: number;
-  onTheWayFeet?: number;
+  linkedFeet?: number | null;
+  receivedFeet?: number | null;
+  onTheWayFeet?: number | null;
   initialFeet: number;
   feetAvailable: number;
   status: string;
@@ -238,7 +239,7 @@ export interface CorrectFilmOrderReceiptResult {
   filmOrderId: string;
   linkId: string;
   boxId: string;
-  previousReceivedFeet: number;
+  previousReceivedFeet: number | null;
   correctedReceivedFeet: number;
 }
 
@@ -257,8 +258,8 @@ export interface FilmOrderHistoryEvent {
 
 export interface FilmOrderDetail extends FilmOrderEntry {
   linkedFeet: number;
-  receivedFeet: number;
-  onTheWayFeet: number;
+  receivedFeet: number | null;
+  onTheWayFeet: number | null;
   orderOverageFeet: number;
   completedFeet: number;
   orderLedgerVersion: string;

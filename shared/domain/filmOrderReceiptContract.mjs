@@ -1,6 +1,6 @@
 import { computeCoveredFeetForAllocation } from './allocationCoverageContract.mjs';
 
-export const FILM_ORDER_RECEIPT_LEDGER_VERSION = 'film-order-receipt-v1';
+export const FILM_ORDER_RECEIPT_LEDGER_VERSION = 'film-order-receipt-v2';
 export const FILM_ORDER_LEDGER_VERSION = 'film-order-ledger-v2';
 
 function firstDefined(record, camelName, snakeName) {
@@ -52,7 +52,7 @@ export function getFilmOrderLinkSourceFeet(link, box) {
     }
     return nonNegativeInteger(firstDefined(link, 'orderedFeet', 'ordered_feet'));
   }
-  return 0;
+  return null;
 }
 
 export function getFilmOrderLinkSourceWidth(link, box, filmOrder) {
@@ -63,15 +63,23 @@ export function getFilmOrderLinkSourceWidth(link, box, filmOrder) {
 }
 
 export function getFilmOrderLinkCoveredFeet(filmOrder, link, box) {
+  const sourceFeet = getFilmOrderLinkSourceFeet(link, box);
+  if (sourceFeet === null) {
+    return null;
+  }
   return computeCoveredFeetForAllocation(
-    getFilmOrderLinkSourceFeet(link, box),
+    sourceFeet,
     getFilmOrderLinkSourceWidth(link, box, filmOrder),
     filmOrder?.widthIn ?? filmOrder?.width_in
   );
 }
 
 export function getFilmOrderLinkReceivedFeet(filmOrder, link, box) {
-  if (getFilmOrderReceiptHistoryStatus(link, box) !== 'FINALIZED') {
+  const status = getFilmOrderReceiptHistoryStatus(link, box);
+  if (status === 'MISSING') {
+    return null;
+  }
+  if (status !== 'FINALIZED') {
     return 0;
   }
   return getFilmOrderLinkCoveredFeet(filmOrder, link, box);

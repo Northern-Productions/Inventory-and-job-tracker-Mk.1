@@ -1020,6 +1020,65 @@ Deno.test("Edge public film order mapper exposes additive jobId only when presen
   );
 });
 
+Deno.test("Edge Film Order mapper preserves incomplete legacy aggregates without numeric-zero coercion", () => {
+  const repositories = createInventoryRepositories({
+    rpcOrThrow: async () => {
+      throw new Error("Unexpected RPC call.");
+    },
+    asTrimmedString: (value: unknown) => String(value || "").trim(),
+    numericOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    },
+    integerOrZero: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : 0;
+    },
+    integerOrNull: (value: unknown) => {
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? Math.trunc(numberValue) : null;
+    },
+    formatDateValue: (value: unknown) => String(value || "").trim(),
+    formatTimestamp: (value: unknown) => String(value || "").trim(),
+    listInternalBoxRecordIdsByBoxId: async () => ({}),
+  });
+  const entry = repositories.mapDbFilmOrderRow({
+    film_order_id: "legacy-order",
+    job_number: "legacy-job",
+    warehouse: "IL1",
+    manufacturer: "Example",
+    film_name: "Legacy Film",
+    width_in: 60,
+    requested_feet: 80,
+    linked_feet: 80,
+    ordered_feet: 80,
+    received_feet: null,
+    on_the_way_feet: null,
+    covered_feet: 0,
+    remaining_to_order_feet: 0,
+    order_overage_feet: 0,
+    completed_feet: 0,
+    status: "FILM_ON_THE_WAY",
+    stored_status: "FILM_ON_THE_WAY",
+    display_status: "FILM_ON_THE_WAY",
+    order_ledger_version: "film-order-ledger-v2",
+    receipt_ledger_version: "film-order-receipt-v2",
+    receipt_history_complete: false,
+    receipt_history_missing_count: 1,
+    receipt_totals_source: "STORED_LEGACY_AGGREGATE",
+  });
+  const mapped = repositories.toPublicFilmOrder(entry, [{ receiptHistoryStatus: "MISSING" }]);
+
+  assertEquals(mapped.receivedFeet, null, "Expected a missing receipt total to remain unknown.");
+  assertEquals(mapped.onTheWayFeet, null, "Expected derived on-way LF to remain unknown.");
+  assertEquals(mapped.displayStatus, "FILM_ON_THE_WAY", "Expected the stored status to remain stable.");
+  assertEquals(
+    mapped.receiptTotalsSource,
+    "STORED_LEGACY_AGGREGATE",
+    "Expected incomplete history to identify the stored aggregate source.",
+  );
+});
+
 Deno.test("Edge public box mapper exposes additive ordered-for and checkout job metadata", () => {
   const repositories = createInventoryRepositories({
     rpcOrThrow: async () => {

@@ -43,7 +43,10 @@ export function CorrectFilmOrderReceiptDialog({
 
   async function submit() {
     const normalizedReason = reason.trim();
-    if (!receipt?.linkId || receipt.receiptHistoryStatus !== 'FINALIZED') {
+    if (
+      !receipt?.linkId ||
+      (receipt.receiptHistoryStatus !== 'FINALIZED' && receipt.receiptHistoryStatus !== 'MISSING')
+    ) {
       setError('This receipt is not available for correction.');
       return;
     }
@@ -56,7 +59,10 @@ export function CorrectFilmOrderReceiptDialog({
       setError('Corrected Received LF is outside the supported range.');
       return;
     }
-    if (correctedReceivedFeet === receipt.receiptContributionFeet) {
+    if (
+      receipt.receiptHistoryStatus === 'FINALIZED' &&
+      correctedReceivedFeet === receipt.receiptContributionFeet
+    ) {
       setError('Enter a value different from the recorded receipt.');
       return;
     }
@@ -91,8 +97,9 @@ export function CorrectFilmOrderReceiptDialog({
         </button>
       </div>
       <p id="correct-film-order-receipt-description" className="muted-text dialog-message">
-        {filmOrderId} / {receipt?.boxId || 'Linked box'} currently records{' '}
-        {receipt?.receiptContributionFeet ?? 0} LF received. This changes Film Order history only.
+        {receipt?.receiptHistoryStatus === 'MISSING'
+          ? `${filmOrderId} / ${receipt?.boxId || 'Linked box'} has no reconstructable receipt LF. Enter the verified historical amount. This changes Film Order history only.`
+          : `${filmOrderId} / ${receipt?.boxId || 'Linked box'} currently records ${receipt?.receiptContributionFeet ?? '--'} LF received. This changes Film Order history only.`}
       </p>
       <div className="form-grid">
         <Input
@@ -128,7 +135,7 @@ export function CorrectFilmOrderReceiptDialog({
           Cancel
         </Button>
         <Button type="button" variant="primary" onClick={() => void submit()} disabled={pending}>
-          {pending ? 'Correcting...' : 'Save Correction'}
+          {pending ? 'Correcting...' : receipt?.receiptHistoryStatus === 'MISSING' ? 'Record Receipt LF' : 'Save Correction'}
         </Button>
       </div>
     </DialogSurface>

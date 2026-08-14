@@ -1165,16 +1165,17 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(client, orgId, filmO
     const box = linkedBoxById[boxId];
     const filmOrder = filmOrderById[filmOrderId] || {};
     const receiptHistoryStatus = getFilmOrderReceiptHistoryStatus(link, box);
-    const orderedFeet = getFilmOrderLinkCoveredFeet(filmOrder, link, box);
+    const linkedFeet = getFilmOrderLinkCoveredFeet(filmOrder, link, box);
     const receivedFeet = getFilmOrderLinkReceivedFeet(filmOrder, link, box);
 
     grouped[filmOrderId].push({
       linkId: link.linkId,
       boxId,
-      orderedFeet,
-      linkedFeet: orderedFeet,
+      orderedFeet: integerOrZero(link.orderedFeet),
+      linkedFeet,
       receivedFeet,
-      onTheWayFeet: Math.max(orderedFeet - receivedFeet, 0),
+      onTheWayFeet:
+        linkedFeet === null || receivedFeet === null ? null : Math.max(linkedFeet - receivedFeet, 0),
       autoAllocatedFeet: link.autoAllocatedFeet,
       dealer: asTrimmedString(box.dealer),
       isReceived: receiptHistoryStatus === 'FINALIZED',

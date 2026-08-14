@@ -21,7 +21,7 @@ const finalized = {
 
 test('Film Order receipt versions identify the historical ledger contract', () => {
   assert.equal(FILM_ORDER_LEDGER_VERSION, 'film-order-ledger-v2');
-  assert.equal(FILM_ORDER_RECEIPT_LEDGER_VERSION, 'film-order-receipt-v1');
+  assert.equal(FILM_ORDER_RECEIPT_LEDGER_VERSION, 'film-order-receipt-v2');
 });
 
 test('finalized receipt credit is independent from mutable inventory LF and Initial LF', () => {
@@ -80,13 +80,14 @@ test('source-width snapshots preserve split-width receipt conversion', () => {
   assert.equal(getFilmOrderLinkReceivedFeet(narrowOrder, wideReceipt, { status: 'IN_STOCK', widthIn: 36 }), 60);
 });
 
-test('received links without deterministic history fail closed instead of reading live box quantities', () => {
+test('received links without deterministic history remain unknown instead of reading live box quantities or becoming zero', () => {
   const missing = { orderedFeet: 60 };
   const box = { status: 'IN_STOCK', initialFeet: 60, physicalFeetAvailable: 40, widthIn: 60 };
 
   assert.equal(getFilmOrderReceiptHistoryStatus(missing, box), 'MISSING');
-  assert.equal(getFilmOrderLinkCoveredFeet(order, missing, box), 0);
-  assert.equal(getFilmOrderLinkReceivedFeet(order, missing, box), 0);
+  assert.equal(getFilmOrderLinkSourceFeet(missing, box), null);
+  assert.equal(getFilmOrderLinkCoveredFeet(order, missing, box), null);
+  assert.equal(getFilmOrderLinkReceivedFeet(order, missing, box), null);
   assert.equal(hasCompleteFilmOrderReceiptHistory(missing, box), false);
 });
 

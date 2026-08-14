@@ -373,6 +373,9 @@ function mapDbFilmOrderRow(row) {
   const status = asTrimmedString(row.status) || 'FILM_ORDER';
   const displayStatus = asTrimmedString(row.display_status ?? row.displayStatus);
   const needSource = asTrimmedString(row.need_source ?? row.needSource);
+  const receiptHistoryComplete = row.receipt_history_complete ?? row.receiptHistoryComplete;
+  const rawReceivedFeet = row.received_feet ?? row.receivedFeet;
+  const rawOnTheWayFeet = row.on_the_way_feet ?? row.onTheWayFeet;
 
   return {
     id: row.id,
@@ -391,14 +394,15 @@ function mapDbFilmOrderRow(row) {
     coveredFeet: integerOrZero(row.covered_feet),
     linkedFeet: integerOrZero(row.linked_feet ?? row.ordered_feet),
     orderedFeet: integerOrZero(row.linked_feet ?? row.ordered_feet),
-    receivedFeet: integerOrZero(row.received_feet),
-    onTheWayFeet: integerOrZero(row.on_the_way_feet),
+    receivedFeet: receiptHistoryComplete === false && rawReceivedFeet == null ? null : integerOrZero(rawReceivedFeet),
+    onTheWayFeet: receiptHistoryComplete === false && rawOnTheWayFeet == null ? null : integerOrZero(rawOnTheWayFeet),
     remainingToOrderFeet: integerOrZero(row.remaining_to_order_feet),
     orderOverageFeet: integerOrZero(row.order_overage_feet ?? row.overage_feet),
     completedFeet: integerOrZero(row.completed_feet ?? row.fulfilled_feet),
     orderLedgerVersion: asTrimmedString(row.order_ledger_version ?? row.orderLedgerVersion),
     receiptLedgerVersion: asTrimmedString(row.receipt_ledger_version ?? row.receiptLedgerVersion),
-    receiptHistoryComplete: row.receipt_history_complete ?? row.receiptHistoryComplete,
+    receiptTotalsSource: asTrimmedString(row.receipt_totals_source ?? row.receiptTotalsSource),
+    receiptHistoryComplete,
     receiptHistoryMissingCount: integerOrZero(
       row.receipt_history_missing_count ?? row.receiptHistoryMissingCount
     ),
@@ -428,28 +432,53 @@ function mapDbFilmOrderRow(row) {
   };
 }
 
+function hasIncompleteFilmOrderReceiptHistory(entry, linkedBoxes) {
+  return (
+    entry.receiptHistoryComplete === false ||
+    (Array.isArray(linkedBoxes) &&
+      linkedBoxes.some((box) => asTrimmedString(box?.receiptHistoryStatus).toUpperCase() === 'MISSING'))
+  );
+}
+
 function buildPublicFilmOrderLedger(entry, linkedBoxes) {
   const requestedFeet = integerOrZero(entry.requestedFeet);
   const normalizedLinkedBoxes = Array.isArray(linkedBoxes) ? linkedBoxes : [];
+  const receiptHistoryIncomplete = hasIncompleteFilmOrderReceiptHistory(entry, normalizedLinkedBoxes);
   const hasCanonicalLedger = ['film-order-ledger-v1', 'film-order-ledger-v2'].includes(
     asTrimmedString(entry.orderLedgerVersion)
   );
-  const linkedFeet = hasCanonicalLedger
+  const linkedFeet = receiptHistoryIncomplete
+    ? integerOrZero(entry.linkedFeet ?? entry.orderedFeet)
+    : hasCanonicalLedger
     ? integerOrZero(entry.linkedFeet)
     : normalizedLinkedBoxes.length
       ? normalizedLinkedBoxes.reduce((sum, box) => sum + integerOrZero(box?.orderedFeet), 0)
       : integerOrZero(entry.linkedFeet ?? entry.orderedFeet);
-  const receivedFeet = hasCanonicalLedger
+  const receivedFeet = receiptHistoryIncomplete
+    ? entry.receivedFeet == null
+      ? null
+      : integerOrZero(entry.receivedFeet)
+    : hasCanonicalLedger
     ? integerOrZero(entry.receivedFeet)
     : normalizedLinkedBoxes.reduce(
         (sum, box) => sum + (box?.isReceived ? integerOrZero(box?.orderedFeet) : 0),
         0
       );
-  const onTheWayFeet = Math.max(linkedFeet - receivedFeet, 0);
+  const onTheWayFeet = receiptHistoryIncomplete
+    ? entry.onTheWayFeet == null
+      ? null
+      : integerOrZero(entry.onTheWayFeet)
+    : Math.max(linkedFeet - receivedFeet, 0);
   const coveredFeet = integerOrZero(entry.coveredFeet);
-  const remainingToOrderFeet = Math.max(requestedFeet - linkedFeet, 0);
-  const orderOverageFeet = Math.max(linkedFeet - requestedFeet, 0);
-  const completedFeet = Math.max(receivedFeet, coveredFeet);
+  const remainingToOrderFeet = receiptHistoryIncomplete
+    ? integerOrZero(entry.remainingToOrderFeet)
+    : Math.max(requestedFeet - linkedFeet, 0);
+  const orderOverageFeet = receiptHistoryIncomplete
+    ? integerOrZero(entry.orderOverageFeet ?? entry.overageFeet)
+    : Math.max(linkedFeet - requestedFeet, 0);
+  const completedFeet = receiptHistoryIncomplete
+    ? integerOrZero(entry.completedFeet ?? entry.fulfilledFeet)
+    : Math.max(receivedFeet, coveredFeet);
 
   return {
     requestedFeet,
@@ -500,6 +529,17 @@ function toPublicFilmOrder(entry, linkedBoxes) {
   const sections = asTrimmedString(entry.sections || entry.workScope);
   const ledger = buildPublicFilmOrderLedger(entry, linkedBoxes);
   const displayStatus = derivePublicFilmOrderDisplayStatus(entry, ledger);
+  const derivedMissingReceiptCount = Array.isArray(linkedBoxes)
+    ? linkedBoxes.filter((box) => asTrimmedString(box?.receiptHistoryStatus).toUpperCase() === 'MISSING').length
+    : 0;
+  const receiptHistoryComplete =
+    typeof entry.receiptHistoryComplete === 'boolean'
+      ? entry.receiptHistoryComplete
+      : derivedMissingReceiptCount === 0;
+  const receiptHistoryMissingCount =
+    typeof entry.receiptHistoryComplete === 'boolean'
+      ? integerOrZero(entry.receiptHistoryMissingCount)
+      : derivedMissingReceiptCount;
 
   return {
     filmOrderId: entry.filmOrderId,
@@ -525,12 +565,13 @@ function toPublicFilmOrder(entry, linkedBoxes) {
     ...(asTrimmedString(entry.receiptLedgerVersion)
       ? { receiptLedgerVersion: entry.receiptLedgerVersion }
       : {}),
-    ...(typeof entry.receiptHistoryComplete === 'boolean'
-      ? {
-          receiptHistoryComplete: entry.receiptHistoryComplete,
-          receiptHistoryMissingCount: integerOrZero(entry.receiptHistoryMissingCount)
-        }
-      : {}),
+    ...(asTrimmedString(entry.receiptTotalsSource)
+      ? { receiptTotalsSource: entry.receiptTotalsSource }
+      : !receiptHistoryComplete
+        ? { receiptTotalsSource: 'STORED_LEGACY_AGGREGATE' }
+        : {}),
+    receiptHistoryComplete,
+    receiptHistoryMissingCount,
     installDate: entry.installDate,
     crewLeader: entry.crewLeader,
     status: entry.status,

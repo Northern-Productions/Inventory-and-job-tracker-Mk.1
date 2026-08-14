@@ -5893,9 +5893,9 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
       linkId: string;
       boxId: string;
       orderedFeet: number;
-      linkedFeet: number;
-      receivedFeet: number;
-      onTheWayFeet: number;
+      linkedFeet: number | null;
+      receivedFeet: number | null;
+      onTheWayFeet: number | null;
       autoAllocatedFeet: number;
       dealer: string;
       isReceived: boolean;
@@ -5976,10 +5976,11 @@ async function buildPublicFilmOrderLinkedBoxesByFilmOrderId(
     linkedBoxesByFilmOrderId[filmOrderId].push({
       linkId: asTrimmedString((link as Record<string, unknown>).linkId),
       boxId,
-      orderedFeet: linkedFeet,
+      orderedFeet: integerOrZero((link as Record<string, unknown>).orderedFeet),
       linkedFeet,
       receivedFeet,
-      onTheWayFeet: Math.max(linkedFeet - receivedFeet, 0),
+      onTheWayFeet:
+        linkedFeet === null || receivedFeet === null ? null : Math.max(linkedFeet - receivedFeet, 0),
       autoAllocatedFeet: integerOrZero((link as Record<string, unknown>).autoAllocatedFeet),
       dealer: asTrimmedString(box.dealer),
       isReceived: receiptHistoryStatus === "FINALIZED",
@@ -6009,7 +6010,12 @@ async function buildPublicFilmOrderLinkedBoxes(
   return linkedBoxesByFilmOrderId[asTrimmedString(filmOrderId)] || [];
 }
 
-function getLinkedBoxCoveredFeetForFilmOrder(filmOrder: any, link: any, box: any, allocations: any[] = []): number {
+function getLinkedBoxCoveredFeetForFilmOrder(
+  filmOrder: any,
+  link: any,
+  box: any,
+  allocations: any[] = [],
+): number | null {
   void allocations;
   return getFilmOrderLinkCoveredFeet(filmOrder, link, box);
 }
@@ -6109,9 +6115,15 @@ async function summarizeFilmOrderLinkedBoxes(
       ? await syncFilmOrderLinkAllocatedFeet(serviceClient, orgId, linkRecord, allocations)
       : linkRecord;
 
-    orderedFeet += getLinkedBoxCoveredFeetForFilmOrder(order, syncedLink, box, allocations);
-    receivedFeet += getFilmOrderLinkReceivedFeet(order, syncedLink, box);
     const receiptStatus = getFilmOrderReceiptHistoryStatus(syncedLink, box);
+    const linkedFeet = getLinkedBoxCoveredFeetForFilmOrder(order, syncedLink, box, allocations);
+    const linkReceivedFeet = getFilmOrderLinkReceivedFeet(order, syncedLink, box);
+    if (linkedFeet !== null) {
+      orderedFeet += linkedFeet;
+    }
+    if (linkReceivedFeet !== null) {
+      receivedFeet += linkReceivedFeet;
+    }
     if (receiptStatus !== "FINALIZED") {
       allLinkedBoxesReceived = false;
     }

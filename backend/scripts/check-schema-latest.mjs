@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0199_film_order_receipt_history.sql';
+const LATEST_MIGRATION = '0200_legacy_film_order_receipt_history.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -751,13 +751,16 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app_api.film_order_link_covered_feet(',
       'app_api.film_order_link_received_feet(',
       'missing_receipt_history_count',
+      'STORED_LEGACY_AGGREGATE',
+      'coalesce((raw_metrics.order_row).ordered_feet, 0)',
       'remaining_to_order_feet',
       'order_overage_feet',
       'on_the_way_feet',
       "'need_source', 'ORDER_REQUEST'",
       "then 'FILM_ON_THE_WAY'",
       "then 'FULFILLED_COVERED'",
-      "'receipt_ledger_version', 'film-order-receipt-v1'",
+      "'receipt_totals_source'",
+      "'receipt_ledger_version', 'film-order-receipt-v2'",
       "'order_ledger_version', 'film-order-ledger-v2'"
     ],
     excludes: [
@@ -783,6 +786,21 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'FILM_ORDER_MANUALLY_FULFILLED'
     ],
     excludes: ['coalesce(sum(l.ordered_feet)', 'app_api.box_physical_feet_available(b)']
+  },
+  {
+    signature: 'app_api.film_order_link_covered_feet(app.film_order_box_links, app.boxes, numeric)',
+    includes: ["when 'FINALIZED'", "when 'PENDING'", 'else null'],
+    excludes: ['app_api.box_physical_feet_available']
+  },
+  {
+    signature: 'app_api.film_order_link_received_feet(app.film_order_box_links, app.boxes, numeric)',
+    includes: ["when 'FINALIZED'", "when 'PENDING' then 0", 'else null'],
+    excludes: ['app_api.box_physical_feet_available']
+  },
+  {
+    signature: 'app_api.guard_film_order_receipt_history_update()',
+    includes: ["v_mode = 'CORRECT'", 'v_old_snapshot_missing', "new.receipt_capture_source <> 'MANUAL_CORRECTION'"],
+    excludes: []
   },
   {
     signature: 'app_api.reconcile_existing_film_order_need_for_requirement(uuid, text, uuid)',
@@ -924,11 +942,22 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'app_api.film_order_link_received_feet(',
       "'receiptContributionFeet', l.receipt_contribution_feet",
       "'receiptHistoryStatus', app_api.film_order_link_receipt_status(l, b)",
-      "'receiptLedgerVersion', 'film-order-receipt-v1'",
+      "'receiptTotalsSource'",
+      "'receiptLedgerVersion', 'film-order-receipt-v2'",
       "'orderLedgerVersion', 'film-order-ledger-v2'",
       "'initialCost', b.purchase_cost"
     ],
     excludes: ['v_order.origin', "v_needed_feet := greatest(coalesce(v_requirement.required_feet"]
+  },
+  {
+    signature: 'public.api_film_orders_correct_received_lf(uuid, text, jsonb)',
+    includes: [
+      'v_establishing_legacy_snapshot',
+      "receipt_capture_source = 'MANUAL_CORRECTION'",
+      "'FILM_ORDER_RECEIPT_CORRECTED'",
+      'perform app_api.recalculate_film_order(p_org_id, v_order.film_order_id, v_actor)'
+    ],
+    excludes: ['receipt_contribution_feet = v_box.initial_feet']
   },
   {
     signature: 'app_api.api_acl_film_orders_get_pre_0199(uuid, text)',

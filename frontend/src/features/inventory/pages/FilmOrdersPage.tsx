@@ -385,8 +385,8 @@ export default function FilmOrdersPage() {
                       <MobileField label="Width" value={order.widthIn} />
                       <MobileField label="Requested LF" value={order.requestedFeet} />
                       <MobileField label="Ordered / Linked LF" value={getFilmOrderLinkedFeet(order)} />
-                      <MobileField label="On The Way LF" value={getFilmOrderOnTheWayFeet(order)} />
-                      <MobileField label="Received LF" value={getFilmOrderReceivedFeet(order)} />
+                      <MobileField label="On The Way LF" value={getFilmOrderOnTheWayFeet(order) ?? 'History unavailable'} />
+                      <MobileField label="Received LF" value={getFilmOrderReceivedFeet(order) ?? 'History unavailable'} />
                       <MobileField label="Covered / Allocated LF" value={order.coveredFeet} />
                       <MobileField label="Remaining To Order LF" value={getFilmOrderRemainingFeet(order)} />
                       <MobileField label="Order Overage LF" value={getFilmOrderOverageFeet(order)} />
@@ -479,8 +479,8 @@ export default function FilmOrdersPage() {
                         <td>{order.widthIn}</td>
                         <td>{order.requestedFeet}</td>
                         <td>{getFilmOrderLinkedFeet(order)}</td>
-                        <td>{getFilmOrderOnTheWayFeet(order)}</td>
-                        <td>{getFilmOrderReceivedFeet(order)}</td>
+                        <td>{getFilmOrderOnTheWayFeet(order) ?? 'History unavailable'}</td>
+                        <td>{getFilmOrderReceivedFeet(order) ?? 'History unavailable'}</td>
                         <td>{order.coveredFeet}</td>
                         <td>{getFilmOrderRemainingFeet(order)}</td>
                         <td>{getFilmOrderOverageFeet(order)}</td>

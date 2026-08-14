@@ -66,7 +66,7 @@ function buildDetail(overrides: Partial<FilmOrderDetail> = {}): FilmOrderDetail 
     orderOverageFeet: 0,
     completedFeet: 100,
     orderLedgerVersion: 'film-order-ledger-v2',
-    receiptLedgerVersion: 'film-order-receipt-v1',
+    receiptLedgerVersion: 'film-order-receipt-v2',
     receiptHistoryComplete: true,
     receiptHistoryMissingCount: 0,
     installDate: '2026-05-21',
@@ -551,6 +551,108 @@ describe('FilmOrderDetailsPage', () => {
     );
     expect(toastPushMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Received LF corrected', variant: 'success' })
+    );
+  });
+
+  it('marks ambiguous legacy history and allows an authorized deliberate first correction', async () => {
+    getFilmOrderDetailMock.mockResolvedValue(
+      buildDetail({
+        status: 'FULFILLED',
+        storedStatus: 'FULFILLED',
+        displayStatus: 'FULFILLED_COVERED',
+        requestedFeet: 80,
+        linkedFeet: 85,
+        orderedFeet: 85,
+        receivedFeet: 85,
+        onTheWayFeet: 0,
+        remainingToOrderFeet: 0,
+        orderOverageFeet: 5,
+        completedFeet: 85,
+        receiptHistoryComplete: false,
+        receiptHistoryMissingCount: 1,
+        receiptTotalsSource: 'STORED_LEGACY_AGGREGATE',
+        history: [
+          {
+            eventId: 'event-legacy-correction',
+            eventType: 'FILM_ORDER_RECEIPT_CORRECTED',
+            filmOrderId: 'FO-1',
+            relatedBoxId: 'IL1-LEGACY',
+            actor: 'fixture-user',
+            note: 'Historical receipt established from retained documentation.',
+            before: {
+              receiptContributionFeet: null,
+              receivedFeet: null,
+              receiptHistoryStatus: 'MISSING'
+            },
+            after: {
+              receiptContributionFeet: 72,
+              receivedFeet: 72,
+              receiptHistoryStatus: 'FINALIZED'
+            },
+            createdAt: '2026-08-14T12:00:00.000Z'
+          }
+        ],
+        linkedBoxes: [
+          {
+            linkId: 'link-legacy',
+            boxId: 'IL1-LEGACY',
+            dealer: 'Legacy Dealer',
+            orderedFeet: 85,
+            linkedFeet: null,
+            receivedFeet: null,
+            onTheWayFeet: null,
+            autoAllocatedFeet: 0,
+            isReceived: false,
+            receiptHistoryStatus: 'MISSING',
+            receiptContributionFeet: null,
+            receiptSourceWidthIn: null,
+            receiptFinalizedAt: null,
+            receiptFinalizedBy: '',
+            receiptCaptureSource: '',
+            isDirectToJobSite: false,
+            initialFeet: 140,
+            feetAvailable: 20,
+            status: 'IN_STOCK',
+            orderDate: '2026-05-18',
+            receivedDate: null,
+            initialCost: 1200
+          }
+        ]
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText(/historical receipt evidence is incomplete/i)).toBeTruthy();
+    expect(screen.getByText(/current inventory LF is not being used as a substitute/i)).toBeTruthy();
+    expect(screen.getAllByText(/stored legacy aggregate/i)).toHaveLength(2);
+    expect(screen.queryByText('Receipt 0 LF')).toBeNull();
+    expect(screen.queryByText('0 credited LF')).toBeNull();
+    expect(screen.getByText(/Receipt 72 LF \/ 72 credited LF/)).toBeTruthy();
+    const legacyRow = screen.getAllByRole('link', { name: 'IL1-LEGACY' })[0].closest(
+      'tr'
+    ) as HTMLTableRowElement;
+    expect(within(legacyRow).getAllByText('--').length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(within(legacyRow).getByRole('button', { name: 'Correct Received LF' }));
+    expect(screen.getByText(/has no reconstructable receipt LF/i)).toBeTruthy();
+    expect((screen.getByLabelText('Corrected Received LF') as HTMLInputElement).value).toBe('');
+    fireEvent.change(screen.getByLabelText('Corrected Received LF'), { target: { value: '72' } });
+    fireEvent.change(screen.getByLabelText('Correction reason'), {
+      target: { value: 'Verified from retained receiving documentation.' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Record Receipt LF' }));
+
+    await waitFor(() =>
+      expect(correctFilmOrderReceiptMock).toHaveBeenCalledWith({
+        filmOrderId: 'FO-1',
+        jobId: '11111111-1111-4111-8111-111111111111',
+        jobNumber: '4024',
+        linkId: 'link-legacy',
+        boxId: 'IL1-LEGACY',
+        correctedReceivedFeet: 72,
+        reason: 'Verified from retained receiving documentation.'
+      })
     );
   });
 

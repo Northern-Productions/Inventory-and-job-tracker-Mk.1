@@ -54,16 +54,24 @@ function formatInitialCost(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? USD_CURRENCY_FORMATTER.format(value) : '--';
 }
 
+function optionalFiniteNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
 function renderChangedData(value: Record<string, unknown> | null | undefined) {
   if (!value || typeof value !== 'object') {
     return null;
   }
 
   const boxId = String(value.boxId || '').trim();
-  const initialFeet = Number(value.initialFeet);
+  const initialFeet = optionalFiniteNumber(value.initialFeet);
   const status = String(value.status || '').trim();
-  const receiptContributionFeet = Number(value.receiptContributionFeet);
-  const receivedFeet = Number(value.receivedFeet);
+  const receiptContributionFeet = optionalFiniteNumber(value.receiptContributionFeet);
+  const receivedFeet = optionalFiniteNumber(value.receivedFeet);
   const parts = [
     boxId ? `Box ${boxId}` : '',
     Number.isFinite(receiptContributionFeet) ? `Receipt ${receiptContributionFeet} LF` : '',
@@ -222,11 +230,14 @@ export default function FilmOrderDetailsPage() {
             </div>
             <div>
               <span className="detail-label">On The Way LF</span>
-              <strong>{order.onTheWayFeet}</strong>
+              <strong>{order.onTheWayFeet ?? 'History unavailable'}</strong>
             </div>
             <div>
               <span className="detail-label">Received LF</span>
-              <strong>{order.receivedFeet}</strong>
+              <strong>{order.receivedFeet ?? 'History unavailable'}</strong>
+              {order.receiptTotalsSource === 'STORED_LEGACY_AGGREGATE' ? (
+                <span className="muted-text">Stored legacy aggregate</span>
+              ) : null}
             </div>
             <div>
               <span className="detail-label">Covered / Allocated LF</span>
@@ -246,7 +257,13 @@ export default function FilmOrderDetailsPage() {
             </div>
             <div>
               <span className="detail-label">Received Date</span>
-              <strong>{order.receivedDate ? formatDate(order.receivedDate) : 'Not received'}</strong>
+              <strong>
+                {order.receivedDate
+                  ? formatDate(order.receivedDate)
+                  : order.receiptHistoryComplete === false
+                    ? 'History unavailable'
+                    : 'Not received'}
+              </strong>
             </div>
             <div>
               <span className="detail-label">Dealer</span>
@@ -258,6 +275,7 @@ export default function FilmOrderDetailsPage() {
             <div className="notice-card">
               Historical receipt evidence is incomplete for {order.receiptHistoryMissingCount || 1} linked
               box{order.receiptHistoryMissingCount === 1 ? '' : 'es'}. Current inventory LF is not being used as a substitute.
+              Displayed order totals preserve the stored legacy aggregate until each missing receipt is deliberately corrected.
             </div>
           ) : null}
 
@@ -320,7 +338,7 @@ export default function FilmOrderDetailsPage() {
                           <td>{box.status}</td>
                           <td>{box.initialFeet}</td>
                           <td>{box.receiptContributionFeet ?? '--'}</td>
-                          <td>{box.linkedFeet ?? box.orderedFeet}</td>
+                          <td>{box.receiptHistoryStatus === 'MISSING' ? '--' : (box.linkedFeet ?? box.orderedFeet)}</td>
                           <td>
                             {box.receiptFinalizedAt
                               ? formatDate(box.receiptFinalizedAt)
@@ -332,7 +350,7 @@ export default function FilmOrderDetailsPage() {
                           <td>
                             {auth.hasFeatureAccess('film_orders', 'write') &&
                             box.linkId &&
-                            box.receiptHistoryStatus === 'FINALIZED' ? (
+                            (box.receiptHistoryStatus === 'FINALIZED' || box.receiptHistoryStatus === 'MISSING') ? (
                               <Button
                                 type="button"
                                 variant="secondary"
