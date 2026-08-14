@@ -7,6 +7,7 @@ const supabaseMigrationUrl = new URL(
   '../../../supabase/migrations/20260813100000_film_order_receipt_history.sql',
   import.meta.url
 );
+const schemaCheckUrl = new URL('../check-schema-latest.mjs', import.meta.url);
 
 test('migration 0199 remains byte-identical across backend and Supabase mirrors', async () => {
   const [backend, supabase] = await Promise.all([
@@ -107,4 +108,16 @@ test('migration 0199 preserves multiple correction history and fails closed on m
   assert.match(migration, /v_before\.receipt_contribution_feet/);
   assert.match(migration, /v_after\.receipt_contribution_feet/);
   assert.match(migration, /if v_missing_receipt_history_count > 0 then\s+return v_existing;/);
+});
+
+test('latest schema guard verifies the receipt wrapper and its preserved pre-0199 detail contract separately', async () => {
+  const schemaCheck = await readFile(schemaCheckUrl, 'utf8');
+
+  assert.match(schemaCheck, /signature: 'public\.api_acl_film_orders_get\(uuid, text\)'[\s\S]*app_api\.api_acl_film_orders_get_pre_0199\(/);
+  assert.match(schemaCheck, /signature: 'public\.api_acl_film_orders_get\(uuid, text\)'[\s\S]*'receiptContributionFeet', l\.receipt_contribution_feet/);
+  assert.match(schemaCheck, /signature: 'app_api\.api_acl_film_orders_get_pre_0199\(uuid, text\)'[\s\S]*'sourceBoxId', v_order\.source_box_id/);
+  assert.doesNotMatch(
+    schemaCheck,
+    /signature: 'app_api\.film_order_ledger_projection\(uuid, text\[\]\)'[\s\S]*?includes: \[[\s\S]*?'receipt_contribution_feet'/
+  );
 });

@@ -200,6 +200,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'public.api_film_orders_correct_received_lf(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_correct_received_lf(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_film_orders_get(uuid, text)' },
+  { kind: 'function', signature: 'app_api.api_acl_film_orders_get_pre_0199(uuid, text)' },
   { kind: 'function', signature: 'app_api.film_order_ledger_projection(uuid, text[])' },
   { kind: 'function', signature: 'app_api.film_order_link_receipt_status(app.film_order_box_links, app.boxes)' },
   { kind: 'function', signature: 'app_api.film_order_link_covered_feet(app.film_order_box_links, app.boxes, numeric)' },
@@ -749,7 +750,6 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       'app_api.film_order_link_covered_feet(',
       'app_api.film_order_link_received_feet(',
-      'receipt_contribution_feet',
       'missing_receipt_history_count',
       'remaining_to_order_feet',
       'order_overage_feet',
@@ -918,6 +918,20 @@ const REQUIRED_FUNCTION_SEMANTICS = [
   },
   {
     signature: 'public.api_acl_film_orders_get(uuid, text)',
+    includes: [
+      'app_api.api_acl_film_orders_get_pre_0199(',
+      'app_api.film_order_link_covered_feet(',
+      'app_api.film_order_link_received_feet(',
+      "'receiptContributionFeet', l.receipt_contribution_feet",
+      "'receiptHistoryStatus', app_api.film_order_link_receipt_status(l, b)",
+      "'receiptLedgerVersion', 'film-order-receipt-v1'",
+      "'orderLedgerVersion', 'film-order-ledger-v2'",
+      "'initialCost', b.purchase_cost"
+    ],
+    excludes: ['v_order.origin', "v_needed_feet := greatest(coalesce(v_requirement.required_feet"]
+  },
+  {
+    signature: 'app_api.api_acl_film_orders_get_pre_0199(uuid, text)',
     includes: [
       "'sourceBoxId', v_order.source_box_id",
       "when app_api.trim_text(v_order.source_box_id) = '' then 'MANUAL'",
