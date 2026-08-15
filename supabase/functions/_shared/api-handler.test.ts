@@ -174,6 +174,7 @@ Deno.test("Edge inventory search uses canonical weight-first LF across the reser
     ["auto-planned allocation", { allocationSource: "AUTO_PLANNED" }],
     ["film-order receipt allocation", { allocationSource: "FILM_ORDER_RECEIPT" }],
     ["direct-to-job-site allocation", { allocationSource: "DIRECT_TO_JOB_SITE" }],
+    ["extra allocation", { allocationKind: "EXTRA", requirementId: "" }],
   ] as const;
   for (const [name, allocationOverrides] of reservationCases) {
     const projected = projectInventorySearchBox(
@@ -255,7 +256,6 @@ Deno.test("Edge inventory search uses canonical weight-first LF across the reser
     buildInventoryProjectionBox(),
     [
       buildInventoryProjectionAllocation({ allocationId: "cancelled", status: "CANCELLED" }),
-      buildInventoryProjectionAllocation({ allocationId: "extra", allocationKind: "EXTRA" }),
       buildInventoryProjectionAllocation({ allocationId: "unbound-requirement", requirementId: "" }),
       buildInventoryProjectionAllocation({ allocationId: "unbound-job", jobId: "", jobNumber: "" }),
     ],

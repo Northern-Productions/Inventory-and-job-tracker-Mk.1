@@ -352,6 +352,9 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
       boxId: "IL1-100",
       requestedFeet: 10,
       requirementId: "req-1",
+      allocationKind: "EXTRA",
+      selectedSuggestionBoxIds: [],
+      extraAllocations: [],
     },
     buildDeps({
       findJobById: async (_client: unknown, orgId: string, jobId: string) => {
@@ -422,6 +425,9 @@ Deno.test("/allocations/apply canonical jobId is validated before SQL RPC and re
           boxId: "IL1-100",
           requestedFeet: 10,
           requirementId: "req-1",
+          allocationKind: "EXTRA",
+          selectedSuggestionBoxIds: [],
+          extraAllocations: [],
         },
       },
     ],

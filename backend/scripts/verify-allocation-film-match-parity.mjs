@@ -124,12 +124,29 @@ async function main() {
   try {
     const applyDefResult = await client.query(
       `
-        select pg_get_functiondef('public.api_allocations_apply(uuid, text, jsonb)'::regprocedure) as apply_def
+        select
+          pg_get_functiondef(
+            'public.api_allocations_apply(uuid, text, jsonb)'::regprocedure
+          ) as apply_def,
+          pg_get_functiondef(
+            'app_api.build_allocation_apply_plan_0201(uuid, text, jsonb)'::regprocedure
+          ) as extra_plan_def,
+          pg_get_functiondef(
+            'app_api.build_allocation_apply_plan_0192(uuid, text, jsonb)'::regprocedure
+          ) as canonical_plan_def
       `
     );
     const applyDef = asTrimmedString(applyDefResult.rows[0]?.apply_def);
-    if (!applyDef.includes('app_api.requirement_film_is_compatible')) {
-      throw new Error('public.api_allocations_apply is not using app_api.requirement_film_is_compatible.');
+    const extraPlanDef = asTrimmedString(applyDefResult.rows[0]?.extra_plan_def);
+    const canonicalPlanDef = asTrimmedString(applyDefResult.rows[0]?.canonical_plan_def);
+    if (!applyDef.includes('app_api.build_allocation_apply_plan_0201')) {
+      throw new Error('public.api_allocations_apply is not using the 0201 allocation planner.');
+    }
+    if (!extraPlanDef.includes('app_api.build_allocation_apply_plan_0192')) {
+      throw new Error('The 0201 allocation planner is not delegating to the canonical 0192 planner.');
+    }
+    if (!canonicalPlanDef.includes('app_api.requirement_film_is_compatible')) {
+      throw new Error('The canonical allocation planner is not using requirement film compatibility.');
     }
 
     for (const testCase of cases) {

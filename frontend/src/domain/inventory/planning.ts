@@ -28,6 +28,7 @@ export interface AllocateBoxPayload extends AllocationPlanBasePayload {
 
 export interface ApplyAllocationPlanPayload extends AllocationPlanBasePayload {
   jobId?: string;
+  allocationKind?: AllocationKind;
   selectedSuggestionBoxIds?: string[];
   extraAllocations?: Array<{
     boxId: string;

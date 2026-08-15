@@ -555,7 +555,7 @@ export function applyOptimisticAllocationAdditionToCaches(
   queryClient: QueryClient,
   payload: ApplyAllocationPlanPayload
 ) {
-  if (String(payload.jobId || '').trim()) {
+  if (String(payload.jobId || '').trim() || payload.allocationKind === 'EXTRA') {
     return {
       allocations: [],
       jobAllocations: [],

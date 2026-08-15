@@ -263,6 +263,38 @@ describe('allocations API client caulk routes', () => {
     });
   });
 
+  it('passes the primary EXTRA allocation discriminator through unchanged', async () => {
+    requestMock.mockResolvedValueOnce({
+      data: {
+        allocations: [],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+
+    await applyAllocationPlan({
+      boxId: 'IL1-6502',
+      jobNumber: '000123',
+      requestedFeet: 12,
+      requestedWidthIn: 72,
+      requirementId: 'req-72',
+      allocationKind: 'EXTRA',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: []
+    });
+
+    expect(requestMock).toHaveBeenCalledWith('POST', '/allocations/apply', {
+      body: expect.objectContaining({
+        boxId: 'IL1-6502',
+        requestedFeet: 12,
+        requirementId: 'req-72',
+        allocationKind: 'EXTRA',
+        extraAllocations: []
+      })
+    });
+  });
+
   it('passes canonical jobId through allocation apply when supplied', async () => {
     requestMock.mockResolvedValueOnce({
       data: {

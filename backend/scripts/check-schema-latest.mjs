@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0200_legacy_film_order_receipt_history.sql';
+const LATEST_MIGRATION = '0202_extra_allocation_capacity.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -148,6 +148,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.api_acl_allocations_apply_pre_0191(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.allocation_apply_box_states_0192(uuid, text[])' },
   { kind: 'function', signature: 'app_api.build_allocation_apply_plan_0192(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.build_allocation_apply_plan_0201(uuid, text, jsonb)' },
   { kind: 'function', signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_allocation_preview_candidates(uuid, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_list_jobs_by_ids(uuid, uuid[])' },
@@ -338,7 +339,7 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     signature: 'public.api_allocations_apply(uuid, text, jsonb)',
     includes: [
       'perform app_api.lock_film_material_flow();',
-      'v_plan := app_api.build_allocation_apply_plan_0192(p_org_id, p_actor, v_payload);',
+      'v_plan := app_api.build_allocation_apply_plan_0201(p_org_id, p_actor, v_payload);',
       'from app_api.allocation_apply_box_states_0192(p_org_id, v_affected_box_ids) s;',
       'if v_pre_states is distinct from v_locked_states then',
       'Transfer-assisted allocation can start only from an in-stock box.',
@@ -378,6 +379,37 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       "'warnings', '[]'::jsonb"
     ],
     excludes: ['app_api.api_allocations_apply_pre_0191']
+  },
+  {
+    signature: 'app_api.build_allocation_apply_plan_0201(uuid, text, jsonb)',
+    includes: [
+      "v_allocation_kind text := upper(coalesce(",
+      "if v_allocation_kind = 'REQUIREMENT' then",
+      'return app_api.build_allocation_apply_plan_0192(p_org_id, p_actor, v_payload);',
+      "if v_allocation_kind <> 'EXTRA' then",
+      "v_payload - 'allocationKind'",
+      "'role', 'PRIMARY_EXTRA'",
+      "'kind', 'EXTRA'",
+      'v_primary_operation_count <> 1',
+      'The primary EXTRA box no longer has enough allocatable LF. Reload and retry.'
+    ],
+    excludes: [
+      'api_allocations_apply_pre_0191',
+      'create_allocation(',
+      'save_box('
+    ]
+  },
+  {
+    signature: 'app_api.film_allocation_reserves_capacity(app.allocations, text)',
+    includes: [
+      "coalesce((p_allocation).allocation_kind::text, 'REQUIREMENT') = 'EXTRA'",
+      "coalesce((p_allocation).allocation_kind::text, 'REQUIREMENT') = 'REQUIREMENT'",
+      '(p_allocation).requirement_id is not null',
+      '(p_allocation).job_id is not null',
+      "(p_allocation).status = 'ACTIVE'",
+      "upper(coalesce(p_box_status, '')) = 'CHECKED_OUT'"
+    ],
+    excludes: []
   },
   {
     signature: 'app_api.allocation_preview_candidates_0193(uuid, jsonb)',
