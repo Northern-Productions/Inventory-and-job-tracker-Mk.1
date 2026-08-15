@@ -7,6 +7,7 @@ import { usePwaInstall } from '../pwa/PwaInstallContext';
 import type { ManualInstallMode } from '../pwa/installUtils';
 import { useAuth } from './AuthContext';
 import { DefaultWarehouseControl } from './DefaultWarehouseControl';
+import { OrganizationSwitcher } from './OrganizationSwitcher';
 import { UsernameChangeControl } from './UsernameChangeControl';
 
 function buildAccountRoleLine(role: string | null | undefined, pendingCount: number, showPending: boolean) {
@@ -35,8 +36,8 @@ export function AccountMenuTrigger() {
     }
 
     const rect = trigger.getBoundingClientRect();
-    const menuWidth = 224;
     const horizontalPadding = 16;
+    const menuWidth = Math.min(288, Math.max(0, window.innerWidth - horizontalPadding * 2));
     const nextLeft = Math.min(
       Math.max(horizontalPadding, rect.right - menuWidth),
       Math.max(horizontalPadding, window.innerWidth - menuWidth - horizontalPadding)
@@ -139,6 +140,7 @@ export function AccountMenuTrigger() {
           <span className="account-menu-profile-meta">{accountRoleLine}</span>
         ) : null}
       </div>
+      <OrganizationSwitcher presentation="account-menu" />
       <UsernameChangeControl
         buttonVariant="ghost"
         buttonClassName="account-menu-item"

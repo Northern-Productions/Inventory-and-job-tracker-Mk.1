@@ -53,6 +53,8 @@ function buildAuth(overrides: Record<string, unknown> = {}) {
   return {
     accessContext: {
       defaultWarehouse: '',
+      orgId: 'org-1',
+      organizations: [{ orgId: 'org-1', name: 'Main', role: 'owner', selected: true }],
       pendingCount: 0,
       role: 'Owner'
     },
@@ -61,6 +63,7 @@ function buildAuth(overrides: Record<string, unknown> = {}) {
       permissions[feature]?.[mode] ?? false,
     isAuthenticated: true,
     isOwner: true,
+    refreshAccessContext: vi.fn().mockResolvedValue(undefined),
     requestUsernameChange: vi.fn(),
     session: {
       user: {
@@ -69,6 +72,7 @@ function buildAuth(overrides: Record<string, unknown> = {}) {
       }
     },
     signOut: vi.fn(),
+    switchOrganization: vi.fn().mockResolvedValue(undefined),
     updateDefaultWarehouse: vi.fn(),
     ...overrides
   };
@@ -190,6 +194,7 @@ describe('AppLayout', () => {
     expect(within(headerCorner).getByRole('button', { name: 'Share' })).toBeTruthy();
     expect(within(headerCorner).getByText('Warehouse: All Warehouses')).toBeTruthy();
     expect(within(headerCorner).getByRole('button', { name: 'Account actions' })).toBeTruthy();
+    expect(within(headerCorner).queryByRole('combobox', { name: 'Organization' })).toBeNull();
     expect(within(headerCorner).queryByRole('group', { name: 'Theme' })).toBeNull();
 
     const menu = openAccountMenu();
@@ -202,6 +207,102 @@ describe('AppLayout', () => {
     );
     expect(within(menu).getByRole('menuitem', { name: 'Sign Out' })).toBeTruthy();
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('hides the normal organization control for a single-organization user', () => {
+    const view = renderLayout('/');
+    const headerCorner = view.container.querySelector('.app-header-corner');
+
+    expect(headerCorner).toBeTruthy();
+    expect(within(headerCorner as HTMLElement).queryByRole('combobox', { name: 'Organization' })).toBeNull();
+    expect(within(openAccountMenu()).queryByRole('combobox', { name: 'Organization' })).toBeNull();
+  });
+
+  it('moves multi-organization switching into the account menu with exact roles and selection', async () => {
+    const switchOrganization = vi.fn().mockResolvedValue(undefined);
+    const longName = 'Main Safe Test Film Lock Priority 2026-04-16T22-58';
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        accessContext: {
+          defaultWarehouse: '',
+          orgId: 'org-1',
+          organizations: [
+            { orgId: 'org-1', name: longName, role: 'owner', selected: true },
+            { orgId: 'org-2', name: 'Operations', role: 'admin', selected: false },
+            { orgId: 'org-3', name: 'Field Team', role: 'member', selected: false }
+          ],
+          pendingCount: 0,
+          role: 'Owner'
+        },
+        switchOrganization
+      })
+    );
+
+    const view = renderLayout('/');
+    const headerCorner = view.container.querySelector('.app-header-corner');
+    expect(headerCorner).toBeTruthy();
+    expect(within(headerCorner as HTMLElement).queryByRole('combobox', { name: 'Organization' })).toBeNull();
+
+    const menu = openAccountMenu();
+    const selector = within(menu).getByRole('combobox', { name: 'Organization' }) as HTMLSelectElement;
+    expect(selector.value).toBe('org-1');
+    expect(within(menu).getByRole('option', { name: `${longName} (Owner)` })).toBeTruthy();
+    expect(within(menu).getByRole('option', { name: 'Operations (Admin)' })).toBeTruthy();
+    expect(within(menu).getByRole('option', { name: 'Field Team (Member)' })).toBeTruthy();
+
+    fireEvent.change(selector, { target: { value: 'org-2' } });
+    await waitFor(() => expect(switchOrganization).toHaveBeenCalledWith('org-2'));
+  });
+
+  it('keeps account identity, organization, username, warehouse, and Refresh Access in order', () => {
+    useAuthMock.mockReturnValue(
+      buildAuth({
+        accessContext: {
+          defaultWarehouse: '',
+          orgId: 'org-1',
+          organizations: [
+            { orgId: 'org-1', name: 'Main', role: 'owner', selected: true },
+            { orgId: 'org-2', name: 'Second', role: 'member', selected: false }
+          ],
+          pendingCount: 0,
+          role: 'Owner'
+        }
+      })
+    );
+    renderLayout('/');
+
+    const menuChildren = Array.from(openAccountMenu().children);
+    const profileIndex = menuChildren.findIndex((child) => child.classList.contains('account-menu-profile'));
+    const organizationIndex = menuChildren.findIndex((child) => child.classList.contains('organization-picker-menu'));
+    const usernameIndex = menuChildren.findIndex((child) => child.textContent === 'Change Username');
+    const warehouseIndex = menuChildren.findIndex((child) => child.textContent === 'Change warehouse');
+    const refreshIndex = menuChildren.findIndex((child) => child.textContent === 'Refresh Access');
+
+    expect([profileIndex, organizationIndex, usernameIndex, warehouseIndex, refreshIndex]).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('preserves the exact Refresh Access action', async () => {
+    const refreshAccessContext = vi.fn().mockResolvedValue(undefined);
+    useAuthMock.mockReturnValue(buildAuth({ refreshAccessContext }));
+    renderLayout('/');
+
+    fireEvent.click(within(openAccountMenu()).getByRole('menuitem', { name: 'Refresh Access' }));
+
+    await waitFor(() => expect(refreshAccessContext).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('menu', { name: 'Account actions' })).toBeNull();
+  });
+
+  it('closes the account menu on Escape and outside pointer input', () => {
+    renderLayout('/');
+
+    openAccountMenu();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: 'Account actions' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Account actions' }));
+
+    openAccountMenu();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu', { name: 'Account actions' })).toBeNull();
   });
 
   it('displays the saved default warehouse name in the header', () => {

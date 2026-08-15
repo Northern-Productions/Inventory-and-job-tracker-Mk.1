@@ -56,6 +56,41 @@ describe('OrganizationSwitcher', () => {
     expect((selector as HTMLSelectElement).disabled).toBe(true);
   });
 
+  it('shows a visible account-menu label and keeps a long current organization selected', () => {
+    const longName = 'Main Safe Test Film Lock Priority 2026-04-16T22-58';
+    useAuthMock.mockReturnValue(
+      authWithOrganizations([
+        { orgId: 'org-1', name: longName, role: 'owner', selected: true },
+        { orgId: 'org-2', name: 'Second', role: 'member', selected: false }
+      ])
+    );
+
+    const view = render(<OrganizationSwitcher presentation="account-menu" />);
+    const selector = screen.getByRole('combobox', { name: 'Organization' }) as HTMLSelectElement;
+
+    expect(screen.getByText('Organization')).toBeTruthy();
+    expect(screen.getByRole('option', { name: `${longName} (Owner)` })).toBeTruthy();
+    expect(selector.value).toBe('org-1');
+    expect(view.container.querySelector('.organization-picker-menu-select')).toBeTruthy();
+  });
+
+  it('re-enables the selector after a redacted organization-switch failure', async () => {
+    switchOrganizationMock.mockRejectedValueOnce(new Error('Unable to switch'));
+    useAuthMock.mockReturnValue(
+      authWithOrganizations([
+        { orgId: 'org-1', name: 'One', role: 'owner', selected: true },
+        { orgId: 'org-2', name: 'Two', role: 'member', selected: false }
+      ])
+    );
+    render(<OrganizationSwitcher presentation="account-menu" />);
+
+    const selector = screen.getByRole('combobox', { name: 'Organization' }) as HTMLSelectElement;
+    fireEvent.change(selector, { target: { value: 'org-2' } });
+
+    await waitFor(() => expect(selector.disabled).toBe(false));
+    expect(switchOrganizationMock).toHaveBeenCalledWith('org-2');
+  });
+
   it('renders an explicit choice in the unresolved organization gate', () => {
     useAuthMock.mockReturnValue(
       authWithOrganizations([

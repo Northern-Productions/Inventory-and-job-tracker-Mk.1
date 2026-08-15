@@ -1211,6 +1211,29 @@ textarea {
   margin-top: 8px;
 }
 
+.organization-picker-menu {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.organization-picker-menu-label {
+  color: var(--color-text-2);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.organization-picker-menu-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .auth-gate .auth-note,
 .auth-gate .error-text {
   margin: 0.75rem 0 0;
@@ -1478,8 +1501,9 @@ textarea {
 
 .account-menu {
   position: fixed;
-  min-width: 12.5rem;
-  width: min(14rem, calc(100vw - 2rem));
+  min-width: min(12.5rem, calc(100vw - 2rem));
+  width: min(18rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
   display: grid;
   gap: 0.3rem;
   padding: 0.45rem;
@@ -1487,6 +1511,7 @@ textarea {
   border-radius: 0.85rem;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 18px 38px rgba(18, 52, 59, 0.18);
+  overflow-x: hidden;
   z-index: 1600;
 }
 
