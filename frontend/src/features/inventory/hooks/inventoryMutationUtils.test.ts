@@ -2482,6 +2482,44 @@ describe('inventoryMutationUtils', () => {
     });
   });
 
+  it('waits for authoritative server data for a primary EXTRA allocation', () => {
+    const queryClient = createQueryClient();
+    const detail = buildFilmRequirementCoverageDetail([
+      {
+        requirementId: 'req-1',
+        manufacturer: '3M',
+        filmName: 'Night Vision 15',
+        widthIn: 60,
+        requiredFeet: 40,
+        allocatedFeet: 40,
+        remainingFeet: 0
+      }
+    ]);
+    detail.summary.jobNumber = '4803';
+    queryClient.setQueryData(inventoryKeys.job('4803'), detail);
+    const before = queryClient.getQueryData(inventoryKeys.job('4803'));
+
+    const result = applyOptimisticAllocationAdditionToCaches(queryClient, {
+      boxId: 'IL1-6594',
+      jobNumber: '4803',
+      requestedFeet: 20,
+      requestedWidthIn: 60,
+      requirementId: 'req-1',
+      allocationKind: 'EXTRA',
+      selectedSuggestionBoxIds: [],
+      extraAllocations: [],
+      crossWarehouse: false,
+      jobWarehouse: 'IL1'
+    });
+
+    expect(result).toEqual({
+      allocations: [],
+      jobAllocations: [],
+      allocatedFeetByBoxId: {}
+    });
+    expect(queryClient.getQueryData(inventoryKeys.job('4803'))).toBe(before);
+  });
+
   it('does not append an optimistic duplicate when manual allocation will merge an existing auto-planned row', () => {
     const queryClient = createQueryClient();
     const detail = buildFilmRequirementCoverageDetail([

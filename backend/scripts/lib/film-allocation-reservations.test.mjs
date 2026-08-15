@@ -79,11 +79,31 @@ test('buildBoxReservationSnapshot treats received film-order allocations as phys
   assert.equal(snapshot.allocationSnapshotsById['receipt-without-install-date'].backedPhysicalFeet, 100);
 });
 
-test('buildBoxReservationSnapshot excludes extra, placeholder, cancelled, and invalid allocations', () => {
+test('buildBoxReservationSnapshot counts requirement and extra rows as distinct physical claims', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ feetAvailable: 60 }),
+    [
+      buildAllocation({ allocationId: 'requirement', allocatedFeet: 20 }),
+      buildAllocation({
+        allocationId: 'extra',
+        allocatedFeet: 20,
+        allocationKind: 'EXTRA',
+        requirementId: ''
+      })
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 100);
+  assert.equal(snapshot.activeAllocatedFeet, 40);
+  assert.equal(snapshot.allocatableNowFeet, 60);
+  assert.equal(snapshot.allocationSnapshotsById.requirement.backedPhysicalFeet, 20);
+  assert.equal(snapshot.allocationSnapshotsById.extra.backedPhysicalFeet, 20);
+});
+
+test('buildBoxReservationSnapshot excludes placeholders, cancelled rows, and invalid requirements', () => {
   const snapshot = buildBoxReservationSnapshot(
     buildBox({ feetAvailable: 100 }),
     [
-      buildAllocation({ allocationId: 'extra', allocatedFeet: 20, allocationKind: 'EXTRA' }),
       buildAllocation({ allocationId: 'placeholder', allocatedFeet: 20, jobNumber: '', jobId: null }),
       buildAllocation({ allocationId: 'cancelled', allocatedFeet: 20, status: 'CANCELLED' }),
       buildAllocation({ allocationId: 'invalid', allocatedFeet: 20, requirementId: '' }),
@@ -93,6 +113,26 @@ test('buildBoxReservationSnapshot excludes extra, placeholder, cancelled, and in
   assert.equal(snapshot.activeAllocatedFeet, 0);
   assert.equal(snapshot.allocatableNowFeet, 100);
   assert.equal(snapshot.allocationSnapshotsById.placeholder.backedPhysicalFeet, 0);
+});
+
+test('buildBoxReservationSnapshot keeps fulfilled extra film reserved while the box is checked out', () => {
+  const snapshot = buildBoxReservationSnapshot(
+    buildBox({ status: 'CHECKED_OUT', feetAvailable: 50 }),
+    [
+      buildAllocation({
+        allocationId: 'fulfilled-extra',
+        allocatedFeet: 20,
+        allocationKind: 'EXTRA',
+        requirementId: '',
+        status: 'FULFILLED'
+      })
+    ]
+  );
+
+  assert.equal(snapshot.physicalFeetAvailable, 50);
+  assert.equal(snapshot.activeAllocatedFeet, 20);
+  assert.equal(snapshot.allocatableNowFeet, 30);
+  assert.equal(snapshot.allocationSnapshotsById['fulfilled-extra'].backedPhysicalFeet, 20);
 });
 
 test('buildBoxReservationSnapshot counts fulfilled requirement allocations while checked out', () => {
@@ -311,6 +351,40 @@ test('applyReservationMetricsToBox separates full-roll physical LF from reserved
   assert.equal(readPayload.physicalFeetAvailable, 100);
   assert.equal(readPayload.allocatableNowFeet, 99);
   assert.equal(readPayload.feetAvailable, 99);
+});
+
+test('applyReservationMetricsToBox subtracts repeated extra claims from weight-derived physical LF', () => {
+  const readPayload = toPublicBox(
+    applyReservationMetricsToBox(
+      buildBox({
+        boxId: 'IL1-6890',
+        feetAvailable: 40,
+        initialFeet: 100,
+        lastRollWeightLbs: 24.65,
+        coreWeightLbs: 1.3333,
+        lfWeightLbsPerFt: 0.233167,
+      }),
+      [
+        buildAllocation({ allocationId: 'requirement-40', allocatedFeet: 40 }),
+        buildAllocation({
+          allocationId: 'extra-10',
+          allocatedFeet: 10,
+          allocationKind: 'EXTRA',
+          requirementId: ''
+        }),
+        buildAllocation({
+          allocationId: 'extra-10-again',
+          allocatedFeet: 10,
+          allocationKind: 'EXTRA',
+          requirementId: ''
+        })
+      ]
+    )
+  );
+
+  assert.equal(readPayload.physicalFeetAvailable, 100);
+  assert.equal(readPayload.allocatableNowFeet, 40);
+  assert.equal(readPayload.feetAvailable, 40);
 });
 
 test('applyReservationMetricsToBox keeps checked-out physical LF while exposing only unclaimed LF publicly', () => {

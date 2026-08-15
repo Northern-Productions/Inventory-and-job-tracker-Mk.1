@@ -16,7 +16,7 @@ If a requested change conflicts with these rules, warn Rob and Sage before imple
 ## Box LF Availability Rules
 
 - Physical usable LF is the material the warehouse actually has or expects for that box.
-- For in-stock or transfer boxes, allocatable LF is physical usable LF minus active allocation claims.
+- For in-stock or transfer boxes, allocatable LF is physical usable LF minus active allocation claims, including EXTRA film that remains separate from requirement coverage.
 - For ordered boxes, allocatable LF is expected physical LF minus active allocation claims.
 - A checked-out box may report returned physical LF; that returned reality is accepted and then reconciled.
 - If roll weight can derive LF, derived LF is treated as the current physical LF within the app's existing weighing rules.

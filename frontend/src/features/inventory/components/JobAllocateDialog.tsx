@@ -444,20 +444,31 @@ export function JobAllocateDialog({
       return;
     }
 
+    const primaryExtraAllocation = isExtraFilmMode
+      ? extraAllocations.extraAllocations.find((entry) => entry.boxId === sourceBox.boxId)
+      : undefined;
+    if (isExtraFilmMode && !primaryExtraAllocation) {
+      setError('The selected source box is unavailable for extra film.');
+      return;
+    }
+
     const payload = {
       ...(jobId ? { jobId } : {}),
       boxId: sourceBox.boxId,
       jobNumber,
       installDate: effectiveInstallDate,
       crewLeader: effectiveCrewLeader,
-      requestedFeet: isExtraFilmMode ? 0 : requestedFeetValue,
+      requestedFeet: isExtraFilmMode ? primaryExtraAllocation?.allocatedFeet ?? 0 : requestedFeetValue,
       requestedWidthIn: selectedRequirement.widthIn,
       requirementId: selectedRequirement.requirementId,
+      ...(isExtraFilmMode ? { allocationKind: 'EXTRA' as const } : {}),
       selectedSuggestionBoxIds: isExtraFilmMode || !activePreview ? [] : selectedPreviewSuggestionBoxIds,
-      extraAllocations: extraAllocations.extraAllocations.map(({ boxId, allocatedFeet }) => ({
-        boxId,
-        allocatedFeet
-      })),
+      extraAllocations: extraAllocations.extraAllocations
+        .filter(({ boxId }) => !isExtraFilmMode || boxId !== sourceBox.boxId)
+        .map(({ boxId, allocatedFeet }) => ({
+          boxId,
+          allocatedFeet
+        })),
       crossWarehouse: true,
       jobWarehouse: warehouse
     };

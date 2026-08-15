@@ -423,17 +423,83 @@ describe('JobAllocateDialog', () => {
       expect(mutateAsync).toHaveBeenCalledWith(
         expect.objectContaining({
           boxId: 'IL1-EXTRA',
-          requestedFeet: 0,
+          requestedFeet: 44,
           requestedWidthIn: 72,
           requirementId: 'req-fulfilled',
+          allocationKind: 'EXTRA',
           selectedSuggestionBoxIds: [],
-          extraAllocations: [{ boxId: 'IL1-EXTRA', allocatedFeet: 44 }],
+          extraAllocations: [],
           crossWarehouse: true,
           jobWarehouse: 'IL1'
         })
       )
     );
     expect(onCancel).toHaveBeenCalledTimes(1);
+
+    queryClient.clear();
+  });
+
+  it('represents the first selected extra box once and keeps later boxes as extra entries', async () => {
+    const mutateAsync = vi.fn().mockResolvedValue({
+      result: {
+        allocations: [],
+        filmOrder: null,
+        remainingUncoveredFeet: 0
+      },
+      warnings: []
+    });
+    useAllocateBoxMock.mockReturnValue({ isPending: false, mutateAsync });
+    searchBoxesMock.mockResolvedValue([
+      buildSearchBox({
+        boxId: 'IL1-EXTRA-A',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 50',
+        widthIn: 72,
+        feetAvailable: 44,
+        allocationPlanningFeet: 44
+      }),
+      buildSearchBox({
+        boxId: 'IL1-EXTRA-B',
+        manufacturer: '3M Solar',
+        filmName: 'Prestige 50',
+        widthIn: 72,
+        feetAvailable: 31,
+        allocationPlanningFeet: 31
+      })
+    ]);
+
+    const { queryClient } = renderDialog({
+      jobNumber: '29010',
+      isExtraFilmMode: true,
+      requirements: [
+        {
+          requirementId: 'req-fulfilled',
+          manufacturer: '3M Solar',
+          filmName: 'Prestige 50',
+          widthIn: 72,
+          requiredFeet: 12,
+          allocatedFeet: 12,
+          remainingFeet: 0
+        }
+      ]
+    });
+
+    const table = await screen.findByRole('table');
+    const checkboxes = within(table).getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]);
+    fireEvent.click(checkboxes[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Allocate Extra' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boxId: 'IL1-EXTRA-A',
+        requestedFeet: 44,
+        allocationKind: 'EXTRA',
+        selectedSuggestionBoxIds: [],
+        extraAllocations: [{ boxId: 'IL1-EXTRA-B', allocatedFeet: 31 }]
+      })
+    );
 
     queryClient.clear();
   });

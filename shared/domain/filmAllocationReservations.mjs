@@ -96,6 +96,14 @@ function isRequirementBoundReservationEntry(entry) {
   return isRequirementAllocationWithRequirement(entry) && allocationHasJobTie(entry);
 }
 
+function isCapacityReservationEntry(entry) {
+  const allocationKind = normalizeAllocationKind(entry?.allocationKind ?? entry?.allocation_kind);
+  const hasPhysicalClaim =
+    allocationKind === 'EXTRA' ||
+    (allocationKind === 'REQUIREMENT' && Boolean(getAllocationRequirementId(entry)));
+  return hasPhysicalClaim && allocationHasJobTie(entry);
+}
+
 /**
  * PURPOSE:
  * Defines the one capacity-reservation rule for film boxes.
@@ -109,11 +117,12 @@ function isRequirementBoundReservationEntry(entry) {
  * availability functions, Edge read/mutation handlers, and modal tests.
  *
  * COMMON FAILURE MODES:
- * Offering AUTO_PLANNED LF twice, counting EXTRA/placeholders as reserved,
- * losing fulfilled checked-out allocations, or trusting allocationPlanningFeet.
+ * Offering AUTO_PLANNED LF twice, omitting EXTRA physical claims, counting
+ * requirement placeholders, losing fulfilled checked-out allocations, or
+ * trusting allocationPlanningFeet.
  */
 function allocationReservesCapacity(entry, box) {
-  if (!isRequirementBoundReservationEntry(entry) || integerOrZero(entry?.allocatedFeet) <= 0) {
+  if (!isCapacityReservationEntry(entry) || integerOrZero(entry?.allocatedFeet) <= 0) {
     return false;
   }
 
