@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const DEV_PROJECT_REF = 'uxiltcpbhthhinonttrc';
 const PROD_PROJECT_REF = 'tiwpulgvxtwlmqdnyuzd';
+const SANDBOX_PROJECT_REF_VARIABLE = 'SANDBOX_SUPABASE_PROJECT_REF';
 
 const TARGET_REFS = Object.freeze({
   dev: DEV_PROJECT_REF,
@@ -14,6 +15,9 @@ const EXPLICIT_REF_KEYS = new Set([
   'DEV_REF',
   'PROD_PROJECT_REF',
   'PROD_REF',
+  SANDBOX_PROJECT_REF_VARIABLE,
+  'SANDBOX_PROJECT_REF',
+  'SANDBOX_REF',
   'SUPABASE_PROJECT_REF',
   'PROJECT_REF',
   'TARGET_PROJECT_REF'
@@ -59,13 +63,25 @@ function uniqueByRefAndSource(entries) {
   return unique;
 }
 
-function classifyProjectRef(ref) {
+function configuredSandboxRef(envValues = {}, explicitSandboxRef = '') {
+  return normalizeRef(
+    explicitSandboxRef ||
+      envValues[SANDBOX_PROJECT_REF_VARIABLE] ||
+      envValues.SANDBOX_PROJECT_REF ||
+      envValues.SANDBOX_REF
+  );
+}
+
+function classifyProjectRef(ref, { sandboxRef = '' } = {}) {
   const normalized = normalizeRef(ref);
   if (normalized === DEV_PROJECT_REF) {
     return 'dev';
   }
   if (normalized === PROD_PROJECT_REF) {
     return 'prod';
+  }
+  if (sandboxRef && normalized === normalizeRef(sandboxRef)) {
+    return 'sandbox';
   }
   return 'unknown';
 }
@@ -186,25 +202,26 @@ function extractRefsFromValue(value, variable = '') {
   return uniqueByRefAndSource(refs);
 }
 
-function extractLikelySupabaseRefs(envValues = {}) {
+function extractLikelySupabaseRefs(envValues = {}, { sandboxRef = '' } = {}) {
+  const resolvedSandboxRef = configuredSandboxRef(envValues, sandboxRef);
   const refs = [];
   for (const [variable, value] of Object.entries(envValues || {})) {
     refs.push(...extractRefsFromValue(value, variable));
   }
   return uniqueByRefAndSource(refs).map((entry) => ({
     ...entry,
-    target: classifyProjectRef(entry.ref)
+    target: classifyProjectRef(entry.ref, { sandboxRef: resolvedSandboxRef })
   }));
 }
 
-function groupRefs(refEntries = []) {
+function groupRefs(refEntries = [], { sandboxRef = '' } = {}) {
   const grouped = new Map();
   for (const entry of refEntries) {
     const existing =
       grouped.get(entry.ref) ||
       {
         ref: entry.ref,
-        target: classifyProjectRef(entry.ref),
+        target: classifyProjectRef(entry.ref, { sandboxRef }),
         variables: new Set(),
         sources: new Set()
       };
@@ -225,8 +242,17 @@ function groupRefs(refEntries = []) {
   }));
 }
 
-function resolveExpectedRef(expect) {
+function resolveExpectedRef(expect, { envValues = {}, sandboxRef = '' } = {}) {
   const normalized = normalizeRef(expect || 'dev');
+  if (normalized === 'sandbox') {
+    const resolvedSandboxRef = configuredSandboxRef(envValues, sandboxRef);
+    if (!isLikelyProjectRef(resolvedSandboxRef)) {
+      throw new Error(
+        `SANDBOX project ref is unset. Define ${SANDBOX_PROJECT_REF_VARIABLE} before using SANDBOX.`
+      );
+    }
+    return { target: 'sandbox', ref: resolvedSandboxRef };
+  }
   if (TARGET_REFS[normalized]) {
     return {
       target: normalized,
@@ -235,17 +261,28 @@ function resolveExpectedRef(expect) {
   }
   if (isLikelyProjectRef(normalized)) {
     return {
-      target: classifyProjectRef(normalized),
+      target: classifyProjectRef(normalized, {
+        sandboxRef: configuredSandboxRef(envValues, sandboxRef)
+      }),
       ref: normalized
     };
   }
-  throw new Error(`Unknown expected target "${expect}". Use "dev", "prod", or a Supabase project ref.`);
+  throw new Error(
+    `Unknown expected target "${expect}". Use "dev", "sandbox", "prod", or a Supabase project ref.`
+  );
 }
 
-function buildTargetEnvReport({ envPath = '', envValues = {}, expect = 'dev', allowProd = false } = {}) {
-  const expected = resolveExpectedRef(expect);
-  const refEntries = extractLikelySupabaseRefs(envValues);
-  const groupedRefs = groupRefs(refEntries);
+function buildTargetEnvReport({
+  envPath = '',
+  envValues = {},
+  expect = 'dev',
+  allowProd = false,
+  sandboxRef = ''
+} = {}) {
+  const resolvedSandboxRef = configuredSandboxRef(envValues, sandboxRef);
+  const expected = resolveExpectedRef(expect, { envValues, sandboxRef: resolvedSandboxRef });
+  const refEntries = extractLikelySupabaseRefs(envValues, { sandboxRef: resolvedSandboxRef });
+  const groupedRefs = groupRefs(refEntries, { sandboxRef: resolvedSandboxRef });
   const foundRefs = new Set(groupedRefs.map((entry) => entry.ref));
   const errors = [];
   const warnings = [];
@@ -291,6 +328,48 @@ function buildTargetEnvReport({ envPath = '', envValues = {}, expect = 'dev', al
   };
 }
 
+function buildMutationTargetReport({
+  envPath = '',
+  envValues = {},
+  requestedTarget = '',
+  allowProd = false,
+  sandboxRef = '',
+  linked = false,
+  linkedRef = ''
+} = {}) {
+  const target = normalizeRef(requestedTarget);
+  if (!target) {
+    throw new Error('Mutating commands require an explicit target: dev, sandbox, or prod.');
+  }
+  if (!['dev', 'sandbox', 'prod'].includes(target)) {
+    throw new Error(`Unknown mutation target "${requestedTarget}". Use dev, sandbox, or prod.`);
+  }
+
+  const report = buildTargetEnvReport({
+    envPath,
+    envValues,
+    expect: target,
+    allowProd,
+    sandboxRef
+  });
+  const errors = [...report.errors];
+  const normalizedLinkedRef = normalizeRef(linkedRef);
+
+  if (linked || normalizedLinkedRef) {
+    errors.push('Mutating --linked usage is forbidden; use explicit target and project-ref configuration.');
+  }
+
+  return {
+    ...report,
+    ok: errors.length === 0,
+    mode: 'mutation-guard',
+    requestedTarget: target,
+    linked: Boolean(linked),
+    linkedRefMatches: null,
+    errors
+  };
+}
+
 function formatTargetEnvReport(report) {
   const lines = [];
   lines.push('[target-env-check]');
@@ -322,8 +401,12 @@ function formatTargetEnvReport(report) {
 export {
   DEV_PROJECT_REF,
   PROD_PROJECT_REF,
+  SANDBOX_PROJECT_REF_VARIABLE,
   TARGET_REFS,
+  buildMutationTargetReport,
   buildTargetEnvReport,
+  classifyProjectRef,
+  configuredSandboxRef,
   extractDbProjectRef,
   extractLikelySupabaseRefs,
   extractRefsFromValue,

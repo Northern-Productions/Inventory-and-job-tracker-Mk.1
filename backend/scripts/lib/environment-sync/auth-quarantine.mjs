@@ -1,0 +1,260 @@
+import { canonicalDigest } from '../readonly-diagnostics.mjs';
+import {
+  AUTH_PURGE_ORDER,
+  AUTH_QUARANTINE_VERSION,
+  CURRENT_AUTH_TABLES,
+  REQUIRED_AUTH_COLUMNS
+} from './constants.mjs';
+
+const QUARANTINED_EMAIL_SQL =
+  "'np-' || substr(encode(extensions.digest(id::text || ':x-np:v1', 'sha256'), 'hex'), 1, 40) || '@users.invalid'";
+const DISPOSABLE_DATABASE_PATTERN = /^x_rehearsal_(?:dev|sandbox)_[a-z0-9_]{1,48}$/;
+
+function safeCount(value, label) {
+  const count = Number(value || 0);
+  if (!Number.isSafeInteger(count) || count < 0) throw new Error(`${label} is invalid.`);
+  return count;
+}
+
+async function rows(client, text, values = []) {
+  return (await client.query({ text, values })).rows;
+}
+
+async function assertDisposableLocalTarget(client, { disposableEngine = 'native-loopback' } = {}) {
+  const result = await rows(
+    client,
+    `select current_database() as database_name,
+            pg_catalog.inet_server_addr()::text as server_address,
+            current_setting('application_name') as application_name,
+            current_setting('transaction_read_only') as transaction_read_only,
+            version() as server_version`
+  );
+  const row = result[0] || {};
+  const pglite =
+    disposableEngine === 'pglite-0.5.4' &&
+    /PostgreSQL 18\.3 \(PGlite 0\.5\.4\)/.test(String(row.server_version || '')) &&
+    row.server_address === null;
+  const nativeLoopback =
+    !DISPOSABLE_DATABASE_PATTERN.test(String(row.database_name || '')) ||
+    !['127.0.0.1', '::1'].includes(String(row.server_address || ''));
+  if ((!pglite && nativeLoopback) || row.application_name !== 'environment-sync-x-rehearsal' || row.transaction_read_only !== 'off') {
+    throw new Error('AUTH_QUARANTINE_TARGET_REJECTED');
+  }
+}
+
+async function assertExactAuthShape(client) {
+  const tableRows = await rows(
+    client,
+    `select table_name
+       from information_schema.tables
+      where table_schema = 'auth' and table_type = 'BASE TABLE'
+      order by table_name`
+  );
+  const tables = tableRows.map((row) => row.table_name);
+  if (JSON.stringify(tables) !== JSON.stringify([...CURRENT_AUTH_TABLES])) {
+    throw new Error('AUTH_SCHEMA_TABLE_SHAPE_UNREVIEWED');
+  }
+  for (const [tableName, requiredColumns] of Object.entries(REQUIRED_AUTH_COLUMNS)) {
+    const columnRows = await rows(
+      client,
+      `select column_name
+         from information_schema.columns
+        where table_schema = 'auth' and table_name = $1
+        order by ordinal_position`,
+      [tableName]
+    );
+    const actual = new Set(columnRows.map((row) => row.column_name));
+    if (requiredColumns.some((column) => !actual.has(column))) {
+      throw new Error('AUTH_SCHEMA_COLUMN_SHAPE_UNREVIEWED');
+    }
+  }
+  const providerRows = await rows(client, `select distinct provider from auth.identities order by provider`);
+  if (providerRows.some((row) => row.provider !== 'email')) {
+    throw new Error('AUTH_PROVIDER_SHAPE_UNREVIEWED');
+  }
+  return { tables, providers: providerRows.map((row) => row.provider) };
+}
+
+async function captureAuthUuidSet(client) {
+  const userRows = await rows(client, `select id::text as id from auth.users order by id`);
+  const identityRows = await rows(
+    client,
+    `select id::text as id, user_id::text as user_id from auth.identities order by id`
+  );
+  return {
+    userCount: userRows.length,
+    identityCount: identityRows.length,
+    userDigest: canonicalDigest(userRows),
+    identityDigest: canonicalDigest(identityRows)
+  };
+}
+
+async function captureAuthReferenceIntegrity(client) {
+  const references = await rows(
+    client,
+    `select n.nspname as schema_name, c.relname as table_name, a.attname as column_name
+       from pg_catalog.pg_constraint con
+       join pg_catalog.pg_class c on c.oid = con.conrelid
+       join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+       join unnest(con.conkey) with ordinality source(attnum, position) on true
+       join unnest(con.confkey) with ordinality target(attnum, position) using (position)
+       join pg_catalog.pg_attribute a on a.attrelid = con.conrelid and a.attnum = source.attnum
+      where con.contype = 'f' and con.confrelid = 'auth.users'::regclass
+        and target.attnum = (select attnum from pg_catalog.pg_attribute where attrelid = 'auth.users'::regclass and attname = 'id')
+      order by n.nspname, c.relname, a.attname`
+  );
+  const checks = [];
+  for (const reference of references) {
+    const schema = `"${String(reference.schema_name).replaceAll('"', '""')}"`;
+    const table = `"${String(reference.table_name).replaceAll('"', '""')}"`;
+    const column = `"${String(reference.column_name).replaceAll('"', '""')}"`;
+    const countRows = await rows(
+      client,
+      `select count(*)::bigint as count
+         from ${schema}.${table} child
+        where child.${column} is not null
+          and not exists (select 1 from auth.users parent where parent.id = child.${column})`
+    );
+    checks.push({
+      relation: `${reference.schema_name}.${reference.table_name}.${reference.column_name}`,
+      dangling: safeCount(countRows[0]?.count, 'Auth reference count')
+    });
+  }
+  return { count: checks.length, digest: canonicalDigest(checks), dangling: checks.reduce((sum, item) => sum + item.dangling, 0) };
+}
+
+async function purgeAuthEphemera(client) {
+  const counts = {};
+  for (const tableName of AUTH_PURGE_ORDER) {
+    const result = await client.query(`delete from auth."${tableName}"`);
+    counts[tableName] = safeCount(result.rowCount, 'Auth purge count');
+  }
+  return counts;
+}
+
+async function quarantineUsers(client) {
+  const result = await client.query(
+    `update auth.users
+        set email = ${QUARANTINED_EMAIL_SQL},
+            phone = null,
+            encrypted_password = '!x-np-disabled-v1!',
+            raw_app_meta_data = jsonb_build_object('provider', 'email', 'providers', jsonb_build_array('email'), 'x_np_quarantined', true),
+            raw_user_meta_data = jsonb_build_object('x_np_quarantined', true),
+            confirmation_token = '', confirmation_sent_at = null,
+            recovery_token = '', recovery_sent_at = null,
+            email_change_token_new = '', email_change = '', email_change_sent_at = null,
+            email_change_token_current = '', email_change_confirm_status = 0,
+            phone_change = '', phone_change_token = '', phone_change_sent_at = null,
+            reauthentication_token = '', reauthentication_sent_at = null,
+            invited_at = null, last_sign_in_at = null,
+            banned_until = 'infinity'::timestamptz,
+            is_sso_user = false, is_anonymous = false,
+            updated_at = statement_timestamp()`
+  );
+  return safeCount(result.rowCount, 'Quarantined user count');
+}
+
+async function quarantineIdentities(client) {
+  const result = await client.query(
+    `update auth.identities i
+        set provider = 'email',
+            provider_id = u.email,
+            email = u.email,
+            identity_data = jsonb_build_object(
+              'sub', u.id::text,
+              'email', u.email,
+              'email_verified', false,
+              'phone_verified', false,
+              'x_np_quarantined', true
+            ),
+            last_sign_in_at = null,
+            updated_at = statement_timestamp()
+       from auth.users u
+      where u.id = i.user_id`
+  );
+  return safeCount(result.rowCount, 'Quarantined identity count');
+}
+
+async function verifyQuarantine(client, before) {
+  const after = await captureAuthUuidSet(client);
+  const counts = await rows(
+    client,
+    `select
+       count(*) filter (where email !~ '^[a-z0-9-]+@users\\.invalid$')::bigint as routable_email_count,
+       count(*) filter (where phone is not null or phone_change <> '')::bigint as phone_count,
+       count(*) filter (where encrypted_password <> '!x-np-disabled-v1!' or banned_until <> 'infinity'::timestamptz)::bigint as usable_credential_shape_count,
+       count(*) filter (where confirmation_token <> '' or recovery_token <> '' or email_change_token_new <> '' or email_change_token_current <> '' or reauthentication_token <> '')::bigint as token_column_count
+     from auth.users`
+  );
+  const ephemera = {};
+  for (const tableName of AUTH_PURGE_ORDER) {
+    const result = await rows(client, `select count(*)::bigint as count from auth."${tableName}"`);
+    ephemera[tableName] = safeCount(result[0]?.count, 'Post-quarantine Auth count');
+  }
+  const identityMismatch = await rows(
+    client,
+    `select count(*)::bigint as count
+       from auth.identities i
+       join auth.users u on u.id = i.user_id
+      where i.provider <> 'email' or i.provider_id <> u.email or i.email <> u.email
+         or i.identity_data->>'email' <> u.email or coalesce((i.identity_data->>'x_np_quarantined')::boolean, false) is not true`
+  );
+  const referenceIntegrity = await captureAuthReferenceIntegrity(client);
+  const result = {
+    uuidSetPreserved:
+      before.userCount === after.userCount &&
+      before.identityCount === after.identityCount &&
+      before.userDigest === after.userDigest &&
+      before.identityDigest === after.identityDigest,
+    routableEmailCount: safeCount(counts[0]?.routable_email_count, 'Routable email count'),
+    phoneCount: safeCount(counts[0]?.phone_count, 'Phone count'),
+    usableCredentialShapeCount: safeCount(counts[0]?.usable_credential_shape_count, 'Credential shape count'),
+    tokenColumnCount: safeCount(counts[0]?.token_column_count, 'Token column count'),
+    identityMismatchCount: safeCount(identityMismatch[0]?.count, 'Identity mismatch count'),
+    sessionAndTokenCounts: ephemera,
+    referenceIntegrity
+  };
+  result.ok =
+    result.uuidSetPreserved &&
+    result.routableEmailCount === 0 &&
+    result.phoneCount === 0 &&
+    result.usableCredentialShapeCount === 0 &&
+    result.tokenColumnCount === 0 &&
+    result.identityMismatchCount === 0 &&
+    Object.values(ephemera).every((count) => count === 0) &&
+    referenceIntegrity.dangling === 0;
+  if (!result.ok) throw new Error('AUTH_QUARANTINE_VERIFICATION_FAILED');
+  return result;
+}
+
+async function applyAuthQuarantine(client, options = {}) {
+  await assertDisposableLocalTarget(client, options);
+  const shape = await assertExactAuthShape(client);
+  const before = await captureAuthUuidSet(client);
+  const beforeReferences = await captureAuthReferenceIntegrity(client);
+  if (beforeReferences.dangling !== 0) throw new Error('AUTH_REFERENCE_INTEGRITY_FAILED');
+  const purged = await purgeAuthEphemera(client);
+  const usersUpdated = await quarantineUsers(client);
+  const identitiesUpdated = await quarantineIdentities(client);
+  const verification = await verifyQuarantine(client, before);
+  return {
+    version: AUTH_QUARANTINE_VERSION,
+    shape: { tableCount: shape.tables.length, providers: shape.providers },
+    counts: { usersUpdated, identitiesUpdated, purged },
+    verification,
+    nativeSmokeHook: {
+      method: 'target-native-auth-admin-api-after-platform-configuration',
+      copiedCredentialReuse: false,
+      uniquePerTarget: true
+    }
+  };
+}
+
+export {
+  DISPOSABLE_DATABASE_PATTERN,
+  QUARANTINED_EMAIL_SQL,
+  applyAuthQuarantine,
+  assertDisposableLocalTarget,
+  assertExactAuthShape,
+  captureAuthReferenceIntegrity
+};

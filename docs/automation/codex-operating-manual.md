@@ -125,6 +125,8 @@ Use `npm --prefix backend run migrations:registry -- --check` as the canonical m
 
 Use `npm --prefix backend run diagnostics:readonly` for reusable Tier-6 read-only database evidence when its conservative inventory model can express the investigation. Raw bespoke harnesses remain permissible when the canonical engine cannot safely represent required evidence, but repeated patterns should be promoted into reviewed tracked inventories/tooling. Diagnostics never authorize a target, mutate or repair data, bypass quiet-window rules, or replace DEV/PROD approval. See `docs/automation/read-only-diagnostics.md`.
 
+For environment inventory and future PROD-to-nonproduction refresh work, follow `docs/automation/nonprod-environment-sync.md`. Mutating wrappers must declare exactly one of `dev`, `sandbox`, or `prod`, pass the positive project-ref guard, and reject ambiguous `supabase --linked` state. The inventory command is read-only; neither it nor the rehearsal grants synchronization approval.
+
 ### Genuine Blockers
 
 Stop only when safe continuation is impossible because of a genuine blocker, such as:
