@@ -281,7 +281,8 @@ async function restoreEncryptedPgDump({
   pgRestorePath,
   connectionString,
   artifactPath,
-  key
+  key,
+  restoreMode = 'blank-target'
 } = {}) {
   verifyPrivateArtifactProtection(artifactPath);
   const connection = parseDatabaseConnection(connectionString);
@@ -289,7 +290,7 @@ async function restoreEncryptedPgDump({
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAuthTag(tag);
   const input = fs.createReadStream(artifactPath, { start: HEADER_BYTES });
-  const child = runStreamingChild(pgRestorePath, ['--exit-on-error', '--no-owner', '--dbname', connection.database], {
+  const child = runStreamingChild(pgRestorePath, buildPgRestoreArgs(connection.database, restoreMode), {
     env: postgresChildEnvironment(connectionString, {
       PGOPTIONS: '-c check_function_bodies=off -c statement_timeout=0'
     })
@@ -318,6 +319,22 @@ async function restoreEncryptedPgDump({
   return { restored: true };
 }
 
+function buildPgRestoreArgs(database, restoreMode = 'blank-target') {
+  if (!String(database || '').trim()) throw categoricalError('BASELINE_DATABASE_URL_INVALID');
+  if (!['blank-target', 'managed-replacement'].includes(restoreMode)) {
+    throw categoricalError('BASELINE_RESTORE_MODE_INVALID');
+  }
+  return [
+    '--exit-on-error',
+    '--no-owner',
+    ...(restoreMode === 'managed-replacement'
+      ? ['--clean', '--if-exists', '--single-transaction']
+      : []),
+    '--dbname',
+    database
+  ];
+}
+
 function verifyEncryptedComponent(component, artifactPath) {
   verifyPrivateArtifactProtection(artifactPath);
   const bytes = fs.readFileSync(artifactPath);
@@ -331,6 +348,7 @@ function verifyEncryptedComponent(component, artifactPath) {
 
 export {
   HEADER_BYTES,
+  buildPgRestoreArgs,
   captureEncryptedPgDump,
   decryptBaselineBytes,
   encryptBaselineBytes,

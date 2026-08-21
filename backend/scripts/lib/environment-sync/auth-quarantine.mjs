@@ -7,6 +7,7 @@ import {
   CURRENT_AUTH_TABLES,
   REQUIRED_AUTH_COLUMNS
 } from './constants.mjs';
+import { buildMutationTargetReport, PROD_PROJECT_REF } from '../target-env-guards.mjs';
 
 const QUARANTINED_EMAIL_SQL =
   "'np-' || substr(encode(extensions.digest(id::text || ':x-np:v1', 'sha256'), 'hex'), 1, 40) || '@users.invalid'";
@@ -58,6 +59,77 @@ async function assertDisposableLocalTarget(client, { disposableEngine = 'native-
   if ((!pglite && nativeLoopback) || row.application_name !== 'environment-sync-x-rehearsal' || row.transaction_read_only !== 'off') {
     throw new Error('AUTH_QUARANTINE_TARGET_REJECTED');
   }
+}
+
+function connectionProjectRef(client) {
+  const parameters = client?.connectionParameters || {};
+  const host = String(parameters.host || '').toLowerCase();
+  const directMatch = host.match(/^db\.([a-z0-9]{10,40})\.supabase\.co$/);
+  if (directMatch) return directMatch[1];
+  if (!/\.pooler\.supabase\.com$/.test(host)) return '';
+  const userMatch = String(parameters.user || '').toLowerCase().match(/^postgres\.([a-z0-9]{10,40})$/);
+  return userMatch?.[1] || '';
+}
+
+async function assertManagedNonprodTarget(
+  client,
+  { managedNonprodTarget = '', envValues = {}, sandboxRef = '' } = {}
+) {
+  const target = String(managedNonprodTarget || '').trim().toLowerCase();
+  if (!['dev', 'sandbox'].includes(target)) {
+    throw categoricalError('AUTH_QUARANTINE_MANAGED_TARGET_REJECTED');
+  }
+  const report = buildMutationTargetReport({
+    envValues,
+    requestedTarget: target,
+    allowProd: false,
+    sandboxRef,
+    linked: false,
+    linkedRef: ''
+  });
+  const derivedRef = connectionProjectRef(client);
+  if (
+    !report.ok ||
+    report.mode !== 'mutation-guard' ||
+    report.requestedTarget !== target ||
+    !derivedRef ||
+    report.expected.ref !== derivedRef ||
+    derivedRef === PROD_PROJECT_REF
+  ) {
+    throw categoricalError('AUTH_QUARANTINE_MANAGED_TARGET_REJECTED');
+  }
+
+  const result = await rows(
+    client,
+    `select current_database() as database_name,
+            pg_catalog.inet_server_addr()::text as server_address,
+            current_setting('application_name') as application_name,
+            current_setting('transaction_read_only') as transaction_read_only,
+            current_user as current_user,
+            coalesce((select ssl from pg_catalog.pg_stat_ssl where pid = pg_catalog.pg_backend_pid()), false) as ssl`
+  );
+  const row = result[0] || {};
+  const serverAddress = String(row.server_address || '');
+  if (
+    row.database_name !== 'postgres' ||
+    !serverAddress ||
+    ['127.0.0.1', '127.0.0.1/32', '::1', '::1/128'].includes(serverAddress) ||
+    row.application_name !== 'environment-sync-x-np-managed' ||
+    row.transaction_read_only !== 'off' ||
+    row.current_user !== 'postgres' ||
+    row.ssl !== true
+  ) {
+    throw categoricalError('AUTH_QUARANTINE_MANAGED_TARGET_REJECTED');
+  }
+
+  return { target, projectRefMatched: true, mutationGuardPassed: true, ssl: true };
+}
+
+async function assertAuthQuarantineTarget(client, options = {}) {
+  if (String(options.managedNonprodTarget || '').trim()) {
+    return assertManagedNonprodTarget(client, options);
+  }
+  return assertDisposableLocalTarget(client, options);
 }
 
 async function assertExactAuthShape(client) {
@@ -353,7 +425,7 @@ async function createTargetNativeSmokeIdentity(client, options = {}) {
 async function applyAuthQuarantine(client, options = {}) {
   let stage = 'TARGET_GUARD';
   try {
-    await assertDisposableLocalTarget(client, options);
+    await assertAuthQuarantineTarget(client, options);
     stage = 'SCHEMA_SHAPE';
     const shape = await assertExactAuthShape(client);
     stage = 'IDENTITY_CAPTURE';
@@ -392,7 +464,9 @@ export {
   DISPOSABLE_DATABASE_PATTERN,
   QUARANTINED_EMAIL_SQL,
   applyAuthQuarantine,
+  assertAuthQuarantineTarget,
   assertDisposableLocalTarget,
+  assertManagedNonprodTarget,
   assertExactAuthShape,
   captureAuthReferenceIntegrity,
   createTargetNativeSmokeIdentity

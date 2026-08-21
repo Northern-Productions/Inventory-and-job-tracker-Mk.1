@@ -29,8 +29,12 @@ import {
 } from './manifest.mjs';
 import { buildDevPreservationManifest, buildDevRecoveryManifest } from './preservation.mjs';
 import { assertProdSourcePlatform, runGoldenBaselineRehearsal } from './rehearsal.mjs';
-import { applyAuthQuarantine } from './auth-quarantine.mjs';
 import {
+  applyAuthQuarantine,
+  assertManagedNonprodTarget
+} from './auth-quarantine.mjs';
+import {
+  buildPgRestoreArgs,
   captureEncryptedPgDump,
   decryptBaselineBytes,
   encryptBaselineBytes,
@@ -70,6 +74,98 @@ function inventory() {
     sideEffects: { database: {} }
   };
 }
+
+function managedTargetClient(projectRef, overrides = {}) {
+  return {
+    connectionParameters: {
+      host: `db.${projectRef}.supabase.co`,
+      user: 'postgres',
+      database: 'postgres',
+      ssl: {},
+      ...overrides.connectionParameters
+    },
+    async query() {
+      return {
+        rows: [
+          {
+            database_name: 'postgres',
+            server_address: '2001:db8::1',
+            application_name: 'environment-sync-x-np-managed',
+            transaction_read_only: 'off',
+            current_user: 'postgres',
+            ssl: true,
+            ...overrides.row
+          }
+        ]
+      };
+    }
+  };
+}
+
+test('managed X-NP guard accepts only an exact SSL-protected nonproduction target', async () => {
+  const sandboxRef = 'sandboxprojectref1234';
+  const envValues = {
+    SANDBOX_SUPABASE_PROJECT_REF: sandboxRef,
+    SANDBOX_DATABASE_URL: `postgresql://postgres:private@db.${sandboxRef}.supabase.co:5432/postgres?sslmode=require`
+  };
+  const accepted = await assertManagedNonprodTarget(managedTargetClient(sandboxRef), {
+    managedNonprodTarget: 'sandbox',
+    envValues,
+    sandboxRef
+  });
+  assert.deepEqual(accepted, {
+    target: 'sandbox',
+    projectRefMatched: true,
+    mutationGuardPassed: true,
+    ssl: true
+  });
+
+  await assert.rejects(
+    assertManagedNonprodTarget(managedTargetClient('tiwpulgvxtwlmqdnyuzd'), {
+      managedNonprodTarget: 'prod',
+      envValues: { PROD_PROJECT_REF: 'tiwpulgvxtwlmqdnyuzd' }
+    }),
+    (error) => error?.code === 'AUTH_QUARANTINE_MANAGED_TARGET_REJECTED'
+  );
+  await assert.rejects(
+    assertManagedNonprodTarget(managedTargetClient('differentprojectref12'), {
+      managedNonprodTarget: 'sandbox',
+      envValues,
+      sandboxRef
+    }),
+    (error) => error?.code === 'AUTH_QUARANTINE_MANAGED_TARGET_REJECTED'
+  );
+  await assert.rejects(
+    assertManagedNonprodTarget(managedTargetClient(sandboxRef, { row: { ssl: false } }), {
+      managedNonprodTarget: 'sandbox',
+      envValues,
+      sandboxRef
+    }),
+    (error) => error?.code === 'AUTH_QUARANTINE_MANAGED_TARGET_REJECTED'
+  );
+});
+
+test('managed replacement restore is atomic and never weakens the blank-target default', () => {
+  assert.deepEqual(buildPgRestoreArgs('postgres'), [
+    '--exit-on-error',
+    '--no-owner',
+    '--dbname',
+    'postgres'
+  ]);
+  assert.deepEqual(buildPgRestoreArgs('postgres', 'managed-replacement'), [
+    '--exit-on-error',
+    '--no-owner',
+    '--clean',
+    '--if-exists',
+    '--single-transaction',
+    '--dbname',
+    'postgres'
+  ]);
+  assert.throws(
+    () => buildPgRestoreArgs('postgres', 'unreviewed'),
+    (error) => error?.code === 'BASELINE_RESTORE_MODE_INVALID'
+  );
+});
 
 test('canonical application-source guard pins the actual frozen Edge lockfile', () => {
   const entrySource = fs.readFileSync(
