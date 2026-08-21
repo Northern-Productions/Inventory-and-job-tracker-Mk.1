@@ -9,10 +9,17 @@ function categoricalError(code) {
 }
 
 function windowsAclScript(mode) {
-  if (mode === 'protect') {
-    return `$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('CODEX_PRIVATE_ARTIFACT_TARGET','Process');if([string]::IsNullOrWhiteSpace($p)){exit 20};$id=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=Get-Acl -LiteralPath $p;$acl.SetAccessRuleProtection($true,$false);foreach($existing in @($acl.Access)){[void]$acl.RemoveAccessRuleSpecific($existing)};$acl.SetOwner($id);$rule=[Security.AccessControl.FileSystemAccessRule]::new($id,[Security.AccessControl.FileSystemRights]::FullControl,[Security.AccessControl.AccessControlType]::Allow);[void]$acl.AddAccessRule($rule);Set-Acl -LiteralPath $p -AclObject $acl`;
+  const isDirectory = mode.endsWith('-directory');
+  if (mode.startsWith('protect')) {
+    const inheritance = isDirectory
+      ? `[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'`
+      : '[Security.AccessControl.InheritanceFlags]::None';
+    return `$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('CODEX_PRIVATE_ARTIFACT_TARGET','Process');if([string]::IsNullOrWhiteSpace($p)){exit 20};$id=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=Get-Acl -LiteralPath $p;$acl.SetAccessRuleProtection($true,$false);foreach($existing in @($acl.Access)){[void]$acl.RemoveAccessRuleSpecific($existing)};$acl.SetOwner($id);$rule=[Security.AccessControl.FileSystemAccessRule]::new($id,[Security.AccessControl.FileSystemRights]::FullControl,${inheritance},[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow);[void]$acl.AddAccessRule($rule);Set-Acl -LiteralPath $p -AclObject $acl`;
   }
-  return `$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('CODEX_PRIVATE_ARTIFACT_TARGET','Process');if([string]::IsNullOrWhiteSpace($p)){exit 20};$id=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=Get-Acl -LiteralPath $p;if(-not $acl.AreAccessRulesProtected){exit 21};$rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));if($rules.Count -ne 1){exit 22};$r=$rules[0];if($r.IdentityReference.Value -ne $id.Value -or $r.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or (($r.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -ne [Security.AccessControl.FileSystemRights]::FullControl)){exit 23}`;
+  const directoryCheck = isDirectory
+    ? `if((($r.InheritanceFlags -band [Security.AccessControl.InheritanceFlags]::ContainerInherit) -ne [Security.AccessControl.InheritanceFlags]::ContainerInherit) -or (($r.InheritanceFlags -band [Security.AccessControl.InheritanceFlags]::ObjectInherit) -ne [Security.AccessControl.InheritanceFlags]::ObjectInherit)){exit 24}`
+    : `if($r.InheritanceFlags -ne [Security.AccessControl.InheritanceFlags]::None){exit 24}`;
+  return `$ErrorActionPreference='Stop';$p=[Environment]::GetEnvironmentVariable('CODEX_PRIVATE_ARTIFACT_TARGET','Process');if([string]::IsNullOrWhiteSpace($p)){exit 20};$id=[Security.Principal.WindowsIdentity]::GetCurrent().User;$acl=Get-Acl -LiteralPath $p;if(-not $acl.AreAccessRulesProtected){exit 21};$rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]));if($rules.Count -ne 1){exit 22};$r=$rules[0];if($r.IdentityReference.Value -ne $id.Value -or $r.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or (($r.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -ne [Security.AccessControl.FileSystemRights]::FullControl)){exit 23};${directoryCheck}`;
 }
 
 function invokeWindowsAcl(mode, artifactPath) {
@@ -38,7 +45,7 @@ function invokeWindowsAcl(mode, artifactPath) {
     });
   } catch {
     throw categoricalError(
-      mode === 'protect' ? 'PRIVATE_ARTIFACT_PROTECTION_FAILED' : 'PRIVATE_ARTIFACT_PROTECTION_UNPROVEN'
+      mode.startsWith('protect') ? 'PRIVATE_ARTIFACT_PROTECTION_FAILED' : 'PRIVATE_ARTIFACT_PROTECTION_UNPROVEN'
     );
   }
 }
@@ -61,6 +68,26 @@ function verifyPrivateArtifactProtection(artifactPath) {
     throw categoricalError('PRIVATE_ARTIFACT_PROTECTION_UNPROVEN');
   }
   return { mechanism: 'posix-0600', ownerOnly: true };
+}
+
+function protectPrivateDirectory(directoryPath) {
+  fs.chmodSync(directoryPath, 0o700);
+  if (process.platform === 'win32') {
+    invokeWindowsAcl('protect-directory', directoryPath);
+  }
+  return verifyPrivateDirectoryProtection(directoryPath);
+}
+
+function verifyPrivateDirectoryProtection(directoryPath) {
+  if (process.platform === 'win32') {
+    invokeWindowsAcl('verify-directory', directoryPath);
+    return { mechanism: 'ntfs-protected-inheritable-dacl', ownerOnly: true };
+  }
+  const mode = fs.statSync(directoryPath).mode & 0o777;
+  if (mode !== 0o700) {
+    throw categoricalError('PRIVATE_ARTIFACT_PROTECTION_UNPROVEN');
+  }
+  return { mechanism: 'posix-0700', ownerOnly: true };
 }
 
 function fsyncDirectory(directoryPath) {
@@ -91,13 +118,7 @@ function assertSafeArtifactName(name) {
 function createPrivateDirectory(directoryPath) {
   const resolved = path.resolve(directoryPath);
   fs.mkdirSync(resolved, { recursive: false, mode: 0o700 });
-  fs.chmodSync(resolved, 0o700);
-  if (process.platform === 'win32') {
-    invokeWindowsAcl('protect', resolved);
-    invokeWindowsAcl('verify', resolved);
-  } else if ((fs.statSync(resolved).mode & 0o777) !== 0o700) {
-    throw categoricalError('PRIVATE_DIRECTORY_PROTECTION_UNPROVEN');
-  }
+  protectPrivateDirectory(resolved);
   return resolved;
 }
 
@@ -158,7 +179,9 @@ export {
   openPrivateFileExclusive,
   privateArtifactPath,
   protectPrivateArtifact,
+  protectPrivateDirectory,
   verifyPrivateArtifactProtection,
+  verifyPrivateDirectoryProtection,
   writePrivateBytesExclusive,
   writePrivateJsonExclusive
 };

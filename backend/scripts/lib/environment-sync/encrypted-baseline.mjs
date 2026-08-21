@@ -4,9 +4,14 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 
-import { protectPrivateArtifact, verifyPrivateArtifactProtection } from './private-artifacts.mjs';
+import {
+  protectPrivateArtifact,
+  verifyPrivateArtifactProtection,
+  writePrivateBytesExclusive
+} from './private-artifacts.mjs';
 
 const MAGIC = Buffer.from('XREH001\0', 'ascii');
+const WRAPPED_KEY_MAGIC = Buffer.from('XKEY001\0', 'ascii');
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 const HEADER_BYTES = MAGIC.length + NONCE_BYTES + TAG_BYTES;
@@ -35,6 +40,82 @@ function decryptBaselineBytes(bytes, key) {
     return Buffer.concat([decipher.update(input.subarray(HEADER_BYTES)), decipher.final()]);
   } finally {
     input.fill(0);
+  }
+}
+
+function wrapBaselineDataKey(dataKey, wrappingKey, nonce = crypto.randomBytes(NONCE_BYTES)) {
+  if (dataKey?.length !== 32 || wrappingKey?.length !== 32) {
+    throw categoricalError('BASELINE_KEY_LENGTH_INVALID');
+  }
+  const input = Buffer.from(dataKey);
+  const cipher = crypto.createCipheriv('aes-256-gcm', wrappingKey, nonce);
+  try {
+    const encrypted = Buffer.concat([cipher.update(input), cipher.final()]);
+    try {
+      return Buffer.concat([WRAPPED_KEY_MAGIC, nonce, cipher.getAuthTag(), encrypted]);
+    } finally {
+      encrypted.fill(0);
+    }
+  } finally {
+    input.fill(0);
+  }
+}
+
+function unwrapBaselineDataKey(bytes, wrappingKey) {
+  const input = Buffer.from(bytes);
+  if (
+    wrappingKey?.length !== 32 ||
+    input.length !== WRAPPED_KEY_MAGIC.length + NONCE_BYTES + TAG_BYTES + 32 ||
+    !input.subarray(0, WRAPPED_KEY_MAGIC.length).equals(WRAPPED_KEY_MAGIC)
+  ) {
+    input.fill(0);
+    throw categoricalError('BASELINE_WRAPPED_KEY_FORMAT_INVALID');
+  }
+  const nonceStart = WRAPPED_KEY_MAGIC.length;
+  const tagStart = nonceStart + NONCE_BYTES;
+  const payloadStart = tagStart + TAG_BYTES;
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    wrappingKey,
+    input.subarray(nonceStart, tagStart)
+  );
+  decipher.setAuthTag(input.subarray(tagStart, payloadStart));
+  try {
+    return Buffer.concat([decipher.update(input.subarray(payloadStart)), decipher.final()]);
+  } catch {
+    throw categoricalError('BASELINE_WRAPPED_KEY_AUTHENTICATION_FAILED');
+  } finally {
+    input.fill(0);
+  }
+}
+
+function writeWrappedBaselineDataKey({ dataKey, wrappingKey, artifactPath } = {}) {
+  const bytes = wrapBaselineDataKey(dataKey, wrappingKey);
+  try {
+    const durability = writePrivateBytesExclusive(artifactPath, bytes);
+    const digest = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+    return {
+      component: {
+        name: 'postgres-data-key-wrapped',
+        size: bytes.length,
+        digest
+      },
+      protection: durability.protection,
+      fileFsync: durability.fileFsync,
+      directoryFsync: durability.directoryFsync
+    };
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+function readWrappedBaselineDataKey({ wrappingKey, artifactPath } = {}) {
+  verifyPrivateArtifactProtection(artifactPath);
+  const bytes = fs.readFileSync(artifactPath);
+  try {
+    return unwrapBaselineDataKey(bytes, wrappingKey);
+  } finally {
+    bytes.fill(0);
   }
 }
 
@@ -255,6 +336,10 @@ export {
   encryptBaselineBytes,
   parseDatabaseConnection,
   postgresChildEnvironment,
+  readWrappedBaselineDataKey,
   restoreEncryptedPgDump,
-  verifyEncryptedComponent
+  unwrapBaselineDataKey,
+  verifyEncryptedComponent,
+  wrapBaselineDataKey,
+  writeWrappedBaselineDataKey
 };

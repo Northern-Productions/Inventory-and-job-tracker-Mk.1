@@ -4,7 +4,10 @@ import { execFileSync } from 'node:child_process';
 
 import { buildTargetEnvReport, loadEnvFile } from './lib/target-env-guards.mjs';
 import { CANONICAL_APPLICATION_SOURCE_COMMIT } from './lib/environment-sync/constants.mjs';
-import { resolvePostgresTools } from './lib/environment-sync/disposable-postgres.mjs';
+import {
+  preflightDisposablePostgres,
+  resolvePostgresTools
+} from './lib/environment-sync/disposable-postgres.mjs';
 import { fetchEdgeHealth, fetchManagementSummary } from './lib/environment-sync/inventory.mjs';
 import {
   assertProdSourcePlatform,
@@ -47,7 +50,7 @@ function assertCanonicalApplicationSource() {
     'supabase/config.toml',
     'supabase/functions',
     'supabase/migrations',
-    'supabase/deno.lock'
+    'supabase/functions/api/deno.lock'
   ];
   try {
     execFileSync('git', ['diff', '--quiet', CANONICAL_APPLICATION_SOURCE_COMMIT, '--', ...productionPaths], {
@@ -74,6 +77,12 @@ async function main() {
     console.log('Usage: node scripts/environment-sync-rehearsal.mjs --env <guarded-prod-env> --allow-prod-readonly');
     return;
   }
+  if (args['preflight-only'] === true) {
+    const postgresTools = resolvePostgresTools();
+    const preflight = await preflightDisposablePostgres({ postgresBin: postgresTools.bin });
+    console.log(JSON.stringify(preflight, null, 2));
+    return;
+  }
   if (args['allow-prod-readonly'] !== true) throw new Error('Explicit PROD read-only rehearsal approval flag is required.');
   const envPath = String(args.env || '').trim();
   if (!envPath) throw new Error('An explicit guarded PROD environment file is required.');
@@ -87,6 +96,7 @@ async function main() {
   if (!guard.ok) throw new Error('PROD target guard failed.');
   assertCanonicalApplicationSource();
   const postgresTools = resolvePostgresTools();
+  const toolchainPreflight = await preflightDisposablePostgres({ postgresBin: postgresTools.bin });
   const managementToken = String(
     process.env.SUPABASE_ACCESS_TOKEN || loaded.values.SUPABASE_ACCESS_TOKEN || ''
   );
@@ -112,7 +122,7 @@ async function main() {
       }
     }
   });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify({ toolchainPreflight, ...result }, null, 2));
 }
 
 main().catch((error) => {

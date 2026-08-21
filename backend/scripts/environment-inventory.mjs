@@ -76,6 +76,7 @@ async function main() {
     await client.connect();
     await client.query('begin isolation level repeatable read read only');
     began = true;
+    await client.query("set local time zone 'UTC'");
     const inventory = await captureEnvironmentInventory({
       client,
       target,

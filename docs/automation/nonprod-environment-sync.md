@@ -10,16 +10,25 @@ Use:
 
 ```text
 npm --prefix backend run env:inventory -- --target dev|prod|sandbox --env <guarded-file> [--allow-prod]
+npm --prefix backend run env:postgres:preflight
 npm --prefix backend run env:rehearse -- --env <guarded-prod-file> --allow-prod-readonly
 ```
 
 `env:inventory` uses one `REPEATABLE READ READ ONLY` transaction and rolls it back. Output contains catalog/data fingerprints, counts, classifications, project metadata, and variable names only. It never emits credentials, emails, tokens, password hashes, connection strings, or secret values.
 
+`env:postgres:preflight` is local-only. It requires a complete PostgreSQL 18 server payload, including `postgres`, `initdb`, `pg_ctl`, `pg_dump`, `pg_restore`, `psql`, runtime libraries, and `share/postgres.bki`. It initializes an owner-only temporary cluster with a random credential, binds only to loopback on a guarded random port, pins UTC for deterministic fingerprints, proves a query, stops the server, and removes the cluster before returning. PostgreSQL 18 `pg_dump` is used against PostgreSQL 17.6 because the supported logical-dump contract permits newer `pg_dump` clients to read older servers and restore into a newer major; physical-format compatibility is neither assumed nor used. Supply the verified vendor payload through process-local `POSTGRES_BIN`; do not install a service or modify global `PATH`.
+
 ## Golden Baselines
 
-`GOLDEN_PROD_BASELINE_X` is an encrypted, restore-tested, immutable capture authenticated by a private HMAC manifest. `NONPROD_BASELINE_X_NP` is X after the versioned Auth and side-effect quarantine. Components carry exact byte sizes and SHA-256 digests. Manifests bind source time, source commit, migration state, catalog/routine/trigger/constraint/policy/grant identities, protected table fingerprints, Edge identity, platform classifications, side effects, and an exact allowed-exception list. Missing declared exceptions and undeclared differences both fail parity.
+`GOLDEN_PROD_BASELINE_X` is an encrypted, restore-tested, immutable capture authenticated by a private HMAC manifest. `NONPROD_BASELINE_X_NP` is X after the versioned Auth and side-effect quarantine. Database bytes use AES-256-GCM; the data key is itself AES-256-GCM wrapped into a separately owner-protected, fsynced component while the wrapping key remains outside the artifact. Components carry exact byte sizes and SHA-256 digests. Manifests bind source time, source commit, migration state, catalog/routine/trigger/constraint/policy/grant identities, protected table fingerprints, Edge identity, platform classifications, side effects, and an exact allowed-exception list. Missing declared exceptions and undeclared differences both fail parity.
 
-X-NP preserves copied Auth UUID relationships while replacing routable identity fields with deterministic `.invalid` values, invalidating password verifiers, banning copied accounts, clearing token-bearing user columns, sanitizing email identities, and deleting copied sessions, refresh tokens, one-time tokens, flow state, MFA, OAuth, SAML/SSO, WebAuthn, and Auth audit ephemera. It accepts only the reviewed Auth table/column/provider shape and only a disposable loopback rehearsal database. Target-native smoke users are created later through the target Auth Admin API with unique target credentials; copied credentials are never reused.
+X-NP preserves copied Auth UUID relationships while replacing routable identity fields with deterministic `.invalid` values, invalidating password verifiers, banning copied accounts, clearing token-bearing user columns, sanitizing email identities, and deleting copied sessions, refresh tokens, one-time tokens, flow state, MFA, OAuth, SAML/SSO, WebAuthn, and Auth audit ephemera. It accepts only the reviewed Auth table/column/provider shape and only a disposable loopback rehearsal database. The Auth identities email column is generated from `identity_data`; quarantine updates the source JSON rather than assigning the generated column. Native rehearsal creates and verifies an independent unroutable smoke identity with a target-local credential after quarantine. Real target smoke users are still created through the target Auth Admin API with unique target credentials; copied credentials are never reused.
+
+## Native Rehearsal Compatibility
+
+Before X-NP, each native restore must equal the exported PROD snapshot for migrations, protected schema/data, application relations, columns, routines, triggers, semantic constraints and foreign keys, indexes, RLS policies, sequences, Auth topology, and direct application grants. Capture and comparison sessions use UTC so `timestamptz` fingerprints are deterministic. PostgreSQL 18's generated `contype = 'n'` catalog entries are excluded from the cross-major constraint signature only because exact column nullability is compared separately; PK, unique, FK, check, and exclusion semantics remain exact.
+
+Generic PostgreSQL cannot reproduce Supabase Auth HTTP services, managed secrets/platform metadata, every managed extension, managed side-effect runtime, nonselected managed schemas, or server-role login attributes. Those are declared platform differences, not parity exceptions between derived targets. Database restoration, Auth relationship quarantine, credential replacement, session/token purge, side-effect no-call state, and domain contracts must pass locally; Auth HTTP, Edge, Storage, and browser behavior remain required on the real SANDBOX.
 
 ## Side-Effect Quarantine
 
@@ -63,6 +72,8 @@ Before a real refresh, create encrypted `DEV_PRE_REFRESH_RECOVERY_Y`, authentica
 6. **F - Lineage:** prove `PROD X -> SANDBOX X-NP` and `PROD X -> DEV X-NP + declared DEV exceptions`; retain X/Y through acceptance.
 
 Any failed target, component, quarantine, parity, cleanup, or protected-state gate stops the run without broad recovery actions.
+
+For B, run the complete PostgreSQL preflight first, pin source and restore fingerprint sessions to UTC, and require the native source-to-restore compatibility result before X-NP. The same encrypted component must feed both D and E. The rehearsal's shared structural smoke identity exists only to keep lineage fingerprints comparable; each real project must receive its own credential and Auth identity through its own Auth Admin API.
 
 ## Golden Workflow Contract
 

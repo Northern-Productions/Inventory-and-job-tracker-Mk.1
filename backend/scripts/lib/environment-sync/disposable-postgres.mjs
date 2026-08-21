@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -8,7 +10,8 @@ import pg from 'pg';
 import {
   createPrivateDirectory,
   protectPrivateArtifact,
-  verifyPrivateArtifactProtection
+  verifyPrivateArtifactProtection,
+  writePrivateBytesExclusive
 } from './private-artifacts.mjs';
 
 const { Client } = pg;
@@ -45,10 +48,13 @@ function resolvePostgresTools(explicitBin = '') {
       if (!fs.existsSync(serverCatalog)) throw new Error('server catalog unavailable');
       return {
         bin: candidate,
+        postgres: executable(candidate, 'postgres'),
         initdb: executable(candidate, 'initdb'),
         pgCtl: executable(candidate, 'pg_ctl'),
         pgDump: executable(candidate, 'pg_dump'),
-        pgRestore: executable(candidate, 'pg_restore')
+        pgRestore: executable(candidate, 'pg_restore'),
+        psql: executable(candidate, 'psql'),
+        serverCatalog
       };
     } catch {}
   }
@@ -130,6 +136,9 @@ async function startDisposablePostgres({ rootDirectory, postgresBin = '' } = {})
   if (fs.existsSync(root)) throw new Error('DISPOSABLE_POSTGRES_ROOT_COLLISION');
   const dataDirectory = path.join(root, 'cluster');
   const logPath = path.join(root, 'postgres.log');
+  const passwordPath = path.join(root, 'cluster-password');
+  const passwordBytes = crypto.randomBytes(32);
+  let password = passwordBytes.toString('hex');
   let rootCreated = false;
   let port;
   try {
@@ -138,25 +147,34 @@ async function startDisposablePostgres({ rootDirectory, postgresBin = '' } = {})
     const descriptor = fs.openSync(logPath, 'wx', 0o600);
     fs.closeSync(descriptor);
     protectPrivateArtifact(logPath);
+    writePrivateBytesExclusive(passwordPath, Buffer.from(`${password}\n`, 'utf8'));
     port = await availableLoopbackPort();
-    run(tools.initdb, [
-      '--pgdata', dataDirectory,
-      '--encoding=UTF8',
-      '--locale=C',
-      '--auth=trust',
-      '--username=postgres',
-      '--no-sync'
-    ]);
+    try {
+      run(tools.initdb, [
+        '--pgdata', dataDirectory,
+        '--encoding=UTF8',
+        '--locale=C',
+        '--auth=scram-sha-256',
+        '--username=postgres',
+        '--pwfile', passwordPath,
+        '--no-sync'
+      ]);
+    } finally {
+      fs.rmSync(passwordPath, { force: true });
+    }
     run(tools.pgCtl, [
       '--pgdata', dataDirectory,
       '--log', logPath,
       '--wait',
       '--timeout', '30',
       'start',
-      '--options', `-h 127.0.0.1 -p ${port} -c listen_addresses=127.0.0.1 -c fsync=on -c synchronous_commit=on`
+      '--options', `-h 127.0.0.1 -p ${port} -c listen_addresses=127.0.0.1 -c fsync=on -c synchronous_commit=on -c timezone=UTC`
     ]);
     verifyPrivateArtifactProtection(logPath);
   } catch {
+    fs.rmSync(passwordPath, { force: true });
+    passwordBytes.fill(0);
+    password = '';
     if (!rootCreated) throw new Error('DISPOSABLE_POSTGRES_START_FAILED_WITH_RESIDUE');
     const processMarker = path.join(dataDirectory, 'postmaster.pid');
     if (fs.existsSync(processMarker)) {
@@ -178,25 +196,70 @@ async function startDisposablePostgres({ rootDirectory, postgresBin = '' } = {})
     }
     throw new Error('DISPOSABLE_POSTGRES_START_FAILED');
   }
-  const baseUrl = `postgresql://postgres@127.0.0.1:${port}`;
+  passwordBytes.fill(0);
   return {
     tools,
     root,
     dataDirectory,
     logPath,
     port,
-    baseUrl,
     connectionString(database = 'postgres') {
-      return `${baseUrl}/${encodeURIComponent(database)}?sslmode=disable`;
+      if (!password) throw new Error('DISPOSABLE_POSTGRES_ALREADY_STOPPED');
+      return `postgresql://postgres:${encodeURIComponent(password)}@127.0.0.1:${port}/${encodeURIComponent(database)}?sslmode=disable`;
     },
     async stop() {
       try {
         run(tools.pgCtl, ['--pgdata', dataDirectory, '--wait', '--timeout', '30', 'stop', '--mode', 'immediate']);
       } catch {
         throw new Error('DISPOSABLE_POSTGRES_STOP_FAILED');
+      } finally {
+        password = '';
       }
     }
   };
+}
+
+async function preflightDisposablePostgres({ postgresBin = '', temporaryParent = os.tmpdir() } = {}) {
+  const tools = resolvePostgresTools(postgresBin);
+  const version = String(run(tools.postgres, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim();
+  if (!/^postgres \(PostgreSQL\) 18\./.test(version)) {
+    throw new Error('DISPOSABLE_POSTGRES_VERSION_UNSUPPORTED');
+  }
+  const root = path.join(temporaryParent, `environment-sync-rehearsal-${crypto.randomBytes(8).toString('hex')}`);
+  let cluster;
+  try {
+    cluster = await startDisposablePostgres({ rootDirectory: root, postgresBin: tools.bin });
+    const proof = await withClient(cluster.connectionString(), async (client) => {
+      const result = await client.query(
+        `select current_setting('server_version') as version,
+                current_setting('listen_addresses') as listen_addresses,
+                current_setting('TimeZone') as timezone,
+                inet_server_addr()::text as server_address,
+                current_setting('port')::integer as port`
+      );
+      return result.rows[0];
+    });
+    if (
+      !String(proof?.version || '').startsWith('18.') ||
+      proof?.listen_addresses !== '127.0.0.1' ||
+      proof?.timezone !== 'UTC' ||
+      !['127.0.0.1', '127.0.0.1/32'].includes(proof?.server_address) ||
+      Number(proof?.port) !== cluster.port
+    ) {
+      throw new Error('DISPOSABLE_POSTGRES_PREFLIGHT_FAILED');
+    }
+    return {
+      classification: 'DISPOSABLE_POSTGRES_PREFLIGHT_PASSED',
+      version: proof.version,
+      loopbackOnly: true,
+      timezone: 'UTC',
+      querySucceeded: true,
+      isolatedCredentials: true,
+      persistentServiceCreated: false
+    };
+  } finally {
+    if (cluster) await removeDisposablePostgres(cluster);
+  }
 }
 
 async function withClient(connectionString, callback, options = {}) {
@@ -220,6 +283,7 @@ async function prepareRestoreDatabase(cluster, databaseName) {
     await client.query(`create database "${databaseName}"`);
   });
   await withClient(cluster.connectionString(databaseName), async (client) => {
+    await client.query('drop schema public cascade');
     await client.query('create schema if not exists extensions');
     await client.query('create extension if not exists pgcrypto with schema extensions');
   });
@@ -241,6 +305,7 @@ export {
   SUPABASE_ROLES,
   assertDisposableRoot,
   prepareRestoreDatabase,
+  preflightDisposablePostgres,
   removeDisposablePostgres,
   resolvePostgresTools,
   startDisposablePostgres,

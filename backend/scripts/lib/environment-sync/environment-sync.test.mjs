@@ -34,13 +34,20 @@ import {
   captureEncryptedPgDump,
   decryptBaselineBytes,
   encryptBaselineBytes,
-  restoreEncryptedPgDump
+  readWrappedBaselineDataKey,
+  restoreEncryptedPgDump,
+  writeWrappedBaselineDataKey
 } from './encrypted-baseline.mjs';
 import { captureEnvironmentInventory } from './inventory.mjs';
-import { writePrivateBytesExclusive } from './private-artifacts.mjs';
+import {
+  createPrivateDirectory,
+  verifyPrivateDirectoryProtection,
+  writePrivateBytesExclusive
+} from './private-artifacts.mjs';
 import { verifySideEffectQuarantine } from './side-effect-quarantine.mjs';
 import {
   assertDisposableRoot,
+  preflightDisposablePostgres,
   prepareRestoreDatabase,
   removeDisposablePostgres,
   resolvePostgresTools,
@@ -63,6 +70,15 @@ function inventory() {
     sideEffects: { database: {} }
   };
 }
+
+test('canonical application-source guard pins the actual frozen Edge lockfile', () => {
+  const entrySource = fs.readFileSync(
+    new URL('../../environment-sync-rehearsal.mjs', import.meta.url),
+    'utf8'
+  );
+  assert.match(entrySource, /'supabase\/functions\/api\/deno\.lock'/);
+  assert.doesNotMatch(entrySource, /'supabase\/deno\.lock'/);
+});
 
 test('authenticated baseline and derived manifests fail closed on tampering', () => {
   const key = crypto.randomBytes(32);
@@ -110,6 +126,34 @@ test('authenticated baseline and derived manifests fail closed on tampering', ()
   } finally {
     key.fill(0);
     bytes.fill(0);
+  }
+});
+
+test('baseline data key is wrapped in an owner-protected authenticated artifact', () => {
+  const root = path.join(os.tmpdir(), `environment-sync-wrapped-key-${crypto.randomBytes(8).toString('hex')}`);
+  const artifactPath = path.join(root, 'baseline.key.enc');
+  const dataKey = crypto.randomBytes(32);
+  const wrappingKey = crypto.randomBytes(32);
+  const wrongKey = crypto.randomBytes(32);
+  let unwrapped;
+  try {
+    createPrivateDirectory(root);
+    const result = writeWrappedBaselineDataKey({ dataKey, wrappingKey, artifactPath });
+    assert.equal(result.component.name, 'postgres-data-key-wrapped');
+    assert.equal(result.protection.ownerOnly, true);
+    assert.equal(result.fileFsync, 'succeeded');
+    unwrapped = readWrappedBaselineDataKey({ wrappingKey, artifactPath });
+    assert.deepEqual(unwrapped, dataKey);
+    assert.throws(
+      () => readWrappedBaselineDataKey({ wrappingKey: wrongKey, artifactPath }),
+      (error) => error?.code === 'BASELINE_WRAPPED_KEY_AUTHENTICATION_FAILED'
+    );
+  } finally {
+    dataKey.fill(0);
+    wrappingKey.fill(0);
+    wrongKey.fill(0);
+    unwrapped?.fill(0);
+    if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: false });
   }
 });
 
@@ -238,6 +282,47 @@ test('disposable PostgreSQL cleanup authority accepts only exact rehearsal roots
   );
 });
 
+test('private directories retain owner-only protection while allowing nested tool output', () => {
+  const root = path.join(os.tmpdir(), `environment-sync-private-directory-${crypto.randomBytes(8).toString('hex')}`);
+  try {
+    createPrivateDirectory(root);
+    const protection = verifyPrivateDirectoryProtection(root);
+    assert.equal(protection.ownerOnly, true);
+    const nested = path.join(root, 'nested');
+    fs.mkdirSync(nested);
+    fs.writeFileSync(path.join(nested, 'proof'), 'local-only');
+    assert.equal(fs.readFileSync(path.join(nested, 'proof'), 'utf8'), 'local-only');
+  } finally {
+    const resolved = path.resolve(root);
+    assert.equal(path.dirname(resolved), path.resolve(os.tmpdir()));
+    assert.match(path.basename(resolved), /^environment-sync-private-directory-[a-f0-9]{16}$/);
+    if (fs.existsSync(resolved)) fs.rmSync(resolved, { recursive: true, force: false });
+  }
+});
+
+test('native PostgreSQL preflight proves loopback startup, query, credential isolation, and teardown', { timeout: 120_000 }, async (t) => {
+  try {
+    resolvePostgresTools();
+  } catch {
+    t.skip('Complete PostgreSQL 18 server tooling is unavailable.');
+    return;
+  }
+  const before = new Set(
+    fs.readdirSync(os.tmpdir()).filter((name) => /^environment-sync-rehearsal-[a-f0-9]{16}$/.test(name))
+  );
+  const result = await preflightDisposablePostgres();
+  assert.equal(result.classification, 'DISPOSABLE_POSTGRES_PREFLIGHT_PASSED');
+  assert.equal(result.loopbackOnly, true);
+  assert.equal(result.timezone, 'UTC');
+  assert.equal(result.querySucceeded, true);
+  assert.equal(result.isolatedCredentials, true);
+  assert.equal(result.persistentServiceCreated, false);
+  const after = fs.readdirSync(os.tmpdir()).filter(
+    (name) => /^environment-sync-rehearsal-[a-f0-9]{16}$/.test(name) && !before.has(name)
+  );
+  assert.deepEqual(after, []);
+});
+
 async function seedSyntheticSupabaseShape(connectionOrClient) {
   const seed = async (client) => {
     await client.query('create schema auth; create schema app; create schema app_api; create schema supabase_migrations');
@@ -262,7 +347,9 @@ async function seedSyntheticSupabaseShape(connectionOrClient) {
       create table auth.identities (
         provider_id text not null, user_id uuid not null references auth.users(id), identity_data jsonb not null,
         provider text not null, last_sign_in_at timestamptz, created_at timestamptz,
-        updated_at timestamptz, email text, id uuid primary key
+        updated_at timestamptz,
+        email text generated always as (lower(identity_data ->> 'email')) stored,
+        id uuid primary key
       );
     `);
     for (const tableName of CURRENT_AUTH_TABLES.filter((name) => !['users', 'identities'].includes(name))) {
@@ -286,9 +373,9 @@ async function seedSyntheticSupabaseShape(connectionOrClient) {
         '2026-08-16T00:00:00Z','2026-08-16T00:00:00Z','+15555550100','pending','phone-token','email-current',0,
         'reauth','2026-08-17T00:00:00Z',false,false
       );
-      insert into auth.identities(provider_id,user_id,identity_data,provider,last_sign_in_at,created_at,updated_at,email,id)
+      insert into auth.identities(provider_id,user_id,identity_data,provider,last_sign_in_at,created_at,updated_at,id)
       values ('synthetic@example.test','11111111-1111-1111-1111-111111111111','{"sub":"11111111-1111-1111-1111-111111111111","email":"synthetic@example.test"}',
-              'email','2026-08-16T00:00:00Z','2026-08-16T00:00:00Z','2026-08-16T00:00:00Z','synthetic@example.test','22222222-2222-2222-2222-222222222222');
+              'email','2026-08-16T00:00:00Z','2026-08-16T00:00:00Z','2026-08-16T00:00:00Z','22222222-2222-2222-2222-222222222222');
       insert into app.organization_members values ('33333333-3333-3333-3333-333333333333','11111111-1111-1111-1111-111111111111','admin','active');
       insert into auth.sessions(id) values ('synthetic-session');
       insert into auth.refresh_tokens(id) values ('synthetic-refresh');
@@ -481,6 +568,18 @@ test('one encrypted local baseline feeds two independently restored and quaranti
     assert.equal(result.transforms.dev.verification.ok, true);
     assert.equal(result.transforms.sandbox.verification.ok, true);
     assert.equal(result.transforms.dev.verification.sessionAndTokenCounts.sessions, 0);
+    assert.equal(result.transforms.dev.nativeSmokeIdentity.usersCreated, 1);
+    assert.equal(result.transforms.dev.nativeSmokeIdentity.identitiesCreated, 1);
+    assert.equal(result.transforms.dev.nativeSmokeIdentity.credentialVerified, true);
+    assert.equal(result.transforms.dev.nativeSmokeIdentity.copiedCredentialShapeCount, 0);
+    assert.equal(result.transforms.sandbox.nativeSmokeIdentity.usersCreated, 1);
+    assert.equal(result.transforms.sandbox.nativeSmokeIdentity.credentialVerified, true);
+    assert.equal(result.nativeRestoreCompatibility.dev.ok, true);
+    assert.equal(result.nativeRestoreCompatibility.sandbox.ok, true);
+    assert.equal(result.nativeRestoreCompatibility.dev.exactSections.protectedData, true);
+    assert.equal(result.nativeRestoreCompatibility.dev.exactSections.authTopology, true);
+    assert.equal(result.nativeRestoreCompatibility.dev.exactSections.applicationGrants, true);
+    assert.equal(result.nativeRestoreCompatibility.dev.exactSections.directAppGrants, true);
     assert.equal(result.parity.ok, true);
     assert.equal(result.directGrantParity, true);
     completed = true;
