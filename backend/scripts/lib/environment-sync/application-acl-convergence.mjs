@@ -18,6 +18,23 @@ const APPLICATION_FACING_ROLES = Object.freeze([
   'authenticator',
   'service_role'
 ]);
+const TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE = Object.freeze({
+  classification: 'TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE',
+  count: 1,
+  digest: 'sha256:a1c886a69af16049b426f4779befe853c8f8229fbd96fd7743a2b721cce96720',
+  catalogDigest: 'sha256:994e4f57b2a0421f1a4604b608fc8f261edad5704eac2d0d46ae4de754ec8fbb',
+  grantee: 'authenticator',
+  schema: 'public',
+  privilege: 'USAGE',
+  create: false,
+  tableOperations: 0,
+  sequenceOperations: 0,
+  directApplicationFunctionExecute: 0,
+  additionalApplicationOperations: 0,
+  targetPrestatePreserved: true,
+  prodPeerMatch: true,
+  broadSchemaIgnore: false
+});
 const OBJECT_PRIVILEGES = Object.freeze({
   schema: Object.freeze(['CREATE', 'USAGE']),
   table: Object.freeze(['DELETE', 'INSERT', 'REFERENCES', 'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE']),
@@ -129,6 +146,25 @@ function checkedOptionalText(value, code) {
   const text = String(value ?? '');
   if (/[\u0000-\u001f\u007f]/.test(text)) throw categoricalError(code);
   return text;
+}
+
+function verifyCertifiedManagedAclExceptions(exceptions) {
+  if (!Array.isArray(exceptions) || exceptions.length !== 1) {
+    throw categoricalError('MANAGED_ACL_EXCEPTION_SET_UNCERTIFIED');
+  }
+  const exception = exceptions[0];
+  if (
+    !exception ||
+    typeof exception !== 'object' ||
+    Array.isArray(exception) ||
+    canonicalSerialize(Object.keys(exception).sort()) !==
+      canonicalSerialize(Object.keys(TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE).sort()) ||
+    canonicalSerialize(exception) !==
+      canonicalSerialize(TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE)
+  ) {
+    throw categoricalError('MANAGED_ACL_EXCEPTION_UNCERTIFIED');
+  }
+  return true;
 }
 
 function normalizeObject(row = {}) {
@@ -534,6 +570,7 @@ export {
   APPLICATION_ACL_GRANTS_SQL,
   APPLICATION_ACL_OBJECTS_SQL,
   APPLICATION_FACING_ROLES,
+  TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE,
   applicationAclAugmentationDigest,
   buildApplicationAclContract,
   buildApplicationAclConvergenceManifest,
@@ -542,5 +579,6 @@ export {
   compareApplicationAclContracts,
   renderApplicationAclRevoke,
   verifyApplicationAclContract,
-  verifyApplicationAclConvergenceManifest
+  verifyApplicationAclConvergenceManifest,
+  verifyCertifiedManagedAclExceptions
 };

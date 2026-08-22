@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE,
   applicationAclAugmentationDigest,
   buildApplicationAclContract,
   buildApplicationAclConvergenceManifest,
@@ -13,7 +14,8 @@ import {
   compareApplicationAclContracts,
   renderApplicationAclRevoke,
   verifyApplicationAclContract,
-  verifyApplicationAclConvergenceManifest
+  verifyApplicationAclConvergenceManifest,
+  verifyCertifiedManagedAclExceptions
 } from './application-acl-convergence.mjs';
 import {
   removeDisposablePostgres,
@@ -136,6 +138,48 @@ test('ACL convergence fails closed for missing grants, value drift, signature dr
   assert.throws(
     () => buildApplicationAclConvergenceManifest({ source, target: unknown }),
     /APPLICATION_ACL_TARGET_ONLY_GRANT_UNREVIEWED/
+  );
+});
+
+test('managed ACL exception verifier accepts only the certified effective authenticator usage identity', () => {
+  const certified = structuredClone(TARGET_NATIVE_AUTHENTICATOR_PUBLIC_SCHEMA_USAGE);
+  assert.equal(verifyCertifiedManagedAclExceptions([certified]), true);
+
+  const drifts = [
+    ['classification', 'UNEXPECTED_MANAGED_EXCEPTION'],
+    ['count', 2],
+    ['digest', 'sha256:' + '0'.repeat(64)],
+    ['catalogDigest', 'sha256:' + '1'.repeat(64)],
+    ['grantee', 'authenticated'],
+    ['schema', 'app'],
+    ['privilege', 'CREATE'],
+    ['create', true],
+    ['tableOperations', 1],
+    ['sequenceOperations', 1],
+    ['directApplicationFunctionExecute', 1],
+    ['additionalApplicationOperations', 1],
+    ['targetPrestatePreserved', false],
+    ['prodPeerMatch', false],
+    ['broadSchemaIgnore', true]
+  ];
+  for (const [field, value] of drifts) {
+    assert.throws(
+      () => verifyCertifiedManagedAclExceptions([{ ...certified, [field]: value }]),
+      /MANAGED_ACL_EXCEPTION_UNCERTIFIED/,
+      field
+    );
+  }
+  assert.throws(
+    () => verifyCertifiedManagedAclExceptions([]),
+    /MANAGED_ACL_EXCEPTION_SET_UNCERTIFIED/
+  );
+  assert.throws(
+    () => verifyCertifiedManagedAclExceptions([certified, certified]),
+    /MANAGED_ACL_EXCEPTION_SET_UNCERTIFIED/
+  );
+  assert.throws(
+    () => verifyCertifiedManagedAclExceptions([{ ...certified, ignored: true }]),
+    /MANAGED_ACL_EXCEPTION_UNCERTIFIED/
   );
 });
 
