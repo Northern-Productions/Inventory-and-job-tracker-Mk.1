@@ -84,7 +84,10 @@ function managedCatalogEvidence() {
       { extension_name: 'pgcrypto', schema_name: 'extensions' },
       { extension_name: 'uuid-ossp', schema_name: 'extensions' }
     ],
-    publications: [{ publication_name: 'supabase_realtime' }]
+    publications: [{ publication_name: 'supabase_realtime' }],
+    defaultAcls: [],
+    memberships: [],
+    schemaAcls: []
   };
 }
 
@@ -371,6 +374,7 @@ test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, a
     applicationPreDataSql: 'DROP SCHEMA IF EXISTS app;\nCREATE SCHEMA app;\nCREATE SCHEMA app_api;',
     applicationDataSql: "INSERT INTO app.boxes VALUES ('safe');",
     applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
+    applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
     authUsersSql: "INSERT INTO auth.users (email) VALUES ('np-safe@users.invalid');",
     authIdentitiesSql: "INSERT INTO auth.identities (provider_id) VALUES ('np-safe@users.invalid');",
     migrationSql: "CREATE SCHEMA supabase_migrations;\nCREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260814210000');",
@@ -384,6 +388,7 @@ test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, a
   assert.ok(sql.indexOf('INSERT INTO auth.identities') < sql.indexOf('INSERT INTO app.boxes'));
   assert.ok(sql.indexOf('INSERT INTO app.boxes') < sql.indexOf('CREATE SCHEMA supabase_migrations'));
   assert.ok(sql.indexOf('CREATE SCHEMA supabase_migrations') < sql.indexOf('GRANT USAGE ON SCHEMA app'));
+  assert.ok(sql.indexOf('GRANT USAGE ON SCHEMA app') < sql.indexOf('MANAGED_OVERLAY_STAGE_APPLICATION_ACL_CONVERGENCE'));
   assert.match(sql, /MANAGED_AUTH_EPHEMERA_NOT_EMPTY/);
   assert.match(sql, /COMMIT;\n$/);
   assert.doesNotMatch(sql, /session_replication_role/);
@@ -395,6 +400,7 @@ test('managed overlay SQL rejects managed-plane DDL and role statements', () => 
     applicationPreDataSql: 'CREATE SCHEMA app;',
     applicationDataSql: 'INSERT INTO app.boxes VALUES (1);',
     applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
+    applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
     authUsersSql: "INSERT INTO auth.users (email) VALUES ('np-safe@users.invalid');",
     authIdentitiesSql: "INSERT INTO auth.identities (provider_id) VALUES ('np-safe@users.invalid');",
     migrationSql: "CREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260814210000');",

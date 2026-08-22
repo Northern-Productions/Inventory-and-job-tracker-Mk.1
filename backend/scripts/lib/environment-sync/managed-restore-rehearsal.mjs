@@ -8,6 +8,7 @@ import pg from 'pg';
 
 import { canonicalDigest } from '../readonly-diagnostics.mjs';
 import { applyAuthQuarantine, createTargetNativeSmokeIdentity } from './auth-quarantine.mjs';
+import { captureApplicationAclContract } from './application-acl-convergence.mjs';
 import {
   removeDisposablePostgres,
   resolvePostgresTools,
@@ -61,7 +62,7 @@ function categoricalError(code) {
 
 function compareApplicationPlane(source, target) {
   const comparableKeys = [
-    'relationDigest', 'routineDigest', 'constraintDigest', 'grantDigest',
+    'relationDigest', 'routineDigest', 'constraintDigest', 'grantDigest', 'aclObjectDigest',
     'tableDigest', 'tableCount', 'migration'
   ];
   return Object.fromEntries(
@@ -212,6 +213,9 @@ async function installManagedPlane({
     await client.query('grant all privileges on all sequences in schema auth to postgres');
     await client.query('grant usage on schema auth to postgres');
     await client.query('grant usage on schema auth to supabase_auth_admin');
+    await client.query('alter default privileges for role postgres in schema public grant execute on functions to anon');
+    await client.query('alter default privileges for role postgres in schema public grant execute on functions to authenticated');
+    await client.query('alter default privileges for role postgres in schema public grant execute on functions to service_role');
     await client.query('create publication supabase_realtime');
   });
   fs.rmSync(listPath, { force: true });
@@ -265,9 +269,46 @@ async function captureManagedPlaneFingerprint(connectionString) {
          (select count(*)::bigint from auth.instances) as instances,
          (select count(*)::bigint from auth.schema_migrations) as schema_migrations`
     )).rows[0];
+    const defaultAcls = (await client.query(
+      `select owner.rolname as owner_role,
+              coalesce(namespace.nspname, '') as schema_name,
+              defaults.defaclobjtype as object_type,
+              coalesce(grantee.rolname, 'PUBLIC') as grantee,
+              acl.privilege_type, acl.is_grantable
+         from pg_catalog.pg_default_acl defaults
+         join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
+         left join pg_catalog.pg_namespace namespace on namespace.oid = defaults.defaclnamespace
+         cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+         left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+        order by owner_role, schema_name, object_type, grantee, privilege_type, is_grantable`
+    )).rows;
+    const memberships = (await client.query(
+      `select member.rolname as member_role, granted.rolname as granted_role,
+              membership.admin_option, membership.inherit_option, membership.set_option
+         from pg_catalog.pg_auth_members membership
+         join pg_catalog.pg_roles member on member.oid = membership.member
+         join pg_catalog.pg_roles granted on granted.oid = membership.roleid
+        order by member_role, granted_role`
+    )).rows;
+    const schemaAcls = (await client.query(
+      `select namespace.nspname as schema_name, owner.rolname as owner_role,
+              coalesce(grantee.rolname, 'PUBLIC') as grantee,
+              acl.privilege_type, acl.is_grantable
+         from pg_catalog.pg_namespace namespace
+         join pg_catalog.pg_roles owner on owner.oid = namespace.nspowner
+         cross join lateral pg_catalog.aclexplode(
+           coalesce(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner))
+         ) acl
+         left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+        where namespace.nspname = any(array['auth','storage','realtime','vault','graphql','graphql_public','extensions','public'])
+        order by schema_name, grantee, privilege_type, is_grantable`
+    )).rows;
     return {
       catalogDigest: canonicalDigest(catalog),
       routineDigest: canonicalDigest(routines),
+      defaultAclDigest: canonicalDigest(defaultAcls),
+      roleMembershipDigest: canonicalDigest(memberships),
+      schemaAclDigest: canonicalDigest(schemaAcls),
       instances: Number(preservedData.instances),
       authMigrationRows: Number(preservedData.schema_migrations)
     };
@@ -301,19 +342,7 @@ async function captureApplicationPlane(connectionString) {
         where n.nspname = any(array['app','app_api','public'])
         order by n.nspname, c.relname, con.conname`
     )).rows;
-    const grants = (await client.query(
-      `select 'table' as kind, table_schema as schema_name, table_name as object_name,
-              grantee, privilege_type, is_grantable
-         from information_schema.role_table_grants
-         where table_schema = any(array['app','app_api','public'])
-           and grantee not in ('cluster_admin', 'postgres')
-         union all
-       select 'routine', routine_schema, routine_name, grantee, privilege_type, is_grantable
-         from information_schema.role_routine_grants
-         where routine_schema = any(array['app','app_api','public'])
-           and grantee not in ('cluster_admin', 'postgres')
-        order by kind, schema_name, object_name, grantee, privilege_type`
-    )).rows;
+    const aclContract = await captureApplicationAclContract(client);
     const tableRows = [];
     for (const relation of relations.filter((entry) => ['r', 'p'].includes(entry.relkind))) {
       const qualified = `${quoteIdentifier(relation.schema_name)}.${quoteIdentifier(relation.relation_name)}`;
@@ -337,7 +366,8 @@ async function captureApplicationPlane(connectionString) {
       relationDigest: canonicalDigest(relations),
       routineDigest: canonicalDigest(routines),
       constraintDigest: canonicalDigest(constraints),
-      grantDigest: canonicalDigest(grants),
+      grantDigest: aclContract.grantDigest,
+      aclObjectDigest: aclContract.objectDigest,
       tableDigest: canonicalDigest(tableRows),
       tableCount: tableRows.length,
       migration: { count: Number(migration.count), tip: String(migration.tip || '') }
@@ -471,7 +501,8 @@ async function runManagedRestoreCompatibilityRehearsal({
     const sourceName = `x_rehearsal_sandbox_source_${token}`;
     const sandboxName = `x_rehearsal_sandbox_managed_${token}`;
     const devName = `x_rehearsal_dev_managed_${token}`;
-    const sourceAdmin = await createDatabase(adminRootConnection, sourceName, 'cluster_admin');
+    const sourceDatabase = await createDatabase(adminRootConnection, sourceName, 'postgres');
+    const sourceAdmin = connectionForUser(sourceDatabase, 'postgres');
     const sandboxAdmin = await createDatabase(adminRootConnection, sandboxName, 'postgres');
     const devAdmin = await createDatabase(adminRootConnection, devName, 'postgres');
     const sandboxConnection = connectionForUser(sandboxAdmin, 'postgres');
@@ -583,6 +614,7 @@ async function runManagedRestoreCompatibilityRehearsal({
       throw categoricalError('MANAGED_TARGET_CATALOG_PARITY_FAILED');
     }
     const sourcePlane = await captureApplicationPlane(sourceAdmin);
+    const sourceAclContract = await withClient(sourceAdmin, captureApplicationAclContract);
     const packageResult = generateManagedOverlayPackage({
       pgRestorePath: tools.pgRestore,
       pgDumpPath: tools.pgDump,
@@ -594,7 +626,8 @@ async function runManagedRestoreCompatibilityRehearsal({
       migration: sourcePlane.migration,
       authCompatibility: authCompatibility.sandbox,
       targetCatalog: targetCatalog.sandbox,
-      applicationReplacement: targetCatalog.sandbox.applicationReplacement
+      applicationReplacement: targetCatalog.sandbox.applicationReplacement,
+      sourceAclContract
     });
     await atRehearsalStage('mock-sandbox-initial-overlay', () => executeManagedOverlayPackage({
       psqlPath: tools.psql,
@@ -637,7 +670,8 @@ async function runManagedRestoreCompatibilityRehearsal({
       migration: sourcePlane.migration,
       authCompatibility: authCompatibility.dev,
       targetCatalog: devRefreshCatalog,
-      applicationReplacement: devRefreshCatalog.applicationReplacement
+      applicationReplacement: devRefreshCatalog.applicationReplacement,
+      sourceAclContract
     });
     if (devRefreshPackage.script.semanticDigest !== packageResult.script.semanticDigest) {
       throw categoricalError('MANAGED_POPULATED_DEV_PACKAGE_DRIFT');

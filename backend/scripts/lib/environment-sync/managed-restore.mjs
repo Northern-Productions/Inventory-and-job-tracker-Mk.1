@@ -6,6 +6,11 @@ import { execFileSync } from 'node:child_process';
 import { canonicalDigest, canonicalSerialize } from '../readonly-diagnostics.mjs';
 import { PROD_PROJECT_REF } from '../target-env-guards.mjs';
 import { AUTH_PURGE_ORDER, CURRENT_AUTH_TABLES } from './constants.mjs';
+import {
+  APPLICATION_ACL_CONTRACT_FORMAT,
+  buildApplicationAclConvergenceSql,
+  verifyApplicationAclContract
+} from './application-acl-convergence.mjs';
 import { parseDatabaseConnection, postgresChildEnvironment } from './encrypted-baseline.mjs';
 import {
   privateArtifactPath,
@@ -252,7 +257,8 @@ function manifestPayload(manifest) {
   return payload;
 }
 
-function buildManagedRestoreManifest({ tocText, sourceComponent = {} } = {}) {
+function buildManagedRestoreManifest({ tocText, sourceComponent = {}, applicationAclContract } = {}) {
+  if (applicationAclContract !== undefined) verifyApplicationAclContract(applicationAclContract);
   const parsed = parsePgRestoreList(tocText);
   const entries = parsed.map((entry) => {
     const classified = classifyTocEntry(entry);
@@ -301,6 +307,14 @@ function buildManagedRestoreManifest({ tocText, sourceComponent = {} } = {}) {
       copiedAuthEphemera: false,
       sessionReplicationRoleRequired: false
     },
+    applicationAclConvergence: applicationAclContract === undefined ? null : {
+      format: APPLICATION_ACL_CONTRACT_FORMAT,
+      contractDigest: applicationAclContract.contractDigest,
+      objectDigest: applicationAclContract.objectDigest,
+      grantDigest: applicationAclContract.grantDigest,
+      objectCount: applicationAclContract.objects.length,
+      grantCount: applicationAclContract.grants.length
+    },
     entries
   };
   manifest.planDigest = sha256(Buffer.from(canonicalSerialize(manifestPayload(manifest)), 'utf8'));
@@ -328,6 +342,19 @@ function verifyManagedRestoreManifest(manifest) {
       !String(entry.reason || '').trim()
     ) {
       throw categoricalError('MANAGED_RESTORE_MANIFEST_INVALID');
+    }
+  }
+  if (manifest.applicationAclConvergence != null) {
+    const acl = manifest.applicationAclConvergence;
+    if (
+      acl?.format !== APPLICATION_ACL_CONTRACT_FORMAT ||
+      !/^sha256:[a-f0-9]{64}$/.test(String(acl?.contractDigest || '')) ||
+      !/^sha256:[a-f0-9]{64}$/.test(String(acl?.objectDigest || '')) ||
+      !/^sha256:[a-f0-9]{64}$/.test(String(acl?.grantDigest || '')) ||
+      !Number.isSafeInteger(acl?.objectCount) || acl.objectCount < 1 ||
+      !Number.isSafeInteger(acl?.grantCount) || acl.grantCount < 0
+    ) {
+      throw categoricalError('MANAGED_RESTORE_ACL_CONVERGENCE_INVALID');
     }
   }
   const expected = sha256(Buffer.from(canonicalSerialize(manifestPayload(manifest)), 'utf8'));
@@ -459,7 +486,52 @@ async function captureManagedTargetCatalog(client) {
       where pubname = 'supabase_realtime'
       order by pubname`
   )).rows;
-  return { transaction, roles, schemas, authOwners, extensions, publications };
+  const defaultAcls = (await client.query(
+    `select owner.rolname as owner_role,
+            coalesce(namespace.nspname, '') as schema_name,
+            defaults.defaclobjtype as object_type,
+            coalesce(grantee.rolname, 'PUBLIC') as grantee,
+            acl.privilege_type, acl.is_grantable
+       from pg_catalog.pg_default_acl defaults
+       join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
+       left join pg_catalog.pg_namespace namespace on namespace.oid = defaults.defaclnamespace
+       cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+       left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+      order by owner_role, schema_name, object_type, grantee, privilege_type, is_grantable`
+  )).rows;
+  const memberships = (await client.query(
+    `select member.rolname as member_role, granted.rolname as granted_role,
+            membership.admin_option, membership.inherit_option, membership.set_option
+       from pg_catalog.pg_auth_members membership
+       join pg_catalog.pg_roles member on member.oid = membership.member
+       join pg_catalog.pg_roles granted on granted.oid = membership.roleid
+      order by member_role, granted_role`
+  )).rows;
+  const schemaAcls = (await client.query(
+    `select namespace.nspname as schema_name, owner.rolname as owner_role,
+            coalesce(grantee.rolname, 'PUBLIC') as grantee,
+            acl.privilege_type, acl.is_grantable
+       from pg_catalog.pg_namespace namespace
+       join pg_catalog.pg_roles owner on owner.oid = namespace.nspowner
+       cross join lateral pg_catalog.aclexplode(
+         coalesce(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner))
+       ) acl
+       left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+      where namespace.nspname = any($1::text[])
+      order by schema_name, grantee, privilege_type, is_grantable`,
+    [[...TARGET_NATIVE_SCHEMAS]]
+  )).rows;
+  return {
+    transaction,
+    roles,
+    schemas,
+    authOwners,
+    extensions,
+    publications,
+    defaultAcls,
+    memberships,
+    schemaAcls
+  };
 }
 
 async function captureApplicationReplacementCatalog(client) {
@@ -568,6 +640,13 @@ function assertApplicationReplacementCompatibility(manifest, evidence = {}) {
 
 function assertManagedTargetCatalogCompatibility(evidence = {}) {
   const transaction = evidence.transaction || {};
+  if (
+    !Array.isArray(evidence.defaultAcls) ||
+    !Array.isArray(evidence.memberships) ||
+    !Array.isArray(evidence.schemaAcls)
+  ) {
+    throw categoricalError('MANAGED_TARGET_SECURITY_CATALOG_INCOMPATIBLE');
+  }
   if (
     transaction.transaction_read_only !== 'on' ||
     transaction.role_name !== 'postgres' ||
@@ -834,6 +913,7 @@ function buildManagedOverlaySql({
   applicationPreDataSql,
   applicationDataSql,
   applicationPostDataSql,
+  applicationAclConvergenceSql,
   authUsersSql,
   authIdentitiesSql,
   migrationSql,
@@ -845,6 +925,7 @@ function buildManagedOverlaySql({
     applicationPreDataSql: assertApplicationChunk(applicationPreDataSql),
     applicationDataSql: assertApplicationChunk(applicationDataSql),
     applicationPostDataSql: assertApplicationChunk(applicationPostDataSql),
+    applicationAclConvergenceSql: assertApplicationChunk(applicationAclConvergenceSql),
     authUsersSql: assertAuthDataChunk(authUsersSql, 'users'),
     authIdentitiesSql: assertAuthDataChunk(authIdentitiesSql, 'identities'),
     migrationSql: assertChunkBoundary(migrationSql, 'MIGRATION_CHUNK')
@@ -880,6 +961,8 @@ ${chunks.applicationDataSql}
 ${chunks.migrationSql}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_POST_DATA
 ${chunks.applicationPostDataSql}
+\\echo MANAGED_OVERLAY_STAGE_APPLICATION_ACL_CONVERGENCE
+${chunks.applicationAclConvergenceSql}
 \\echo MANAGED_OVERLAY_STAGE_VERIFY
 ${verification}
 COMMIT;
@@ -964,7 +1047,8 @@ function generateManagedOverlayPackage({
   migration,
   authCompatibility,
   targetCatalog,
-  applicationReplacement
+  applicationReplacement,
+  sourceAclContract
 } = {}) {
   verifyPrivateArtifactProtection(archivePath);
   verifyPrivateDirectoryProtection(privateDirectory);
@@ -981,16 +1065,23 @@ function generateManagedOverlayPackage({
       targetCatalog,
       applicationReplacement
     });
+    verifyApplicationAclContract(sourceAclContract);
     const tocText = tocBytes.toString('utf8');
-    const manifest = buildManagedRestoreManifest({ tocText, sourceComponent });
+    const manifest = buildManagedRestoreManifest({
+      tocText,
+      sourceComponent,
+      applicationAclContract: sourceAclContract
+    });
     verifyManagedRestoreManifest(manifest);
     const appListPath = privateArtifactPath(privateDirectory, 'application-restore.list');
     const migrationListPath = privateArtifactPath(privateDirectory, 'migration-ledger-restore.list');
     const manifestPath = privateArtifactPath(privateDirectory, 'managed-restore-manifest.json');
+    const aclContractPath = privateArtifactPath(privateDirectory, 'application-acl-contract.json');
     const scriptPath = privateArtifactPath(privateDirectory, 'managed-overlay.sql');
     writePrivateBytesExclusive(appListPath, Buffer.from(applicationRestoreList(tocText, manifest), 'utf8'));
     writePrivateBytesExclusive(migrationListPath, Buffer.from(migrationRestoreList(tocText, manifest), 'utf8'));
     writePrivateJsonExclusive(manifestPath, manifest);
+    writePrivateJsonExclusive(aclContractPath, sourceAclContract);
     appPre = generatePgRestoreChunk({
       pgRestorePath,
       archivePath,
@@ -1023,6 +1114,7 @@ function generateManagedOverlayPackage({
       applicationPreDataSql: normalizeGeneratedSql(appPre),
       applicationDataSql: normalizeGeneratedSql(appData),
       applicationPostDataSql: normalizeGeneratedSql(appPost),
+      applicationAclConvergenceSql: buildApplicationAclConvergenceSql(sourceAclContract),
       authUsersSql: normalizeGeneratedSql(users),
       authIdentitiesSql: normalizeGeneratedSql(identities),
       migrationSql: normalizeGeneratedSql(migrationSql),
@@ -1049,9 +1141,10 @@ function generateManagedOverlayPackage({
     }
     return {
       manifest,
-      paths: { appListPath, migrationListPath, manifestPath, scriptPath },
+      paths: { appListPath, migrationListPath, manifestPath, aclContractPath, scriptPath },
       script: { size: fs.statSync(scriptPath).size, digest: scriptDigest, semanticDigest },
       targetCompatibility,
+      sourceAclContract,
       atomic: true,
       sessionReplicationRoleRequired: false
     };
@@ -1123,6 +1216,13 @@ async function executeManagedOverlayPackage({
 } = {}) {
   const executionTarget = assertOverlayExecutionGuard(connectionString, targetGuard);
   verifyManagedRestoreManifest(packageResult?.manifest);
+  verifyApplicationAclContract(packageResult?.sourceAclContract);
+  if (
+    packageResult.manifest?.applicationAclConvergence?.contractDigest !==
+      packageResult.sourceAclContract.contractDigest
+  ) {
+    throw categoricalError('MANAGED_OVERLAY_ACL_CONTRACT_BINDING_REJECTED');
+  }
   const targetCompatibility = packageResult?.targetCompatibility;
   if (
     !targetCompatibility ||
@@ -1136,7 +1236,30 @@ async function executeManagedOverlayPackage({
     throw categoricalError('MANAGED_OVERLAY_COMPATIBILITY_BINDING_REJECTED');
   }
   const scriptPath = packageResult?.paths?.scriptPath;
+  const aclContractPath = packageResult?.paths?.aclContractPath;
+  verifyPrivateArtifactProtection(aclContractPath);
   verifyPrivateArtifactProtection(scriptPath);
+  const contractBytes = fs.readFileSync(aclContractPath);
+  try {
+    const storedContract = JSON.parse(normalizeGeneratedSql(contractBytes));
+    verifyApplicationAclContract(storedContract);
+    if (canonicalSerialize(storedContract) !== canonicalSerialize(packageResult.sourceAclContract)) {
+      throw categoricalError('MANAGED_OVERLAY_ACL_CONTRACT_ARTIFACT_MISMATCH');
+    }
+  } finally {
+    contractBytes.fill(0);
+  }
+  const scriptBytes = fs.readFileSync(scriptPath);
+  try {
+    if (
+      scriptBytes.length !== packageResult?.script?.size ||
+      sha256(scriptBytes) !== packageResult?.script?.digest
+    ) {
+      throw categoricalError('MANAGED_OVERLAY_SCRIPT_ARTIFACT_MISMATCH');
+    }
+  } finally {
+    scriptBytes.fill(0);
+  }
   let result;
   try {
     result = await runPrivateDiagnosticCommand({
