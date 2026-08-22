@@ -5,7 +5,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0202_extra_allocation_capacity.sql';
+const LATEST_MIGRATION = '0203_restore_default_warehouse_auth_context.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -650,6 +650,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     includes: [
       'perform app_api.activate_confirmed_invite_membership(p_org_id);',
       "and m.status = 'active';",
+      "v_default_warehouse text := '';",
+      'v_default_warehouse := app_api.get_user_default_warehouse(p_org_id, v_user_id);',
+      "'defaultWarehouse', coalesce(v_default_warehouse, ''),",
       'v_permissions := app_api.member_permissions_for_user_json(p_org_id, v_user_id);',
       "'team_management', app_api.feature_access_json(true, true)",
       "'team_management', app_api.feature_access_json(false, false)"

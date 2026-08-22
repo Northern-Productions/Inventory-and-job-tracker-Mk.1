@@ -150,3 +150,16 @@ Deno.test("Edge auth module reads access requests before resolving the auth cont
     "Expected Edge auth to inspect access requests before calling api_get_auth_context.",
   );
 });
+
+Deno.test("Edge auth context projects the RPC default warehouse into the resolved identity", async () => {
+  const source = await Deno.readTextFile(new URL("./auth.ts", import.meta.url));
+
+  assert(
+    source.includes('rpcOrThrow<Record<string, unknown>>(client, "api_get_auth_context"'),
+    "Expected Edge auth to read the canonical database auth-context RPC.",
+  );
+  assert(
+    source.includes("defaultWarehouse: deps.asTrimmedString(accessContext.defaultWarehouse).toUpperCase()"),
+    "Expected the RPC defaultWarehouse field to reach identity.defaultWarehouse.",
+  );
+});

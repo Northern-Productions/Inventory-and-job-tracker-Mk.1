@@ -95,7 +95,7 @@ test('migration 0200 changes no ambiguous receipt row during migration and keeps
 test('latest schema guard requires the v2 legacy aggregate and manual-correction contracts', async () => {
   const schemaCheck = await readFile(schemaCheckUrl, 'utf8');
 
-  assert.match(schemaCheck, /const LATEST_MIGRATION = '0202_extra_allocation_capacity\.sql'/);
+  assert.match(schemaCheck, /const LATEST_MIGRATION = '0203_restore_default_warehouse_auth_context\.sql'/);
   assert.match(schemaCheck, /signature: 'app_api\.film_order_link_received_feet[\s\S]*?'else null'/);
   assert.match(schemaCheck, /signature: 'app_api\.film_order_ledger_projection[\s\S]*?'STORED_LEGACY_AGGREGATE'/);
   assert.match(schemaCheck, /signature: 'public\.api_film_orders_correct_received_lf[\s\S]*?'MANUAL_CORRECTION'/);
