@@ -104,6 +104,50 @@ Before a real refresh, create encrypted `DEV_PRE_REFRESH_RECOVERY_Y`, authentica
 
 Any failed target, component, quarantine, parity, cleanup, or protected-state gate stops the run without broad recovery actions.
 
+## Exact SANDBOX Fixture Recovery
+
+`env:sandbox:fixture-recovery` is the only environment-sync path allowed to suspend the
+last-owner trigger while destroying an exact organization-root fixture. It is SANDBOX-only
+and never accepts names, prefixes, dates, discovered rows, DEV, or PROD as cleanup authority.
+
+The command has two stages. `prepare` authenticates the private fixture manifest, failure
+record, recovery freeze, lineage record, and ID journal, then uses a rolled-back
+`REPEATABLE READ READ ONLY` snapshot to bind exact per-table counts, strict nonfixture
+projections, Auth categories, side-effect state, application/schema/ACL/RLS fingerprints,
+managed-plane fingerprints, `pg_default_acl`, migration state, and the source-matched
+`trg_prevent_last_owner_loss` definition into an exclusively created owner-protected plan.
+The plan copies no cleanup identity that was not already present in the authenticated
+manifest.
+
+`cleanup` requires the authenticated plan, an explicit SANDBOX project ref, `--apply`, and
+`--quiet-window-active`. It publishes a permanent exclusive one-shot attempt marker before
+database work. Inside exactly one `SERIALIZABLE` transaction it rechecks the complete plan,
+temporarily disables only `trg_prevent_last_owner_loss` on `app.organization_members`,
+deletes only the manifest's exact organization roots, proves exact cascade counts and strict
+nonfixture equality, re-enables and re-verifies the trigger, proves every surviving
+organization has an active owner, and compares all protected fingerprints before commit.
+The product function and trigger definition are never changed. A rollback restores the
+trigger transactionally; a commit ambiguity remains frozen and is never retried
+automatically.
+
+After a known database commit, the command deletes only the manifest's one exact temporary
+Auth identity through the target-native Auth Admin API and performs a rolled-back strict
+after-state check. The permanent smoke identity and copied quarantined identities are
+categorically verified and never supplied as deletion targets. Private plan, attempt, and
+result artifacts are fsynced and owner-protected. Normal output is categorical and
+count-only.
+
+Example shape (private paths and values intentionally omitted):
+
+```text
+npm --prefix backend run env:sandbox:fixture-recovery -- --action prepare --expected-project-ref <sandbox-ref> --expected-application-commit <commit> --authority-dir <private-dir> --authority-key <private-key> --project-artifact <private-project-artifact> --database-password-artifact <private-password-artifact>
+
+npm --prefix backend run env:sandbox:fixture-recovery -- --action cleanup --apply --quiet-window-active --expected-project-ref <sandbox-ref> --expected-application-commit <commit> --authority-dir <private-dir> --authority-key <private-key> --project-artifact <private-project-artifact> --database-password-artifact <private-password-artifact>
+```
+
+An existing attempt or result freezes ordinary invocation. Do not remove it, broaden the
+manifest, retry, or substitute ad hoc SQL.
+
 For B, run the complete PostgreSQL preflight first, pin source and restore fingerprint sessions to UTC, and require the native source-to-restore compatibility result before X-NP. The same encrypted component must feed both D and E. The rehearsal's shared structural smoke identity exists only to keep lineage fingerprints comparable; each real project must receive its own credential and Auth identity through its own Auth Admin API.
 
 ## One-Retry SANDBOX Procedure

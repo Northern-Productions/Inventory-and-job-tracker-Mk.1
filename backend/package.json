@@ -28,6 +28,7 @@
     "env:inventory": "node scripts/environment-inventory.mjs",
     "env:rehearse": "node scripts/environment-sync-rehearsal.mjs",
     "env:postgres:preflight": "node scripts/environment-sync-rehearsal.mjs --preflight-only",
+    "env:sandbox:fixture-recovery": "node scripts/environment-sync-fixture-recovery.mjs",
     "env:sync:test": "node --test scripts/lib/environment-sync",
     "client-pilot:readiness": "node scripts/client-pilot/onboarding-readiness.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
