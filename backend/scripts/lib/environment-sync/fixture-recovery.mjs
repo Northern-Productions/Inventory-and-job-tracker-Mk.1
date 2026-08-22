@@ -173,17 +173,40 @@ function readAndVerifyIdJournal(journalPath, { runTag, organizationIds }) {
     ) {
       throw fixtureRecoveryError('FIXTURE_RECOVERY_JOURNAL_INVALID');
     }
+    let evidenceValueCount = 0;
     for (const record of records.slice(1)) {
+      const category = asText(record?.category);
+      const entries = record?.value;
       if (
-        !['AUTH_CONTEXT', 'AUTH_ORGANIZATION'].includes(record?.category) ||
-        !Array.isArray(record?.value) ||
-        record.value.length === 0 ||
-        record.value.some((entry) => entry?.field !== 'orgId' || !allowedIds.has(entry?.value))
+        !/^[A-Z][A-Z0-9_]{2,95}$/.test(category) ||
+        !Array.isArray(entries) ||
+        entries.length === 0 ||
+        entries.length > 128 ||
+        entries.some((entry) => {
+          const field = asText(entry?.field);
+          const value = asText(entry?.value);
+          return !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(field) ||
+            !value ||
+            value.length > 256 ||
+            /[\u0000-\u001f\u007f]/.test(value);
+        })
       ) {
         throw fixtureRecoveryError('FIXTURE_RECOVERY_JOURNAL_SCOPE_INVALID');
       }
+      if (
+        ['AUTH_CONTEXT', 'AUTH_ORGANIZATION'].includes(category) &&
+        entries.some((entry) => entry.field !== 'orgId' || !allowedIds.has(entry.value))
+      ) {
+        throw fixtureRecoveryError('FIXTURE_RECOVERY_JOURNAL_SCOPE_INVALID');
+      }
+      evidenceValueCount += entries.length;
     }
-    return { recordCount: records.length, byteDigest: sha256Bytes(bytes) };
+    return {
+      recordCount: records.length,
+      evidenceValueCount,
+      cleanupTargetCount: 0,
+      byteDigest: sha256Bytes(bytes)
+    };
   } finally {
     bytes.fill(0);
   }

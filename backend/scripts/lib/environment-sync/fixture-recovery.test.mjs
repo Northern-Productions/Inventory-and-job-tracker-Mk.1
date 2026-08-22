@@ -115,6 +115,11 @@ function writeAuthority(root, overrides = {}) {
       { category: 'AUTH_CONTEXT', value: organizationIds.map((value) => ({ field: 'orgId', value })) },
       null,
       2
+    ),
+    JSON.stringify(
+      { category: 'BOX_DEALERS_UPSERT', value: [{ field: 'dealerId', value: crypto.randomUUID() }] },
+      null,
+      2
     )
   ].join('\n');
   writePrivateBytesExclusive(paths.journal, Buffer.from(`${journal}\n`, 'utf8'));
@@ -149,7 +154,9 @@ test('runtime recovery authority authenticates exact private records and rejects
     assert.deepEqual(authority.organizationIds, fixture.organizationIds);
     assert.equal(authority.temporaryUserId, fixture.temporaryUserId);
     assert.equal(authority.permanentSmokeUserId, fixture.permanentSmokeUserId);
-    assert.equal(authority.journal.recordCount, 2);
+    assert.equal(authority.journal.recordCount, 3);
+    assert.equal(authority.journal.evidenceValueCount, 3);
+    assert.equal(authority.journal.cleanupTargetCount, 0);
     authority.key.fill(0);
 
     const record = JSON.parse(fs.readFileSync(fixture.paths.recovery, 'utf8'));
@@ -170,6 +177,46 @@ test('runtime recovery authority authenticates exact private records and rejects
         }),
       (error) => error?.code === 'FIXTURE_RECOVERY_RECORD_AUTHENTICATION_FAILED'
     );
+  } finally {
+    if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: false });
+  }
+});
+
+test('runtime recovery journal accepts bounded evidence but never broadens manifest authority', () => {
+  const root = path.join(os.tmpdir(), `environment-sync-fixture-journal-${crypto.randomBytes(8).toString('hex')}`);
+  try {
+    const fixture = writeAuthority(root);
+    const readAuthority = () =>
+      readRuntimeRecoveryAuthority({
+        directoryPath: fixture.directory,
+        keyPath: fixture.keyPath,
+        manifestPath: fixture.paths.manifest,
+        failurePath: fixture.paths.failure,
+        recoveryPath: fixture.paths.recovery,
+        lineagePath: fixture.paths.lineage,
+        journalPath: fixture.paths.journal,
+        expectedProjectRef: fixture.projectRef,
+        expectedApplicationCommit: fixture.applicationCommit
+      });
+
+    const authority = readAuthority();
+    assert.equal(authority.journal.cleanupTargetCount, 0);
+    assert.deepEqual(authority.organizationIds, fixture.organizationIds);
+    authority.key.fill(0);
+
+    const invalidJournal = [
+      JSON.stringify({
+        format: 'sandbox-golden-id-journal-v1',
+        runTag: 'SANDBOX_GOLDEN_TEST_1234567890',
+        entries: []
+      }),
+      JSON.stringify({
+        category: 'AUTH_CONTEXT',
+        value: [{ field: 'orgId', value: crypto.randomUUID() }]
+      })
+    ].join('\n');
+    fs.writeFileSync(fixture.paths.journal, `${invalidJournal}\n`, { mode: 0o600 });
+    assert.throws(readAuthority, (error) => error?.code === 'FIXTURE_RECOVERY_JOURNAL_SCOPE_INVALID');
   } finally {
     if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: false });
   }

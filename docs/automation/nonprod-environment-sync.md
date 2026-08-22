@@ -119,6 +119,12 @@ managed-plane fingerprints, `pg_default_acl`, migration state, and the source-ma
 The plan copies no cleanup identity that was not already present in the authenticated
 manifest.
 
+The private ID journal may contain bounded, structurally validated IDs harvested from later
+workflow responses. Those values are corroborating evidence only: they contribute no cleanup
+target and are never promoted into the plan. Auth-context organization entries must still
+match the manifest's exact organization roots. The manifest remains the sole deletion
+authority.
+
 `cleanup` requires the authenticated plan, an explicit SANDBOX project ref, `--apply`, and
 `--quiet-window-active`. It publishes a permanent exclusive one-shot attempt marker before
 database work. Inside exactly one `SERIALIZABLE` transaction it rechecks the complete plan,
