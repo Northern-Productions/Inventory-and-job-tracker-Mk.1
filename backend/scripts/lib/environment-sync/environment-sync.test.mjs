@@ -115,6 +115,7 @@ test('managed X-NP guard accepts only an exact SSL-protected nonproduction targe
   });
   assert.deepEqual(accepted, {
     target: 'sandbox',
+    projectRef: sandboxRef,
     projectRefMatched: true,
     mutationGuardPassed: true,
     ssl: true
@@ -368,6 +369,13 @@ test('PROD rehearsal platform evidence is pinned and drift fails closed', () => 
 test('disposable PostgreSQL cleanup authority accepts only exact rehearsal roots', () => {
   const accepted = path.join(os.tmpdir(), 'environment-sync-rehearsal-0123456789abcdef');
   assert.equal(assertDisposableRoot(accepted), path.resolve(accepted));
+  for (const managedName of [
+    'environment-sync-rehearsal-managed-0123456789abcdef',
+    'environment-sync-rehearsal-managed-source-0123456789abcdef'
+  ]) {
+    const managed = path.join(os.tmpdir(), managedName);
+    assert.equal(assertDisposableRoot(managed), path.resolve(managed));
+  }
   assert.throws(
     () => assertDisposableRoot(path.join(os.tmpdir(), 'environment-sync-rehearsal-0123456789abcdef-extra')),
     /DISPOSABLE_POSTGRES_PATH_REJECTED/

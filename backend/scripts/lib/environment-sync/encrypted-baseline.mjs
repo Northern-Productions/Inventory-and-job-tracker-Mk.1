@@ -9,6 +9,7 @@ import {
   verifyPrivateArtifactProtection,
   writePrivateBytesExclusive
 } from './private-artifacts.mjs';
+import { runPrivateDiagnosticCommand } from './private-diagnostics.mjs';
 
 const MAGIC = Buffer.from('XREH001\0', 'ascii');
 const WRAPPED_KEY_MAGIC = Buffer.from('XKEY001\0', 'ascii');
@@ -282,7 +283,8 @@ async function restoreEncryptedPgDump({
   connectionString,
   artifactPath,
   key,
-  restoreMode = 'blank-target'
+  restoreMode = 'blank-target',
+  diagnosticDirectory = ''
 } = {}) {
   verifyPrivateArtifactProtection(artifactPath);
   const connection = parseDatabaseConnection(connectionString);
@@ -290,10 +292,30 @@ async function restoreEncryptedPgDump({
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAuthTag(tag);
   const input = fs.createReadStream(artifactPath, { start: HEADER_BYTES });
+  const childEnvironment = postgresChildEnvironment(connectionString, {
+    PGOPTIONS: '-c check_function_bodies=off -c statement_timeout=0'
+  });
+  if (diagnosticDirectory) {
+    const decrypted = input.pipe(decipher);
+    try {
+      const diagnostic = await runPrivateDiagnosticCommand({
+        executable: pgRestorePath,
+        args: buildPgRestoreArgs(connection.database, restoreMode),
+        env: childEnvironment,
+        inputStream: decrypted,
+        diagnosticDirectory,
+        failureCode: 'BASELINE_PG_RESTORE_FAILED'
+      });
+      return { restored: true, diagnostic: diagnostic.safeDiagnostic };
+    } finally {
+      decrypted.destroy();
+      input.destroy();
+      nonce.fill(0);
+      tag.fill(0);
+    }
+  }
   const child = runStreamingChild(pgRestorePath, buildPgRestoreArgs(connection.database, restoreMode), {
-    env: postgresChildEnvironment(connectionString, {
-      PGOPTIONS: '-c check_function_bodies=off -c statement_timeout=0'
-    })
+    env: childEnvironment
   });
   const childWait = waitForChild(child, 'BASELINE_PG_RESTORE_FAILED');
   // The archive is supplied on stdin; libpq credentials remain process-only in PG* variables.

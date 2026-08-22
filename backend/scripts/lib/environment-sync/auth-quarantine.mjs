@@ -122,7 +122,13 @@ async function assertManagedNonprodTarget(
     throw categoricalError('AUTH_QUARANTINE_MANAGED_TARGET_REJECTED');
   }
 
-  return { target, projectRefMatched: true, mutationGuardPassed: true, ssl: true };
+  return {
+    target,
+    projectRef: derivedRef,
+    projectRefMatched: true,
+    mutationGuardPassed: true,
+    ssl: true
+  };
 }
 
 async function assertAuthQuarantineTarget(client, options = {}) {

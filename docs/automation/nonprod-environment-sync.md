@@ -28,9 +28,32 @@ X-NP preserves copied Auth UUID relationships while replacing routable identity 
 
 Before X-NP, each native restore must equal the exported PROD snapshot for migrations, protected schema/data, application relations, columns, routines, triggers, semantic constraints and foreign keys, indexes, RLS policies, sequences, Auth topology, and direct application grants. Capture and comparison sessions use UTC so `timestamptz` fingerprints are deterministic. PostgreSQL 18's generated `contype = 'n'` catalog entries are excluded from the cross-major constraint signature only because exact column nullability is compared separately; PK, unique, FK, check, and exclusion semantics remain exact.
 
-Managed nonproduction replacement streams the same authenticated encrypted archive through `pg_restore --clean --if-exists --single-transaction`; the blank-target rehearsal remains the default. The single transaction is mandatory so a restore error cannot leave a partially replaced selected-schema set.
+Managed nonproduction replacement must use the target-native overlay, not a broad `pg_restore --clean` of the source archive. The broad method attempts to clean target-native Auth objects and fails when the managed `postgres` role is not their owner. The overlay authenticates the encrypted archive, classifies every TOC item, proves the target catalog in a rolled-back read-only transaction, and binds the catalog, Auth shape, application-replacement, archive, and restore-plan digests before mutation. Unknown objects fail closed.
+
+The compatibility manifest assigns every TOC entry exactly one action: `restore`, `transform`, `skip-as-managed`, `recreate-target-locally`, or `preserve-target-native`, with a nonblank reason. It restores only `app`, `app_api`, the reviewed `public` API facade, and their application ACLs/data. It separately recreates the `supabase_migrations` ledger. It preserves native roles, role memberships, `auth`, `storage`, `realtime`, `extensions`, `vault`, `graphql`, `graphql_public`, `public` ownership/defaults, extensions, publications, managed ACLs, and managed ownership. It does not use `session_replication_role`.
+
+Before an authorized overlay, the source copy is quarantined in its disposable private environment. Only sanitized `auth.users` and `auth.identities` rows are emitted with explicit column lists; generated columns remain target-generated. Target-native Auth definitions, instances, and Auth migration history are preserved. Sessions, refresh tokens, one-time tokens, flow state, MFA, OAuth, SAML/SSO, WebAuthn, and Auth audit ephemera are omitted and asserted empty. Source and target Auth column order, types, nullability, generated expressions, and reviewed trigger shape must match exactly.
+
+Application replacement runs in one `SERIALIZABLE` transaction. It first proves existing `app` and `app_api` schemas are owned by the executing application owner and that no external foreign key, view, trigger, or policy depends on the replaceable plane. It then drops only the reviewed application schemas and exact manifest-listed `public` routines, restores application definitions, purges copied Auth relational/ephemeral rows, inserts quarantined users then identities, restores application data and the migration ledger, restores post-data objects/ACLs, and verifies Auth, session/token, migration, and application invariants before commit. A failure rolls back the complete overlay. Existing DEV preservation is applied only afterward through its separate exact manifest.
+
+The managed-like rehearsal creates non-superuser `postgres`, managed owner roles, native schema ownership, extension placement, and the native Realtime publication. It must reproduce the old ownership rejection and atomic rollback, then prove the overlay on both a blank managed target and a populated managed target. Application/Auth parity, migration history, target-native managed-plane equality, quarantine, and private-artifact teardown are mandatory.
 
 Generic PostgreSQL cannot reproduce Supabase Auth HTTP services, managed secrets/platform metadata, every managed extension, managed side-effect runtime, nonselected managed schemas, or server-role login attributes. Those are declared platform differences, not parity exceptions between derived targets. Database restoration, Auth relationship quarantine, credential replacement, session/token purge, side-effect no-call state, and domain contracts must pass locally; Auth HTTP, Edge, Storage, and browser behavior remain required on the real SANDBOX.
+
+## Private Restore Diagnostics
+
+Normal restore output remains categorical and sanitized. A restore subprocess may write bounded raw stdout/stderr only to an exclusively created, owner-protected private temporary artifact. Credentials, database URLs, managed hosts, bearer/token shapes, identifiers, and private paths are removed before any diagnostic leaves the private callback. Useful PostgreSQL error class, SQLSTATE category, object context, and overlay stage remain. The raw bytes are zeroed in memory where practical and the temporary artifact is removed on success and failure; raw diagnostics are never committed or retained as report evidence.
+
+## Official Supabase Method Alignment
+
+The overlay follows Supabase's supported logical-migration shape by separating application schema, data, roles/ACL decisions, and migration history; filtering managed schemas; and suppressing source ownership. It intentionally preserves target-native managed roles and skips source references that would replace Supabase ownership or CLI roles. Unlike a generic Supabase migration, this application must retain Auth UUID relationships, so it adds a narrowly reviewed relational transplant into native Auth tables after source-side X-NP quarantine. It intentionally does not use `session_replication_role=replica`: managed targets do not grant that setting to the execution role, and exact ordering plus normal constraints prove the required relationships instead.
+
+Relevant provider guidance:
+
+- `https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore`
+- `https://supabase.com/docs/guides/platform/migrating-to-supabase/postgres`
+- `https://supabase.com/docs/reference/cli/supabase-auth`
+- `https://supabase.com/docs/guides/platform/clone-project`
 
 ## Side-Effect Quarantine
 
@@ -76,6 +99,26 @@ Before a real refresh, create encrypted `DEV_PRE_REFRESH_RECOVERY_Y`, authentica
 Any failed target, component, quarantine, parity, cleanup, or protected-state gate stops the run without broad recovery actions.
 
 For B, run the complete PostgreSQL preflight first, pin source and restore fingerprint sessions to UTC, and require the native source-to-restore compatibility result before X-NP. The same encrypted component must feed both D and E. The rehearsal's shared structural smoke identity exists only to keep lineage fingerprints comparable; each real project must receive its own credential and Auth identity through its own Auth Admin API.
+
+## One-Retry SANDBOX Procedure
+
+This procedure is a design, not authorization. One explicit Sage/Rob approval is required for one attempt.
+
+1. Guard the declared SANDBOX project and reject PROD, DEV, loopback, linked, or mismatched credentials.
+2. Prove SANDBOX remains quarantined, healthy, empty of application/Auth user state, and free of prior restore artifacts.
+3. Capture a fresh native managed-catalog fingerprint in `REPEATABLE READ READ ONLY`, prove the non-superuser executor and exact native owners/privileges, then roll back.
+4. Authenticate X ciphertext, wrapped key, manifest, component size/digest, source commit, migration tip, and retained certification without persistent plaintext.
+5. Generate and authenticate the complete managed-restore compatibility manifest; require zero uncertain entries and exact target-proof bindings.
+6. Preserve the target-native roles, ownership, managed schemas, extensions, publication, Auth definitions/control rows, project keys, and platform plumbing.
+7. Restore only the manifest-selected portable application plane inside one `SERIALIZABLE` transaction.
+8. Quarantine the disposable source first, then transplant only explicit sanitized Auth user/identity columns into the native Auth shape.
+9. Prove zero copied sessions, refresh tokens, one-time tokens, flow state, MFA, OAuth, SAML/SSO, WebAuthn, Auth audit ephemera, and usable copied credentials.
+10. Prove cron, hooks, foreign access, network callers, routable identities, and outbound side effects remain absent or disabled.
+11. Prove application schema/data/grants, migration history, Auth relationships, managed-catalog preservation, and declared X-NP parity.
+12. On any SQL or verification failure, rely on the single transaction rollback, stop the attempt, and do not broaden, retry, or repair.
+13. Classify failure from the owner-protected transient diagnostic, retain only sanitized categories/counts, and remove raw material.
+14. Complete strict X-NP and protected-state verification before any service exposure.
+15. Only after every database gate passes may separately approved target-native smoke-user creation, Edge deployment, browser workflows, and exact cleanup begin.
 
 ## Golden Workflow Contract
 

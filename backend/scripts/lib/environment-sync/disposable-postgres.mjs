@@ -97,7 +97,7 @@ function run(executablePath, args, options = {}) {
 
 function assertDisposableRoot(rootDirectory, logPath = '') {
   const resolvedRoot = path.resolve(rootDirectory);
-  if (!/^environment-sync-rehearsal-(?:source-)?[a-f0-9]{12,16}$/.test(path.basename(resolvedRoot))) {
+  if (!/^environment-sync-rehearsal-(?:(?:managed-)?source-|managed-)?[a-f0-9]{12,16}$/.test(path.basename(resolvedRoot))) {
     throw new Error('DISPOSABLE_POSTGRES_PATH_REJECTED');
   }
   if (logPath) {
@@ -130,7 +130,14 @@ function removeDisposableRootFiles(rootDirectory, logPath) {
   return false;
 }
 
-async function startDisposablePostgres({ rootDirectory, postgresBin = '' } = {}) {
+async function startDisposablePostgres({
+  rootDirectory,
+  postgresBin = '',
+  bootstrapUser = 'postgres'
+} = {}) {
+  if (!['postgres', 'cluster_admin'].includes(bootstrapUser)) {
+    throw new Error('DISPOSABLE_POSTGRES_BOOTSTRAP_USER_REJECTED');
+  }
   const tools = resolvePostgresTools(postgresBin);
   const root = assertDisposableRoot(rootDirectory);
   if (fs.existsSync(root)) throw new Error('DISPOSABLE_POSTGRES_ROOT_COLLISION');
@@ -155,7 +162,7 @@ async function startDisposablePostgres({ rootDirectory, postgresBin = '' } = {})
         '--encoding=UTF8',
         '--locale=C',
         '--auth=scram-sha-256',
-        '--username=postgres',
+        `--username=${bootstrapUser}`,
         '--pwfile', passwordPath,
         '--no-sync'
       ]);
@@ -205,7 +212,7 @@ async function startDisposablePostgres({ rootDirectory, postgresBin = '' } = {})
     port,
     connectionString(database = 'postgres') {
       if (!password) throw new Error('DISPOSABLE_POSTGRES_ALREADY_STOPPED');
-      return `postgresql://postgres:${encodeURIComponent(password)}@127.0.0.1:${port}/${encodeURIComponent(database)}?sslmode=disable`;
+      return `postgresql://${encodeURIComponent(bootstrapUser)}:${encodeURIComponent(password)}@127.0.0.1:${port}/${encodeURIComponent(database)}?sslmode=disable`;
     },
     async stop() {
       try {
