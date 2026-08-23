@@ -20,7 +20,9 @@ import {
   AUTH_IDENTITIES_COPY_COLUMNS,
   AUTH_USERS_COPY_COLUMNS,
   MANAGED_RESTORE_CATEGORIES,
+  applicationContentRestoreList,
   applicationRestoreList,
+  applicationSchemaRestoreList,
   assertApplicationReplacementCompatibility,
   assertAuthOverlayCompatibility,
   assertManagedCompatibilityProof,
@@ -37,6 +39,12 @@ import {
   parsePgRestoreList,
   verifyManagedRestoreManifest
 } from './managed-restore.mjs';
+import {
+  REPOSITORY_APPLICATION_DEFAULT_ACL_INTENT,
+  authenticateApplicationDefaultAclManifest,
+  buildRepositoryApplicationDefaultAclManifest,
+  verifyApplicationDefaultAclManifest
+} from './application-default-acl-preservation.mjs';
 import {
   createPrivateDirectory,
   verifyPrivateArtifactProtection,
@@ -115,7 +123,15 @@ function managedCatalogEvidence() {
       truncate_enabled: true, via_root: false
     }],
     publicationRelations: [],
-    defaultAcls: [],
+    defaultAcls: REPOSITORY_APPLICATION_DEFAULT_ACL_INTENT.map((entry) => ({
+      owner_role: entry.ownerRole,
+      schema_name: entry.schemaName,
+      object_type: entry.objectClass === 'table' ? 'r' : 'S',
+      grantor_role: entry.grantorRole,
+      grantee: entry.grantee,
+      privilege_type: entry.privilege,
+      is_grantable: entry.grantOption
+    })),
     memberships: [],
     schemaAcls: [
       ...APPLICATION_FACING_ROLES.map((grantee) => ({
@@ -173,6 +189,30 @@ function managedProfileProof(evidence = managedCatalogEvidence()) {
     target: MANAGED_PROFILE_TEST_TARGET,
     expectedProfileId: 'sandbox-current-managed-profile'
   };
+}
+
+function applicationDefaultAclProof(targetCatalog) {
+  const certificate = authenticateApplicationDefaultAclManifest(
+    buildRepositoryApplicationDefaultAclManifest({
+      target: MANAGED_PROFILE_TEST_TARGET,
+      managedProfile: {
+        profileId: targetCatalog.profileId,
+        profileDigest: targetCatalog.profileDigest
+      },
+      rows: targetCatalog.applicationDefaultAclEntries
+    }),
+    MANAGED_PROFILE_TEST_KEY
+  );
+  return verifyApplicationDefaultAclManifest({
+    certificate,
+    key: MANAGED_PROFILE_TEST_KEY,
+    target: MANAGED_PROFILE_TEST_TARGET,
+    managedProfile: {
+      profileId: targetCatalog.profileId,
+      profileDigest: targetCatalog.profileDigest
+    },
+    currentEntries: targetCatalog.applicationDefaultAclEntries
+  });
 }
 
 test('generated restore SQL is fatal UTF-8 decoded and LF canonicalized', () => {
@@ -322,6 +362,8 @@ async function seedManagedSource(connectionString) {
       );
       grant usage on schema app, app_api to authenticated;
       grant select on app.organization_members to authenticated;
+      revoke execute on function app_api.member_count() from public;
+      revoke execute on function public.api_member_count() from public;
       grant execute on function public.api_member_count() to authenticated;
     `);
     for (const tableName of CURRENT_AUTH_TABLES) {
@@ -341,8 +383,16 @@ test('managed restore manifest classifies every reviewed object and produces exa
   assert.equal(manifest.categoryCounts[MANAGED_RESTORE_CATEGORIES.D], 2);
   assert.equal(authTransformEntries(manifest).length, 2);
   const appList = applicationRestoreList(SYNTHETIC_TOC, manifest);
+  const schemaList = applicationSchemaRestoreList(SYNTHETIC_TOC, manifest);
+  const contentList = applicationContentRestoreList(SYNTHETIC_TOC, manifest);
   assert.match(appList, /TABLE app boxes/);
   assert.match(appList, /FUNCTION public api_list_boxes/);
+  assert.match(schemaList, /SCHEMA - app postgres/);
+  assert.match(schemaList, /SCHEMA - app_api postgres/);
+  assert.doesNotMatch(schemaList, /TABLE app boxes/);
+  assert.doesNotMatch(contentList, /SCHEMA - app postgres/);
+  assert.doesNotMatch(contentList, /SCHEMA - app_api postgres/);
+  assert.match(contentList, /TABLE app boxes/);
   assert.doesNotMatch(appList, /SCHEMA - auth/);
   assert.doesNotMatch(appList, /TABLE DATA auth/);
   assert.doesNotMatch(appList, /supabase_migrations/);
@@ -427,12 +477,14 @@ test('managed target proof requires native ownership and a read-only non-superus
   const proof = assertManagedCompatibilityProof({
     authCompatibility: auth,
     targetCatalog: catalog,
-    applicationReplacement
+    applicationReplacement,
+    applicationDefaultAcl: applicationDefaultAclProof(catalog)
   });
   assert.equal(proof.transactionReadOnly, true);
   assert.equal(proof.catalogDigest, catalog.catalogDigest);
   assert.equal(proof.authShapeDigest, auth.targetDigest);
   assert.equal(proof.applicationReplacementDigest, applicationReplacement.replacementDigest);
+  assert.equal(proof.applicationDefaultAclEntryCount, 6);
 
   const superuser = structuredClone(managedCatalogEvidence());
   superuser.transaction.rolsuper = true;
@@ -468,10 +520,14 @@ test('Auth purge omits target-native instances and Auth migration history', () =
 test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, and post-data atomically', () => {
   const sql = buildManagedOverlaySql({
     applicationResetSql: 'DROP SCHEMA IF EXISTS app_api CASCADE;\nDROP SCHEMA IF EXISTS app CASCADE;',
-    applicationPreDataSql: 'DROP SCHEMA IF EXISTS app;\nCREATE SCHEMA app;\nCREATE SCHEMA app_api;',
+    applicationSchemaSql: 'CREATE SCHEMA app;\nCREATE SCHEMA app_api;',
+    applicationDefaultAclPreservationSql:
+      'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO service_role;',
+    applicationPreDataSql: 'CREATE TABLE app.boxes(id bigint);',
     applicationDataSql: "INSERT INTO app.boxes VALUES ('safe');",
     applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
     applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
+    applicationDefaultAclVerificationSql: 'DO $$ BEGIN NULL; END $$;',
     authUsersSql: "INSERT INTO auth.users (email) VALUES ('np-safe@users.invalid');",
     authIdentitiesSql: "INSERT INTO auth.identities (provider_id) VALUES ('np-safe@users.invalid');",
     migrationSql: "CREATE SCHEMA supabase_migrations;\nCREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260814210000');",
@@ -483,7 +539,9 @@ test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, a
   assert.doesNotMatch(sql, /DROP SCHEMA(?: IF EXISTS)? public\b/i);
   assert.doesNotMatch(sql, /CREATE SCHEMA public\b/i);
   assert.doesNotMatch(sql, /ALTER SCHEMA public OWNER\b/i);
-  assert.doesNotMatch(sql, /ALTER DEFAULT PRIVILEGES\b/i);
+  assert.match(sql, /ALTER DEFAULT PRIVILEGES\b/i);
+  assert.ok(sql.indexOf('CREATE SCHEMA app;') < sql.indexOf('ALTER DEFAULT PRIVILEGES'));
+  assert.ok(sql.indexOf('ALTER DEFAULT PRIVILEGES') < sql.indexOf('CREATE TABLE app.boxes'));
   assert.ok(sql.indexOf('CREATE SCHEMA app;') < sql.indexOf('delete from auth.users;'));
   assert.ok(sql.indexOf('delete from auth.users;') < sql.indexOf('INSERT INTO auth.users'));
   assert.ok(sql.indexOf('INSERT INTO auth.identities') < sql.indexOf('INSERT INTO app.boxes'));
@@ -498,10 +556,14 @@ test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, a
 test('managed overlay SQL rejects managed-plane DDL and role statements', () => {
   const base = {
     applicationResetSql: 'DROP SCHEMA IF EXISTS app_api CASCADE;\nDROP SCHEMA IF EXISTS app CASCADE;',
+    applicationSchemaSql: 'CREATE SCHEMA app;\nCREATE SCHEMA app_api;',
+    applicationDefaultAclPreservationSql:
+      'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO service_role;',
     applicationPreDataSql: 'CREATE SCHEMA app;',
     applicationDataSql: 'INSERT INTO app.boxes VALUES (1);',
     applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
     applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
+    applicationDefaultAclVerificationSql: 'DO $$ BEGIN NULL; END $$;',
     authUsersSql: "INSERT INTO auth.users (email) VALUES ('np-safe@users.invalid');",
     authIdentitiesSql: "INSERT INTO auth.identities (provider_id) VALUES ('np-safe@users.invalid');",
     migrationSql: "CREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260814210000');",
@@ -611,6 +673,9 @@ test('managed-like PostgreSQL reproduces old ownership failure and passes overla
     assert.equal(result.classification, 'MANAGED_OVERLAY_REHEARSAL_PASSED');
     assert.equal(result.oldMethod.classification, 'POSTGRES_MANAGED_OWNERSHIP_REJECTED');
     assert.equal(result.oldMethod.atomicRollback, true);
+    assert.equal(result.oldMethod.applicationDefaultAclLossReproduced, true);
+    assert.equal(result.oldMethod.applicationDefaultAclBeforeCount, 6);
+    assert.equal(result.oldMethod.applicationDefaultAclAfterReplacementCount, 0);
     assert.equal(result.targets.mockSandboxManaged.applicationParity, true);
     assert.equal(result.targets.mockDevManaged.populatedApplicationPlaneReplaced, true);
     assert.equal(result.targets.mockDevManaged.populatedPackageByteEquivalent, true);
@@ -621,7 +686,18 @@ test('managed-like PostgreSQL reproduces old ownership failure and passes overla
     assert.equal(result.targetCatalog.sandboxPublicOwnerPreserved, true);
     assert.equal(result.targetCatalog.devPublicOwnerPreserved, true);
     assert.equal(result.targetCatalog.defaultAclsPreserved, true);
+    assert.equal(result.targetCatalog.applicationDefaultAclsPreserved, true);
     assert.equal(result.targetCatalog.membershipsPreserved, true);
+    assert.equal(result.futureObjectProbes.dev.applicationExact, true);
+    assert.equal(result.futureObjectProbes.dev.tableGrantCount, 4);
+    assert.equal(result.futureObjectProbes.dev.sequenceGrantCount, 2);
+    assert.equal(result.futureObjectProbes.dev.totalApplicationGrantCount, 6);
+    assert.equal(result.futureObjectProbes.dev.publicFunctionDenied, true);
+    assert.equal(result.futureObjectProbes.dev.anonFunctionDenied, true);
+    assert.equal(result.futureObjectProbes.sandbox.applicationExact, true);
+    assert.equal(result.futureObjectProbes.sandbox.totalApplicationGrantCount, 12);
+    assert.equal(result.recovery.destructiveSecondOverlayRestoredApplicationDefaults, true);
+    assert.equal(result.recovery.futureObjectSemanticsRestored, true);
     assert.equal(result.diagnosticResidue, 0);
   } finally {
     archiveBytes?.fill(0);

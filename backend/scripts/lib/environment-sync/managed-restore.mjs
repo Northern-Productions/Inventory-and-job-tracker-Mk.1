@@ -11,6 +11,13 @@ import {
   buildApplicationAclConvergenceSql,
   verifyApplicationAclContract
 } from './application-acl-convergence.mjs';
+import {
+  APPLICATION_DEFAULT_ACL_MANIFEST_FORMAT,
+  buildApplicationDefaultAclPreservationSql,
+  buildApplicationDefaultAclVerificationSql,
+  normalizeSemanticEntries as normalizeApplicationDefaultAclEntries,
+  verifyApplicationDefaultAclManifest
+} from './application-default-acl-preservation.mjs';
 import { parseDatabaseConnection, postgresChildEnvironment } from './encrypted-baseline.mjs';
 import {
   privateArtifactPath,
@@ -259,8 +266,19 @@ function manifestPayload(manifest) {
   return payload;
 }
 
-function buildManagedRestoreManifest({ tocText, sourceComponent = {}, applicationAclContract } = {}) {
+function buildManagedRestoreManifest({
+  tocText,
+  sourceComponent = {},
+  applicationAclContract,
+  applicationDefaultAclCertificate
+} = {}) {
   if (applicationAclContract !== undefined) verifyApplicationAclContract(applicationAclContract);
+  if (
+    applicationDefaultAclCertificate !== undefined &&
+    applicationDefaultAclCertificate?.format !== APPLICATION_DEFAULT_ACL_MANIFEST_FORMAT
+  ) {
+    throw categoricalError('MANAGED_RESTORE_DEFAULT_ACL_PRESERVATION_INVALID');
+  }
   const parsed = parsePgRestoreList(tocText);
   const entries = parsed.map((entry) => {
     const classified = classifyTocEntry(entry);
@@ -317,6 +335,16 @@ function buildManagedRestoreManifest({ tocText, sourceComponent = {}, applicatio
       objectCount: applicationAclContract.objects.length,
       grantCount: applicationAclContract.grants.length
     },
+    applicationDefaultAclPreservation: applicationDefaultAclCertificate === undefined ? null : {
+      format: APPLICATION_DEFAULT_ACL_MANIFEST_FORMAT,
+      beforeDigest: applicationDefaultAclCertificate.beforeDigest,
+      expectedAfterDigest: applicationDefaultAclCertificate.expectedAfterDigest,
+      planDigest: applicationDefaultAclCertificate.planDigest,
+      entryCount: applicationDefaultAclCertificate.entryCount,
+      unknownCount: applicationDefaultAclCertificate.unknownCount,
+      target: applicationDefaultAclCertificate.target,
+      managedProfile: applicationDefaultAclCertificate.managedProfile
+    },
     entries
   };
   manifest.planDigest = sha256(Buffer.from(canonicalSerialize(manifestPayload(manifest)), 'utf8'));
@@ -359,16 +387,35 @@ function verifyManagedRestoreManifest(manifest) {
       throw categoricalError('MANAGED_RESTORE_ACL_CONVERGENCE_INVALID');
     }
   }
+  if (manifest.applicationDefaultAclPreservation != null) {
+    const defaults = manifest.applicationDefaultAclPreservation;
+    if (
+      defaults?.format !== APPLICATION_DEFAULT_ACL_MANIFEST_FORMAT ||
+      !/^sha256:[a-f0-9]{64}$/.test(String(defaults?.beforeDigest || '')) ||
+      defaults.expectedAfterDigest !== defaults.beforeDigest ||
+      !/^sha256:[a-f0-9]{64}$/.test(String(defaults?.planDigest || '')) ||
+      !Number.isSafeInteger(defaults?.entryCount) || defaults.entryCount < 1 ||
+      defaults?.unknownCount !== 0 ||
+      !['dev', 'sandbox'].includes(defaults?.target?.environment) ||
+      !/^[a-z0-9]{20}$/.test(String(defaults?.target?.projectRef || '')) ||
+      !/^[a-z][a-z0-9._-]{2,95}$/.test(String(defaults?.managedProfile?.profileId || '')) ||
+      !/^sha256:[a-f0-9]{64}$/.test(String(defaults?.managedProfile?.profileDigest || ''))
+    ) {
+      throw categoricalError('MANAGED_RESTORE_DEFAULT_ACL_PRESERVATION_INVALID');
+    }
+  }
   const expected = sha256(Buffer.from(canonicalSerialize(manifestPayload(manifest)), 'utf8'));
   if (manifest.planDigest !== expected) throw categoricalError('MANAGED_RESTORE_MANIFEST_DIGEST_MISMATCH');
   return true;
 }
 
-function restoreListFromManifest(tocText, manifest, actions) {
+function restoreListFromManifest(tocText, manifest, actions, predicate = () => true) {
   verifyManagedRestoreManifest(manifest);
   const allowed = new Set(actions);
   const selectedIds = new Set(
-    manifest.entries.filter((entry) => allowed.has(entry.action)).map((entry) => entry.dumpId)
+    manifest.entries
+      .filter((entry) => allowed.has(entry.action) && predicate(entry))
+      .map((entry) => entry.dumpId)
   );
   const selected = parsePgRestoreList(tocText).filter((entry) => selectedIds.has(entry.dumpId));
   if (selected.length !== selectedIds.size) throw categoricalError('MANAGED_RESTORE_LIST_COVERAGE_MISMATCH');
@@ -377,6 +424,24 @@ function restoreListFromManifest(tocText, manifest, actions) {
 
 function applicationRestoreList(tocText, manifest) {
   return restoreListFromManifest(tocText, manifest, ['restore']);
+}
+
+function applicationSchemaRestoreList(tocText, manifest) {
+  return restoreListFromManifest(
+    tocText,
+    manifest,
+    ['restore'],
+    (entry) => isSchemaDescriptor(entry, 'app') || isSchemaDescriptor(entry, 'app_api')
+  );
+}
+
+function applicationContentRestoreList(tocText, manifest) {
+  return restoreListFromManifest(
+    tocText,
+    manifest,
+    ['restore'],
+    (entry) => !isSchemaDescriptor(entry, 'app') && !isSchemaDescriptor(entry, 'app_api')
+  );
 }
 
 function migrationRestoreList(tocText, manifest) {
@@ -817,6 +882,9 @@ function assertManagedTargetCatalogCompatibility(evidence = {}, managedProfile =
     evidence: managedProfileEvidenceFromCatalog(evidence),
     expectedProfileId: managedProfile.expectedProfileId
   });
+  const applicationDefaultAclEntries = normalizeApplicationDefaultAclEntries(
+    evidence.defaultAcls.filter((row) => ['app', 'app_api'].includes(row.schema_name))
+  );
   return {
     compatible: true,
     authenticated: profile.authenticated,
@@ -832,11 +900,17 @@ function assertManagedTargetCatalogCompatibility(evidence = {}, managedProfile =
     requiredSchemas: [...TARGET_NATIVE_SCHEMAS],
     managedSchemaCount: (evidence.schemas || []).length,
     defaultAclCount: evidence.defaultAcls.length,
+    applicationDefaultAclEntries,
     membershipCount: evidence.memberships.length
   };
 }
 
-function assertManagedCompatibilityProof({ authCompatibility, targetCatalog, applicationReplacement } = {}) {
+function assertManagedCompatibilityProof({
+  authCompatibility,
+  targetCatalog,
+  applicationReplacement,
+  applicationDefaultAcl
+} = {}) {
   if (
     authCompatibility?.compatible !== true ||
     authCompatibility?.sourceDigest !== authCompatibility?.targetDigest ||
@@ -850,6 +924,13 @@ function assertManagedCompatibilityProof({ authCompatibility, targetCatalog, app
     !/^[a-z][a-z0-9._-]{2,95}$/.test(String(targetCatalog?.profileId || '')) ||
     !['dev', 'sandbox'].includes(targetCatalog?.profileTarget?.environment) ||
     !/^[a-z0-9]{20}$/.test(String(targetCatalog?.profileTarget?.projectRef || '')) ||
+    applicationDefaultAcl?.authenticated !== true ||
+    applicationDefaultAcl?.entryCount < 1 ||
+    applicationDefaultAcl?.beforeDigest !== applicationDefaultAcl?.expectedAfterDigest ||
+    applicationDefaultAcl?.target?.environment !== targetCatalog?.profileTarget?.environment ||
+    applicationDefaultAcl?.target?.projectRef !== targetCatalog?.profileTarget?.projectRef ||
+    applicationDefaultAcl?.managedProfile?.profileId !== targetCatalog?.profileId ||
+    applicationDefaultAcl?.managedProfile?.profileDigest !== targetCatalog?.profileDigest ||
     applicationReplacement?.compatible !== true ||
     applicationReplacement?.externalDependencyCount !== 0 ||
     !/^sha256:[a-f0-9]{64}$/.test(String(applicationReplacement?.replacementDigest || ''))
@@ -863,6 +944,9 @@ function assertManagedCompatibilityProof({ authCompatibility, targetCatalog, app
     managedProfileId: targetCatalog.profileId,
     managedProfileTarget: targetCatalog.profileTarget,
     managedProfileSecurityDigest: targetCatalog.securityDigest,
+    applicationDefaultAclDigest: applicationDefaultAcl.beforeDigest,
+    applicationDefaultAclPlanDigest: applicationDefaultAcl.planDigest,
+    applicationDefaultAclEntryCount: applicationDefaultAcl.entryCount,
     applicationReplacementDigest: applicationReplacement.replacementDigest,
     copiedAuthTables: [...AUTH_OVERLAY_TABLES],
     transactionReadOnly: true
@@ -1055,10 +1139,13 @@ $managed_overlay_verify$;`;
 
 function buildManagedOverlaySql({
   applicationResetSql,
+  applicationSchemaSql,
+  applicationDefaultAclPreservationSql,
   applicationPreDataSql,
   applicationDataSql,
   applicationPostDataSql,
   applicationAclConvergenceSql,
+  applicationDefaultAclVerificationSql,
   authUsersSql,
   authIdentitiesSql,
   migrationSql,
@@ -1067,10 +1154,13 @@ function buildManagedOverlaySql({
 } = {}) {
   const chunks = {
     applicationResetSql: assertApplicationChunk(applicationResetSql),
+    applicationSchemaSql: assertApplicationChunk(applicationSchemaSql),
+    applicationDefaultAclPreservationSql: assertApplicationChunk(applicationDefaultAclPreservationSql),
     applicationPreDataSql: assertApplicationChunk(applicationPreDataSql),
     applicationDataSql: assertApplicationChunk(applicationDataSql),
     applicationPostDataSql: assertApplicationChunk(applicationPostDataSql),
     applicationAclConvergenceSql: assertApplicationChunk(applicationAclConvergenceSql),
+    applicationDefaultAclVerificationSql: assertApplicationChunk(applicationDefaultAclVerificationSql),
     authUsersSql: assertAuthDataChunk(authUsersSql, 'users'),
     authIdentitiesSql: assertAuthDataChunk(authIdentitiesSql, 'identities'),
     migrationSql: assertChunkBoundary(migrationSql, 'MIGRATION_CHUNK')
@@ -1092,6 +1182,10 @@ BEGIN ISOLATION LEVEL SERIALIZABLE;
 SET LOCAL statement_timeout = 0;
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_RESET
 ${chunks.applicationResetSql}
+\\echo MANAGED_OVERLAY_STAGE_APPLICATION_SCHEMA
+${chunks.applicationSchemaSql}
+\\echo MANAGED_OVERLAY_STAGE_APPLICATION_DEFAULT_ACL_PRESERVATION
+${chunks.applicationDefaultAclPreservationSql}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_DEFINITION
 ${chunks.applicationPreDataSql}
 \\echo MANAGED_OVERLAY_STAGE_AUTH_PURGE
@@ -1108,6 +1202,8 @@ ${chunks.migrationSql}
 ${chunks.applicationPostDataSql}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_ACL_CONVERGENCE
 ${chunks.applicationAclConvergenceSql}
+\\echo MANAGED_OVERLAY_STAGE_APPLICATION_DEFAULT_ACL_FINAL_VERIFY
+${chunks.applicationDefaultAclVerificationSql}
 \\echo MANAGED_OVERLAY_STAGE_VERIFY
 ${verification}
 COMMIT;
@@ -1193,11 +1289,13 @@ function generateManagedOverlayPackage({
   authCompatibility,
   targetCatalog,
   applicationReplacement,
-  sourceAclContract
+  sourceAclContract,
+  applicationDefaultAcl
 } = {}) {
   verifyPrivateArtifactProtection(archivePath);
   verifyPrivateDirectoryProtection(privateDirectory);
   const tocBytes = privateGeneratedText(pgRestorePath, ['--list', archivePath]);
+  let appSchema;
   let appPre;
   let appData;
   let appPost;
@@ -1205,28 +1303,60 @@ function generateManagedOverlayPackage({
   let identities;
   let migrationSql;
   try {
+    const verifiedApplicationDefaultAcl = verifyApplicationDefaultAclManifest({
+      certificate: applicationDefaultAcl?.certificate,
+      key: applicationDefaultAcl?.key,
+      target: targetCatalog?.profileTarget,
+      managedProfile: {
+        profileId: targetCatalog?.profileId,
+        profileDigest: targetCatalog?.profileDigest
+      },
+      currentEntries: targetCatalog?.applicationDefaultAclEntries
+    });
     const targetCompatibility = assertManagedCompatibilityProof({
       authCompatibility,
       targetCatalog,
-      applicationReplacement
+      applicationReplacement,
+      applicationDefaultAcl: verifiedApplicationDefaultAcl
     });
     verifyApplicationAclContract(sourceAclContract);
     const tocText = tocBytes.toString('utf8');
     const manifest = buildManagedRestoreManifest({
       tocText,
       sourceComponent,
-      applicationAclContract: sourceAclContract
+      applicationAclContract: sourceAclContract,
+      applicationDefaultAclCertificate: verifiedApplicationDefaultAcl.certificate
     });
     verifyManagedRestoreManifest(manifest);
-    const appListPath = privateArtifactPath(privateDirectory, 'application-restore.list');
+    const appSchemaListPath = privateArtifactPath(privateDirectory, 'application-schema-restore.list');
+    const appListPath = privateArtifactPath(privateDirectory, 'application-content-restore.list');
     const migrationListPath = privateArtifactPath(privateDirectory, 'migration-ledger-restore.list');
     const manifestPath = privateArtifactPath(privateDirectory, 'managed-restore-manifest.json');
     const aclContractPath = privateArtifactPath(privateDirectory, 'application-acl-contract.json');
+    const defaultAclContractPath = privateArtifactPath(
+      privateDirectory,
+      'application-default-acl-preservation.json'
+    );
     const scriptPath = privateArtifactPath(privateDirectory, 'managed-overlay.sql');
-    writePrivateBytesExclusive(appListPath, Buffer.from(applicationRestoreList(tocText, manifest), 'utf8'));
+    writePrivateBytesExclusive(
+      appSchemaListPath,
+      Buffer.from(applicationSchemaRestoreList(tocText, manifest), 'utf8')
+    );
+    writePrivateBytesExclusive(
+      appListPath,
+      Buffer.from(applicationContentRestoreList(tocText, manifest), 'utf8')
+    );
     writePrivateBytesExclusive(migrationListPath, Buffer.from(migrationRestoreList(tocText, manifest), 'utf8'));
     writePrivateJsonExclusive(manifestPath, manifest);
     writePrivateJsonExclusive(aclContractPath, sourceAclContract);
+    writePrivateJsonExclusive(defaultAclContractPath, applicationDefaultAcl.certificate);
+    appSchema = generatePgRestoreChunk({
+      pgRestorePath,
+      archivePath,
+      listPath: appSchemaListPath,
+      section: 'pre-data',
+      clean: false
+    });
     appPre = generatePgRestoreChunk({
       pgRestorePath,
       archivePath,
@@ -1256,10 +1386,17 @@ function generateManagedOverlayPackage({
     });
     const script = Buffer.from(buildManagedOverlaySql({
       applicationResetSql: buildApplicationPlaneResetSql(manifest),
+      applicationSchemaSql: normalizeGeneratedSql(appSchema),
+      applicationDefaultAclPreservationSql:
+        buildApplicationDefaultAclPreservationSql(verifiedApplicationDefaultAcl),
       applicationPreDataSql: normalizeGeneratedSql(appPre),
       applicationDataSql: normalizeGeneratedSql(appData),
       applicationPostDataSql: normalizeGeneratedSql(appPost),
       applicationAclConvergenceSql: buildApplicationAclConvergenceSql(sourceAclContract),
+      applicationDefaultAclVerificationSql: buildApplicationDefaultAclVerificationSql(
+        verifiedApplicationDefaultAcl,
+        'APPLICATION_DEFAULT_ACL_FINAL_MISMATCH'
+      ),
       authUsersSql: normalizeGeneratedSql(users),
       authIdentitiesSql: normalizeGeneratedSql(identities),
       migrationSql: normalizeGeneratedSql(migrationSql),
@@ -1286,15 +1423,30 @@ function generateManagedOverlayPackage({
     }
     return {
       manifest,
-      paths: { appListPath, migrationListPath, manifestPath, aclContractPath, scriptPath },
+      paths: {
+        appSchemaListPath,
+        appListPath,
+        migrationListPath,
+        manifestPath,
+        aclContractPath,
+        defaultAclContractPath,
+        scriptPath
+      },
       script: { size: fs.statSync(scriptPath).size, digest: scriptDigest, semanticDigest },
       targetCompatibility,
       sourceAclContract,
+      applicationDefaultAcl: {
+        authenticated: true,
+        entryCount: verifiedApplicationDefaultAcl.entryCount,
+        beforeDigest: verifiedApplicationDefaultAcl.beforeDigest,
+        expectedAfterDigest: verifiedApplicationDefaultAcl.expectedAfterDigest,
+        planDigest: verifiedApplicationDefaultAcl.planDigest
+      },
       atomic: true,
       sessionReplicationRoleRequired: false
     };
   } finally {
-    for (const bytes of [tocBytes, appPre, appData, appPost, users, identities, migrationSql]) {
+    for (const bytes of [tocBytes, appSchema, appPre, appData, appPost, users, identities, migrationSql]) {
       if (Buffer.isBuffer(bytes)) bytes.fill(0);
     }
   }
@@ -1447,7 +1599,9 @@ export {
   MANAGED_RESTORE_MANIFEST_FORMAT,
   REQUIRED_MANAGED_ROLES,
   TARGET_NATIVE_SCHEMAS,
+  applicationContentRestoreList,
   applicationRestoreList,
+  applicationSchemaRestoreList,
   assertApplicationReplacementCompatibility,
   assertAuthOverlayCompatibility,
   assertManagedCompatibilityProof,
