@@ -83,13 +83,13 @@ function writePair(repo, logicalId, version, name, value, { stage = true } = {})
   if (stage) git(repo, ['add', '--', backend, supabase]);
 }
 
-test('current repository chain through 0203 is coherent with explicit legacy warnings', () => {
+test('current repository chain through 0204 is coherent with explicit legacy warnings', () => {
   const registry = buildMigrationRegistry();
   const latest = getLatestMigration(registry);
 
   assert.equal(registry.overall, MIGRATION_REGISTRY_COHERENT_WITH_LEGACY_WARNINGS);
-  assert.equal(latest.logicalId, '0203');
-  assert.equal(latest.supabaseVersion, '20260822100000');
+  assert.equal(latest.logicalId, '0204');
+  assert.equal(latest.supabaseVersion, '20260823100000');
   assert.equal(latest.exactMirror, true);
   const schemaGuard = fs.readFileSync(
     new URL('../check-schema-latest.mjs', import.meta.url),
@@ -264,7 +264,7 @@ test('CLI check and JSON modes are deterministic and privacy-safe', () => {
   assert.equal(first.status, 0);
   assert.equal(second.status, 0);
   assert.equal(first.stdout, second.stdout);
-  assert.equal(JSON.parse(first.stdout).latest.logicalId, '0203');
+  assert.equal(JSON.parse(first.stdout).latest.logicalId, '0204');
   assert.equal(first.stderr, '');
 
   const checked = spawnSync(process.execPath, [REGISTRY_CLI, '--check'], {

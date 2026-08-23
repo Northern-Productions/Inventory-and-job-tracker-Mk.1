@@ -1,11 +1,15 @@
 import '../load-env.mjs';
 import { Client } from 'pg';
+import {
+  assertApplicationRoutineDefaultSecurity,
+  captureApplicationRoutineDefaultSecurity
+} from './lib/application-routine-default-security.mjs';
 import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-helpers.mjs';
 
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0203_restore_default_warehouse_auth_context.sql';
+const LATEST_MIGRATION = '0204_global_function_default_execute_hardening.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -2142,6 +2146,21 @@ async function runSchemaCheck() {
         '[schema-check] Missing required schema objects for the current release.\n' +
           `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
           `${details}`
+      );
+    }
+
+    try {
+      assertApplicationRoutineDefaultSecurity(
+        await captureApplicationRoutineDefaultSecurity(client)
+      );
+    } catch (error) {
+      const classification = /^[A-Z][A-Z0-9_]{2,80}$/.test(String(error?.code || ''))
+        ? error.code
+        : 'APPLICATION_ROUTINE_SECURITY_CONTRACT_INVALID';
+      throw new Error(
+        '[schema-check] Future application routine defaults are not closed by default.\n' +
+          `Apply all checked-in backend migrations in numeric order through ${LATEST_MIGRATION}, then retry.\n` +
+          `- classification: ${classification}`
       );
     }
 
