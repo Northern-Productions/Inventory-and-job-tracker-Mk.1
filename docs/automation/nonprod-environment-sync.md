@@ -129,9 +129,12 @@ authority.
 `cleanup` requires the authenticated plan, an explicit SANDBOX project ref, `--apply`, and
 `--quiet-window-active`. It publishes a permanent exclusive one-shot attempt marker before
 database work. Inside exactly one `SERIALIZABLE` transaction it rechecks the complete plan,
-temporarily disables only `trg_prevent_last_owner_loss` on `app.organization_members`,
-deletes only the manifest's exact organization roots, proves exact cascade counts and strict
-nonfixture equality, re-enables and re-verifies the trigger, proves every surviving
+temporarily disables only `trg_prevent_last_owner_loss` on `app.organization_members`, and
+deletes only manifest-owned rows. A signed budget containing both Film Order links and Film
+Orders selects exact-root, count-checked link/order/event deletion before organization-root
+deletion so history triggers cannot violate the organization cascade; a one-sided budget
+fails closed. The transaction then proves exact counts and strict nonfixture equality,
+re-enables and re-verifies the trigger, proves every surviving
 organization has an active owner, and compares all protected fingerprints before commit.
 The product function and trigger definition are never changed. A rollback restores the
 trigger transactionally; a commit ambiguity remains frozen and is never retried

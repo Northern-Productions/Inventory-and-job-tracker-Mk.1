@@ -20,6 +20,7 @@ import {
   executeFixtureRecoveryTransaction,
   fixturePredicate,
   readRuntimeRecoveryAuthority,
+  selectFixtureRecoveryMode,
   runtimeCanonicalSerialize
 } from './fixture-recovery.mjs';
 import {
@@ -293,6 +294,25 @@ test('Film Order history recovery deletes exact-root history in trigger-safe cou
     ['film_order_box_links', 'film_orders', 'film_order_events']
   );
   assert.ok(calls.every(({ values }) => values?.[0] === organizationIds));
+});
+
+test('recovery mode selects trigger-safe Film Order ordering only for a complete signed budget', () => {
+  assert.equal(
+    selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 0 } } }),
+    'ordinary'
+  );
+  assert.equal(
+    selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 1 } } }),
+    'film-order-event-trigger-fk'
+  );
+  assert.throws(
+    () => selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 0 } } }),
+    (error) => error?.code === 'FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT'
+  );
+  assert.throws(
+    () => selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 1 } } }),
+    (error) => error?.code === 'FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT'
+  );
 });
 
 test('Film Order history recovery refuses generated-history budget drift', async () => {

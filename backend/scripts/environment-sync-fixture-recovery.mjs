@@ -29,6 +29,7 @@ import {
   extractOwnerGuardFunctionSource,
   readRuntimeRecoveryAuthority,
   readSignedRuntimeRecord,
+  selectFixtureRecoveryMode,
   runtimeCanonicalSerialize
 } from './lib/environment-sync/fixture-recovery.mjs';
 import {
@@ -394,11 +395,13 @@ async function cleanup(options, context) {
 
   let transactionResult;
   try {
+    const recoveryMode = selectFixtureRecoveryMode(plan);
     transactionResult = await executeFixtureRecoveryTransaction({
       client,
       authority,
       plan,
-      expectedFunctionSource: ownerGuardSource
+      expectedFunctionSource: ownerGuardSource,
+      recoveryMode
     });
     await deleteTemporaryAuthUser(projectRef, serviceKey, authority.temporaryUserId);
     serviceKey = '';
@@ -418,6 +421,8 @@ async function cleanup(options, context) {
       permanentSmokeUsers: after.authState.smoke_users,
       copiedUsers: after.authState.copied_users,
       temporaryUsers: after.authState.temporary_users,
+      recoveryMode,
+      recoveryHistory: transactionResult.recoveryHistory,
       retryAllowed: false
     });
     writePrivateJsonExclusive(files.result, buildSignedRuntimeRecord(payload, authority.key));
@@ -436,6 +441,7 @@ async function cleanup(options, context) {
         permanentSmokeUsers: after.authState.smoke_users,
         copiedUsers: after.authState.copied_users,
         temporaryUsers: after.authState.temporary_users,
+        filmOrderHistoryPredeleted: transactionResult.recoveryHistory !== null,
         oneShotMarkerRetained: true
       })
     );

@@ -838,6 +838,20 @@ async function captureRecoveryPreconditions(client, authority, expectedFunctionS
   };
 }
 
+function selectFixtureRecoveryMode(plan) {
+  const expectedLinks = asSafeCount(
+    plan?.expected?.fixtureCounts?.film_order_box_links,
+    'FIXTURE_RECOVERY_FILM_ORDER_LINK_BUDGET_INVALID'
+  );
+  const expectedOrders = asSafeCount(
+    plan?.expected?.fixtureCounts?.film_orders,
+    'FIXTURE_RECOVERY_FILM_ORDER_BUDGET_INVALID'
+  );
+  if (expectedLinks === 0 && expectedOrders === 0) return 'ordinary';
+  if (expectedLinks > 0 && expectedOrders > 0) return 'film-order-event-trigger-fk';
+  throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT');
+}
+
 async function deleteFilmOrderHistoryForRecovery(client, authority, plan) {
   const expectedLinks = asSafeCount(
     plan?.expected?.fixtureCounts?.film_order_box_links,
@@ -1046,6 +1060,7 @@ export {
   fixturePredicate,
   readRuntimeRecoveryAuthority,
   readSignedRuntimeRecord,
+  selectFixtureRecoveryMode,
   runtimeCanonicalSerialize,
   sha256Bytes,
   signRuntimePayload
