@@ -17,6 +17,8 @@ const ID_JOURNAL_FORMAT = 'sandbox-golden-id-journal-v1';
 const RECOVERY_PLAN_FORMAT = 'sandbox-runtime-fixture-recovery-plan-v1';
 const RECOVERY_ATTEMPT_FORMAT = 'sandbox-runtime-fixture-recovery-attempt-v1';
 const RECOVERY_RESULT_FORMAT = 'sandbox-runtime-fixture-recovery-result-v1';
+const RECOVERY_OVERRIDE_ATTEMPT_FORMAT = 'sandbox-runtime-fixture-recovery-override-attempt-v1';
+const RECOVERY_OVERRIDE_RESULT_FORMAT = 'sandbox-runtime-fixture-recovery-override-result-v1';
 const OWNER_GUARD_TABLE = 'app.organization_members';
 const OWNER_GUARD_TRIGGER = 'trg_prevent_last_owner_loss';
 const OWNER_GUARD_FUNCTION = 'app.prevent_last_owner_loss';
@@ -185,7 +187,7 @@ function readAndVerifyIdJournal(journalPath, { runTag, organizationIds }) {
         entries.some((entry) => {
           const field = asText(entry?.field);
           const value = asText(entry?.value);
-          return !/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(field) ||
+          return !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field) ||
             !value ||
             value.length > 256 ||
             /[\u0000-\u001f\u007f]/.test(value);
@@ -836,7 +838,60 @@ async function captureRecoveryPreconditions(client, authority, expectedFunctionS
   };
 }
 
-async function executeFixtureRecoveryTransaction({ client, authority, plan, expectedFunctionSource }) {
+async function deleteFilmOrderHistoryForRecovery(client, authority, plan) {
+  const expectedLinks = asSafeCount(
+    plan?.expected?.fixtureCounts?.film_order_box_links,
+    'FIXTURE_RECOVERY_FILM_ORDER_LINK_BUDGET_INVALID'
+  );
+  const expectedOrders = asSafeCount(
+    plan?.expected?.fixtureCounts?.film_orders,
+    'FIXTURE_RECOVERY_FILM_ORDER_BUDGET_INVALID'
+  );
+  const expectedEvents = asSafeCount(
+    plan?.expected?.fixtureCounts?.film_order_events,
+    'FIXTURE_RECOVERY_FILM_ORDER_EVENT_BUDGET_INVALID'
+  );
+  if (expectedLinks < 1 || expectedOrders < 1) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_HISTORY_NOT_APPLICABLE');
+  }
+
+  const links = await client.query(
+    'delete from app.film_order_box_links where org_id = any($1::uuid[])',
+    [authority.organizationIds]
+  );
+  if (links.rowCount !== expectedLinks) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_LINK_DELETE_COUNT_MISMATCH');
+  }
+  const orders = await client.query(
+    'delete from app.film_orders where org_id = any($1::uuid[])',
+    [authority.organizationIds]
+  );
+  if (orders.rowCount !== expectedOrders) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_DELETE_COUNT_MISMATCH');
+  }
+  const events = await client.query(
+    'delete from app.film_order_events where org_id = any($1::uuid[])',
+    [authority.organizationIds]
+  );
+  const expectedGeneratedEvents = expectedLinks + expectedOrders;
+  if (events.rowCount !== expectedEvents + expectedGeneratedEvents) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_EVENT_DELETE_COUNT_MISMATCH');
+  }
+  return {
+    linksDeleted: links.rowCount,
+    ordersDeleted: orders.rowCount,
+    eventsDeleted: events.rowCount,
+    generatedEventsDeleted: expectedGeneratedEvents
+  };
+}
+
+async function executeFixtureRecoveryTransaction({
+  client,
+  authority,
+  plan,
+  expectedFunctionSource,
+  recoveryMode = 'ordinary'
+}) {
   let transactionStarted = false;
   let commitStarted = false;
   let committed = false;
@@ -860,6 +915,13 @@ async function executeFixtureRecoveryTransaction({ client, authority, plan, expe
       disabledGuard.ownerRoleDigest !== before.ownerGuard.ownerRoleDigest
     ) {
       throw fixtureRecoveryError('FIXTURE_RECOVERY_OWNER_GUARD_DISABLE_DRIFT');
+    }
+
+    let recoveryHistory = null;
+    if (recoveryMode === 'film-order-event-trigger-fk') {
+      recoveryHistory = await deleteFilmOrderHistoryForRecovery(client, authority, plan);
+    } else if (recoveryMode !== 'ordinary') {
+      throw fixtureRecoveryError('FIXTURE_RECOVERY_MODE_INVALID');
     }
 
     const deleted = await client.query(
@@ -906,7 +968,8 @@ async function executeFixtureRecoveryTransaction({ client, authority, plan, expe
       fixtureCountsDeleted: before.fixtureState.fixtureCounts,
       applicationTablesEqual: afterDelete.tableCount,
       triggerRestored: true,
-      protectedStateEqual: true
+      protectedStateEqual: true,
+      recoveryHistory
     };
   } catch (error) {
     if (transactionStarted && !commitStarted) {
@@ -957,6 +1020,8 @@ export {
   OWNER_GUARD_ENABLED,
   OWNER_GUARD_TRIGGER,
   RECOVERY_ATTEMPT_FORMAT,
+  RECOVERY_OVERRIDE_ATTEMPT_FORMAT,
+  RECOVERY_OVERRIDE_RESULT_FORMAT,
   RECOVERY_PLAN_FORMAT,
   RECOVERY_RESULT_FORMAT,
   RUNTIME_LINEAGE_FORMAT,
@@ -975,6 +1040,7 @@ export {
   captureProtectionFingerprint,
   captureRecoveryPreconditions,
   captureSideEffectState,
+  deleteFilmOrderHistoryForRecovery,
   executeFixtureRecoveryTransaction,
   extractOwnerGuardFunctionSource,
   fixturePredicate,

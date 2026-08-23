@@ -7,7 +7,11 @@ import pg from 'pg';
 
 import { assertManagedNonprodTarget } from './lib/environment-sync/auth-quarantine.mjs';
 import {
+  RECOVERY_ATTEMPT_FORMAT,
+  RECOVERY_OVERRIDE_ATTEMPT_FORMAT,
+  RECOVERY_OVERRIDE_RESULT_FORMAT,
   RECOVERY_PLAN_FORMAT,
+  RECOVERY_RESULT_FORMAT,
   assertPlanMatchesAuthority,
   buildFixtureRecoveryPlan,
   buildRecoveryAttempt,
@@ -44,7 +48,9 @@ const FILES = Object.freeze({
   journal: 'golden-workflow-ids.private.jsonl',
   plan: 'fixture-recovery-plan.private.json',
   attempt: 'fixture-recovery-attempt.private.json',
-  result: 'fixture-recovery-result.private.json'
+  result: 'fixture-recovery-result.private.json',
+  overrideAttempt: 'fixture-recovery-override-attempt.private.json',
+  overrideResult: 'fixture-recovery-override-result.private.json'
 });
 
 function categoricalError(code) {
@@ -102,9 +108,13 @@ function printUsage() {
     --authority-key <private-key> --project-artifact <private-project-json> \\
     --database-password-artifact <private-password>
 
+  Recovery-only action: --action recover-film-order-history --apply --quiet-window-active
+    --confirmed-failure-constraint film_order_events_org_id_fkey (plus the same private inputs).
+
 This command is SANDBOX-only. Preparation writes an authenticated private plan after a
 rolled-back read-only snapshot. Cleanup is permanent and one-shot after its private attempt
-marker is published. It never accepts discovered cleanup roots.`);
+marker is published. The Film Order recovery action requires the authenticated failed marker,
+uses a separate one-shot marker, and never accepts discovered cleanup roots.`);
 }
 
 function resolveFiles(directoryPath) {
@@ -446,6 +456,206 @@ async function cleanup(options, context) {
   }
 }
 
+function loadFailedCleanupState(files, authority, plan) {
+  const attempt = readSignedRuntimeRecord(
+    files.attempt,
+    authority.key,
+    RECOVERY_ATTEMPT_FORMAT
+  ).payload;
+  const result = readSignedRuntimeRecord(
+    files.result,
+    authority.key,
+    RECOVERY_RESULT_FORMAT
+  ).payload;
+  const expectedAttempt = buildRecoveryAttempt(plan, { startedAt: attempt.startedAt });
+  if (
+    runtimeCanonicalSerialize(attempt) !== runtimeCanonicalSerialize(expectedAttempt) ||
+    result.projectRef !== plan.projectRef ||
+    result.runTag !== plan.runTag ||
+    result.planDigest !== attempt.planDigest ||
+    result.status !== 'failed' ||
+    result.category !== '23503' ||
+    result.databaseCommitKnown !== false ||
+    result.authCleanupKnown !== false ||
+    result.retryAllowed !== false
+  ) {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_PREDECESSOR_INVALID');
+  }
+  return { attempt, result };
+}
+
+async function assertFilmOrderRecoveryPreflight(context, plan) {
+  const { authority, ownerGuardSource, client, applicationCommit } = context;
+  await withReadOnlySnapshot(client, async () => {
+    const evidence = await captureRecoveryPreconditions(client, authority, ownerGuardSource);
+    const currentPlan = buildFixtureRecoveryPlan({
+      authority,
+      ...evidence,
+      expectedApplicationCommit: applicationCommit,
+      createdAt: plan.createdAt
+    });
+    if (runtimeCanonicalSerialize(currentPlan) !== runtimeCanonicalSerialize(plan)) {
+      throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_STATE_MISMATCH');
+    }
+    const contract = await client.query(`
+      select
+        (
+          select count(*)::integer
+          from pg_constraint c
+          join pg_class child on child.oid = c.conrelid
+          join pg_namespace child_ns on child_ns.oid = child.relnamespace
+          join pg_class parent on parent.oid = c.confrelid
+          join pg_namespace parent_ns on parent_ns.oid = parent.relnamespace
+          where c.contype = 'f'
+            and c.conname = 'film_order_events_org_id_fkey'
+            and child_ns.nspname = 'app'
+            and child.relname = 'film_order_events'
+            and parent_ns.nspname = 'app'
+            and parent.relname = 'organizations'
+            and c.confdeltype = 'c'
+        ) as cascade_fk,
+        (
+          select count(*)::integer
+          from pg_trigger t
+          join pg_class trigger_table on trigger_table.oid = t.tgrelid
+          join pg_namespace trigger_ns on trigger_ns.oid = trigger_table.relnamespace
+          where trigger_ns.nspname = 'app'
+            and t.tgname in ('trg_film_order_events_for_links', 'trg_film_order_events_for_orders')
+            and t.tgenabled = 'O'
+            and not t.tgisinternal
+        ) as enabled_history_triggers
+    `);
+    if (
+      Number(contract.rows[0]?.cascade_fk) !== 1 ||
+      Number(contract.rows[0]?.enabled_history_triggers) !== 2
+    ) {
+      throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_SCHEMA_CONTRACT_MISMATCH');
+    }
+  });
+}
+
+function writeOverrideFailureResult(files, authority, plan, code, transactionResult = null) {
+  if (fs.existsSync(files.overrideResult)) return;
+  const payload = {
+    ...buildRecoveryResult(plan, {
+      status: code === 'FIXTURE_RECOVERY_COMMIT_OUTCOME_AMBIGUOUS' ? 'commit_ambiguous' : 'failed',
+      category: code,
+      databaseCommitKnown: transactionResult?.committed === true,
+      authCleanupKnown: false,
+      retryAllowed: false,
+      recoveryMode: 'film_order_event_trigger_fk'
+    }),
+    format: RECOVERY_OVERRIDE_RESULT_FORMAT
+  };
+  writePrivateJsonExclusive(files.overrideResult, buildSignedRuntimeRecord(payload, authority.key));
+}
+
+async function recoverFilmOrderHistory(options, context) {
+  const { files, authority, ownerGuardSource, client, applicationCommit, projectRef } = context;
+  if (!booleanOption(options.apply) || !booleanOption(options['quiet-window-active'])) {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_APPLY_GUARD_MISSING');
+  }
+  if (requiredOption(options, 'confirmed-failure-constraint') !== 'film_order_events_org_id_fkey') {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_CONSTRAINT_UNCONFIRMED');
+  }
+  if (!fs.existsSync(files.plan) || !fs.existsSync(files.attempt) || !fs.existsSync(files.result)) {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_PREDECESSOR_MISSING');
+  }
+  assertAbsent(files.overrideAttempt, 'FIXTURE_RECOVERY_OVERRIDE_NAMESPACE_FROZEN');
+  assertAbsent(files.overrideResult, 'FIXTURE_RECOVERY_OVERRIDE_NAMESPACE_FROZEN');
+  const plan = readSignedRuntimeRecord(files.plan, authority.key, RECOVERY_PLAN_FORMAT).payload;
+  assertPlanMatchesAuthority(plan, authority, applicationCommit);
+  const failed = loadFailedCleanupState(files, authority, plan);
+  await assertFilmOrderRecoveryPreflight(context, plan);
+  await proveManagementTarget(projectRef);
+  let serviceKey = await loadServiceRoleKey(projectRef);
+  await proveTemporaryAuthUser(projectRef, serviceKey, authority.temporaryUserId);
+  const overrideAttempt = {
+    ...buildRecoveryAttempt(plan),
+    format: RECOVERY_OVERRIDE_ATTEMPT_FORMAT,
+    recoveryMode: 'film_order_event_trigger_fk',
+    predecessorPlanDigest: failed.attempt.planDigest,
+    predecessorCategory: failed.result.category,
+    confirmedFailureConstraint: 'film_order_events_org_id_fkey'
+  };
+  writePrivateJsonExclusive(
+    files.overrideAttempt,
+    buildSignedRuntimeRecord(overrideAttempt, authority.key)
+  );
+
+  let transactionResult;
+  try {
+    transactionResult = await executeFixtureRecoveryTransaction({
+      client,
+      authority,
+      plan,
+      expectedFunctionSource: ownerGuardSource,
+      recoveryMode: 'film-order-event-trigger-fk'
+    });
+    await deleteTemporaryAuthUser(projectRef, serviceKey, authority.temporaryUserId);
+    serviceKey = '';
+    const after = await verifyAfterCleanup(client, { authority, plan, ownerGuardSource });
+    const payload = {
+      ...buildRecoveryResult(plan, {
+        status: 'succeeded',
+        databaseCommitKnown: true,
+        authCleanupKnown: true,
+        deletedOrganizationRoots: transactionResult.deletedOrganizationRoots,
+        fixtureRowsDeleted: transactionResult.fixtureRowsDeleted,
+        fixtureCountsDeleted: transactionResult.fixtureCountsDeleted,
+        temporaryAuthUsersDeleted: 1,
+        applicationTablesEqual: after.fixtureState.tableCount,
+        nonfixtureEqual: true,
+        triggerRestored: true,
+        protectedStateEqual: true,
+        permanentSmokeUsers: after.authState.smoke_users,
+        copiedUsers: after.authState.copied_users,
+        temporaryUsers: after.authState.temporary_users,
+        retryAllowed: false,
+        recoveryMode: 'film_order_event_trigger_fk',
+        recoveryHistory: transactionResult.recoveryHistory
+      }),
+      format: RECOVERY_OVERRIDE_RESULT_FORMAT
+    };
+    writePrivateJsonExclusive(files.overrideResult, buildSignedRuntimeRecord(payload, authority.key));
+    console.log(JSON.stringify({
+      result: 'SANDBOX_FIXTURE_RECOVERY_OVERRIDE_SUCCEEDED',
+      target: 'sandbox',
+      serializableTransactions: 1,
+      organizationRootsDeleted: transactionResult.deletedOrganizationRoots,
+      applicationFixtureRowsDeleted: transactionResult.fixtureRowsDeleted,
+      filmOrderLinksDeleted: transactionResult.recoveryHistory.linksDeleted,
+      filmOrdersDeleted: transactionResult.recoveryHistory.ordersDeleted,
+      filmOrderEventsDeleted: transactionResult.recoveryHistory.eventsDeleted,
+      cleanupGeneratedEventsDeleted: transactionResult.recoveryHistory.generatedEventsDeleted,
+      temporaryAuthUsersDeleted: 1,
+      applicationFixtureResidue: 0,
+      nonfixtureEqual: true,
+      ownerGuardRestored: true,
+      protectedStateEqual: true,
+      permanentSmokeUsers: after.authState.smoke_users,
+      copiedUsers: after.authState.copied_users,
+      temporaryUsers: after.authState.temporary_users,
+      ordinaryMarkerRetained: true,
+      overrideMarkerRetained: true
+    }));
+  } catch (error) {
+    serviceKey = '';
+    const code = text(error?.code || error?.message || 'FIXTURE_RECOVERY_OVERRIDE_FAILED').replace(
+      /[^A-Z0-9_]/gi,
+      '_'
+    );
+    try {
+      writeOverrideFailureResult(files, authority, plan, code, transactionResult);
+    } catch {
+      // The override attempt marker remains the authoritative freeze.
+    }
+    throw categoricalError(code);
+  } finally {
+    serviceKey = '';
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help || options.h) {
@@ -453,7 +663,7 @@ async function main() {
     return;
   }
   const action = requiredOption(options, 'action').toLowerCase();
-  if (!['prepare', 'cleanup'].includes(action)) {
+  if (!['prepare', 'cleanup', 'recover-film-order-history'].includes(action)) {
     throw categoricalError('FIXTURE_RECOVERY_ACTION_INVALID');
   }
   const authorityDirectory = path.resolve(requiredOption(options, 'authority-dir'));
@@ -479,7 +689,8 @@ async function main() {
       projectRef: project.projectRef
     };
     if (action === 'prepare') await prepare(options, context);
-    else await cleanup(options, context);
+    else if (action === 'cleanup') await cleanup(options, context);
+    else await recoverFilmOrderHistory(options, context);
   } finally {
     authority.key.fill(0);
     await client.end().catch(() => {});

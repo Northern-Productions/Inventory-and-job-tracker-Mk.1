@@ -16,6 +16,7 @@ import {
   captureOwnerInvariant,
   captureProtectionFingerprint,
   captureSideEffectState,
+  deleteFilmOrderHistoryForRecovery,
   executeFixtureRecoveryTransaction,
   fixturePredicate,
   readRuntimeRecoveryAuthority,
@@ -204,6 +205,21 @@ test('runtime recovery journal accepts bounded evidence but never broadens manif
     assert.deepEqual(authority.organizationIds, fixture.organizationIds);
     authority.key.fill(0);
 
+    fs.appendFileSync(
+      fixture.paths.journal,
+      `${JSON.stringify({
+        category: 'FILM_ORDERS_GET',
+        value: [{ field: 'film_order_id', value: crypto.randomUUID() }]
+      })}\n`,
+      { encoding: 'utf8' }
+    );
+    const snakeCaseAuthority = readAuthority();
+    assert.equal(snakeCaseAuthority.journal.recordCount, 4);
+    assert.equal(snakeCaseAuthority.journal.evidenceValueCount, 4);
+    assert.equal(snakeCaseAuthority.journal.cleanupTargetCount, 0);
+    assert.deepEqual(snakeCaseAuthority.organizationIds, fixture.organizationIds);
+    snakeCaseAuthority.key.fill(0);
+
     const invalidJournal = [
       JSON.stringify({
         format: 'sandbox-golden-id-journal-v1',
@@ -239,6 +255,71 @@ test('fixture predicates use only exact manifest-root relationships', () => {
     sql: 'false',
     usesOrganizations: false
   });
+});
+
+test('Film Order history recovery deletes exact-root history in trigger-safe count-checked order', async () => {
+  const organizationIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const calls = [];
+  const client = {
+    async query(sql, values) {
+      calls.push({ sql, values });
+      if (sql.startsWith('delete from app.film_order_box_links')) return { rowCount: 1 };
+      if (sql.startsWith('delete from app.film_orders')) return { rowCount: 1 };
+      if (sql.startsWith('delete from app.film_order_events')) return { rowCount: 8 };
+      throw new Error('unexpected query');
+    }
+  };
+  const result = await deleteFilmOrderHistoryForRecovery(
+    client,
+    { organizationIds },
+    {
+      expected: {
+        fixtureCounts: {
+          film_order_box_links: 1,
+          film_orders: 1,
+          film_order_events: 6
+        }
+      }
+    }
+  );
+  assert.deepEqual(result, {
+    linksDeleted: 1,
+    ordersDeleted: 1,
+    eventsDeleted: 8,
+    generatedEventsDeleted: 2
+  });
+  assert.deepEqual(
+    calls.map(({ sql }) => sql.match(/^delete from app\.([a-z_]+)/)?.[1]),
+    ['film_order_box_links', 'film_orders', 'film_order_events']
+  );
+  assert.ok(calls.every(({ values }) => values?.[0] === organizationIds));
+});
+
+test('Film Order history recovery refuses generated-history budget drift', async () => {
+  const client = {
+    async query(sql) {
+      if (sql.startsWith('delete from app.film_order_box_links')) return { rowCount: 1 };
+      if (sql.startsWith('delete from app.film_orders')) return { rowCount: 1 };
+      if (sql.startsWith('delete from app.film_order_events')) return { rowCount: 7 };
+      throw new Error('unexpected query');
+    }
+  };
+  await assert.rejects(
+    deleteFilmOrderHistoryForRecovery(
+      client,
+      { organizationIds: [crypto.randomUUID(), crypto.randomUUID()] },
+      {
+        expected: {
+          fixtureCounts: {
+            film_order_box_links: 1,
+            film_orders: 1,
+            film_order_events: 6
+          }
+        }
+      }
+    ),
+    (error) => error?.code === 'FIXTURE_RECOVERY_FILM_ORDER_EVENT_DELETE_COUNT_MISMATCH'
+  );
 });
 
 async function baselineFor(client, organizationIds) {

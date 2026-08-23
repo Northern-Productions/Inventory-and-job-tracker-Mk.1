@@ -120,8 +120,9 @@ The plan copies no cleanup identity that was not already present in the authenti
 manifest.
 
 The private ID journal may contain bounded, structurally validated IDs harvested from later
-workflow responses. Those values are corroborating evidence only: they contribute no cleanup
-target and are never promoted into the plan. Auth-context organization entries must still
+workflow responses, including camel-case and snake_case API/SQL field names. Those values
+are corroborating evidence only: they contribute no cleanup target and are never promoted
+into the plan. Auth-context organization entries must still
 match the manifest's exact organization roots. The manifest remains the sole deletion
 authority.
 
@@ -153,6 +154,15 @@ npm --prefix backend run env:sandbox:fixture-recovery -- --action cleanup --appl
 
 An existing attempt or result freezes ordinary invocation. Do not remove it, broaden the
 manifest, retry, or substitute ad hoc SQL.
+
+If an authenticated ordinary attempt failed specifically because Film Order delete triggers
+created history during organization cascade, the separately approved
+`recover-film-order-history` action may be used once. It requires the original signed plan,
+the permanent failed ordinary marker/result, an exact confirmed constraint category, and a
+new exclusive override marker. In one serializable transaction it deletes exact-root links,
+then exact-root orders, then the original plus exactly one generated event per deleted link
+and order, before deleting the same manifest roots. Every count is bound to the plan; the
+manifest remains the sole authority, and ordinary cleanup remains permanently frozen.
 
 For B, run the complete PostgreSQL preflight first, pin source and restore fingerprint sessions to UTC, and require the native source-to-restore compatibility result before X-NP. The same encrypted component must feed both D and E. The rehearsal's shared structural smoke identity exists only to keep lineage fingerprints comparable; each real project must receive its own credential and Auth identity through its own Auth Admin API.
 
