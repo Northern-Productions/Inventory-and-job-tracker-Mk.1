@@ -18,6 +18,7 @@ import {
   buildRecoveryResult,
   buildSignedRuntimeRecord,
   captureAuthState,
+  captureBoxTransferGuard,
   captureFixtureState,
   captureIdentityReferences,
   captureOwnerGuard,
@@ -26,6 +27,7 @@ import {
   captureRecoveryPreconditions,
   captureSideEffectState,
   executeFixtureRecoveryTransaction,
+  extractBoxTransferGuardFunctionSource,
   extractOwnerGuardFunctionSource,
   readRuntimeRecoveryAuthority,
   readSignedRuntimeRecord,
@@ -112,10 +114,14 @@ function printUsage() {
   Recovery-only action: --action recover-film-order-history --apply --quiet-window-active
     --confirmed-failure-constraint film_order_events_org_id_fkey (plus the same private inputs).
 
+  Recovery-only action: --action recover-transfer-history --apply --quiet-window-active
+    --confirmed-failure-routine guard_box_transfer_mutation (plus the same private inputs).
+
 This command is SANDBOX-only. Preparation writes an authenticated private plan after a
 rolled-back read-only snapshot. Cleanup is permanent and one-shot after its private attempt
 marker is published. The Film Order recovery action requires the authenticated failed marker,
-uses a separate one-shot marker, and never accepts discovered cleanup roots.`);
+uses a separate one-shot marker, and never accepts discovered cleanup roots. Transfer-history
+recovery has the same one-shot authority and suspends only the exact immutable-history trigger.`);
 }
 
 function resolveFiles(directoryPath) {
@@ -228,6 +234,19 @@ function loadOwnerGuardSource(options) {
   const bytes = fs.readFileSync(migrationPath);
   try {
     return extractOwnerGuardFunctionSource(bytes.toString('utf8'));
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+function loadBoxTransferGuardSource(options) {
+  const override = text(options['box-transfer-guard-migration']);
+  const migrationPath = override
+    ? path.resolve(override)
+    : new URL('../migrations/0191_atomic_cross_warehouse_transfer_assisted_allocation.sql', import.meta.url);
+  const bytes = fs.readFileSync(migrationPath);
+  try {
+    return extractBoxTransferGuardFunctionSource(bytes.toString('utf8'));
   } finally {
     bytes.fill(0);
   }
@@ -378,7 +397,15 @@ function writeFailureResult(files, authority, plan, code, transactionResult = nu
 }
 
 async function cleanup(options, context) {
-  const { files, authority, ownerGuardSource, client, applicationCommit, projectRef } = context;
+  const {
+    files,
+    authority,
+    ownerGuardSource,
+    boxTransferGuardSource,
+    client,
+    applicationCommit,
+    projectRef
+  } = context;
   if (!booleanOption(options.apply) || !booleanOption(options['quiet-window-active'])) {
     throw categoricalError('FIXTURE_RECOVERY_APPLY_GUARD_MISSING');
   }
@@ -401,6 +428,7 @@ async function cleanup(options, context) {
       authority,
       plan,
       expectedFunctionSource: ownerGuardSource,
+      expectedBoxTransferGuardSource: boxTransferGuardSource,
       recoveryMode
     });
     await deleteTemporaryAuthUser(projectRef, serviceKey, authority.temporaryUserId);
@@ -462,7 +490,7 @@ async function cleanup(options, context) {
   }
 }
 
-function loadFailedCleanupState(files, authority, plan) {
+function loadFailedCleanupState(files, authority, plan, expectedCategory = '23503') {
   const attempt = readSignedRuntimeRecord(
     files.attempt,
     authority.key,
@@ -480,7 +508,7 @@ function loadFailedCleanupState(files, authority, plan) {
     result.runTag !== plan.runTag ||
     result.planDigest !== attempt.planDigest ||
     result.status !== 'failed' ||
-    result.category !== '23503' ||
+    result.category !== expectedCategory ||
     result.databaseCommitKnown !== false ||
     result.authCleanupKnown !== false ||
     result.retryAllowed !== false
@@ -540,7 +568,41 @@ async function assertFilmOrderRecoveryPreflight(context, plan) {
   });
 }
 
-function writeOverrideFailureResult(files, authority, plan, code, transactionResult = null) {
+async function assertBoxTransferRecoveryPreflight(context, plan) {
+  const {
+    authority,
+    ownerGuardSource,
+    boxTransferGuardSource,
+    client,
+    applicationCommit
+  } = context;
+  await withReadOnlySnapshot(client, async () => {
+    const evidence = await captureRecoveryPreconditions(client, authority, ownerGuardSource);
+    const currentPlan = buildFixtureRecoveryPlan({
+      authority,
+      ...evidence,
+      expectedApplicationCommit: applicationCommit,
+      createdAt: plan.createdAt
+    });
+    if (runtimeCanonicalSerialize(currentPlan) !== runtimeCanonicalSerialize(plan)) {
+      throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_STATE_MISMATCH');
+    }
+    const recoveryMode = selectFixtureRecoveryMode(plan);
+    if (!['box-transfer-immutable-history', 'film-order-and-box-transfer-history'].includes(recoveryMode)) {
+      throw categoricalError('FIXTURE_RECOVERY_BOX_TRANSFER_HISTORY_NOT_APPLICABLE');
+    }
+    await captureBoxTransferGuard(client, boxTransferGuardSource);
+  });
+}
+
+function writeOverrideFailureResult(
+  files,
+  authority,
+  plan,
+  code,
+  transactionResult = null,
+  recoveryMode = 'film_order_event_trigger_fk'
+) {
   if (fs.existsSync(files.overrideResult)) return;
   const payload = {
     ...buildRecoveryResult(plan, {
@@ -549,7 +611,7 @@ function writeOverrideFailureResult(files, authority, plan, code, transactionRes
       databaseCommitKnown: transactionResult?.committed === true,
       authCleanupKnown: false,
       retryAllowed: false,
-      recoveryMode: 'film_order_event_trigger_fk'
+      recoveryMode
     }),
     format: RECOVERY_OVERRIDE_RESULT_FORMAT
   };
@@ -662,6 +724,121 @@ async function recoverFilmOrderHistory(options, context) {
   }
 }
 
+async function recoverTransferHistory(options, context) {
+  const {
+    files,
+    authority,
+    ownerGuardSource,
+    boxTransferGuardSource,
+    client,
+    applicationCommit,
+    projectRef
+  } = context;
+  if (!booleanOption(options.apply) || !booleanOption(options['quiet-window-active'])) {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_APPLY_GUARD_MISSING');
+  }
+  if (requiredOption(options, 'confirmed-failure-routine') !== 'guard_box_transfer_mutation') {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_ROUTINE_UNCONFIRMED');
+  }
+  if (!fs.existsSync(files.plan) || !fs.existsSync(files.attempt) || !fs.existsSync(files.result)) {
+    throw categoricalError('FIXTURE_RECOVERY_OVERRIDE_PREDECESSOR_MISSING');
+  }
+  assertAbsent(files.overrideAttempt, 'FIXTURE_RECOVERY_OVERRIDE_NAMESPACE_FROZEN');
+  assertAbsent(files.overrideResult, 'FIXTURE_RECOVERY_OVERRIDE_NAMESPACE_FROZEN');
+  const plan = readSignedRuntimeRecord(files.plan, authority.key, RECOVERY_PLAN_FORMAT).payload;
+  assertPlanMatchesAuthority(plan, authority, applicationCommit);
+  const failed = loadFailedCleanupState(files, authority, plan, 'P0001');
+  await assertBoxTransferRecoveryPreflight(context, plan);
+  await proveManagementTarget(projectRef);
+  let serviceKey = await loadServiceRoleKey(projectRef);
+  await proveTemporaryAuthUser(projectRef, serviceKey, authority.temporaryUserId);
+  const recoveryMode = selectFixtureRecoveryMode(plan);
+  const overrideAttempt = {
+    ...buildRecoveryAttempt(plan),
+    format: RECOVERY_OVERRIDE_ATTEMPT_FORMAT,
+    recoveryMode,
+    predecessorPlanDigest: failed.attempt.planDigest,
+    predecessorCategory: failed.result.category,
+    confirmedFailureRoutine: 'guard_box_transfer_mutation'
+  };
+  writePrivateJsonExclusive(
+    files.overrideAttempt,
+    buildSignedRuntimeRecord(overrideAttempt, authority.key)
+  );
+
+  let transactionResult;
+  try {
+    transactionResult = await executeFixtureRecoveryTransaction({
+      client,
+      authority,
+      plan,
+      expectedFunctionSource: ownerGuardSource,
+      expectedBoxTransferGuardSource: boxTransferGuardSource,
+      recoveryMode
+    });
+    await deleteTemporaryAuthUser(projectRef, serviceKey, authority.temporaryUserId);
+    serviceKey = '';
+    const after = await verifyAfterCleanup(client, { authority, plan, ownerGuardSource });
+    const payload = {
+      ...buildRecoveryResult(plan, {
+        status: 'succeeded',
+        databaseCommitKnown: true,
+        authCleanupKnown: true,
+        deletedOrganizationRoots: transactionResult.deletedOrganizationRoots,
+        fixtureRowsDeleted: transactionResult.fixtureRowsDeleted,
+        fixtureCountsDeleted: transactionResult.fixtureCountsDeleted,
+        temporaryAuthUsersDeleted: 1,
+        applicationTablesEqual: after.fixtureState.tableCount,
+        nonfixtureEqual: true,
+        triggerRestored: true,
+        protectedStateEqual: true,
+        permanentSmokeUsers: after.authState.smoke_users,
+        copiedUsers: after.authState.copied_users,
+        temporaryUsers: after.authState.temporary_users,
+        retryAllowed: false,
+        recoveryMode,
+        recoveryHistory: transactionResult.recoveryHistory
+      }),
+      format: RECOVERY_OVERRIDE_RESULT_FORMAT
+    };
+    writePrivateJsonExclusive(files.overrideResult, buildSignedRuntimeRecord(payload, authority.key));
+    console.log(JSON.stringify({
+      result: 'SANDBOX_FIXTURE_TRANSFER_RECOVERY_OVERRIDE_SUCCEEDED',
+      target: 'sandbox',
+      serializableTransactions: 1,
+      organizationRootsDeleted: transactionResult.deletedOrganizationRoots,
+      applicationFixtureRowsDeleted: transactionResult.fixtureRowsDeleted,
+      boxTransfersDeleted: transactionResult.recoveryHistory.transfersDeleted,
+      filmOrderHistoryPredeleted: Number(transactionResult.recoveryHistory.linksDeleted || 0) > 0,
+      temporaryAuthUsersDeleted: 1,
+      applicationFixtureResidue: 0,
+      nonfixtureEqual: true,
+      ownerGuardRestored: true,
+      boxTransferGuardRestored: transactionResult.recoveryHistory.transferGuardRestored === true,
+      protectedStateEqual: true,
+      permanentSmokeUsers: after.authState.smoke_users,
+      copiedUsers: after.authState.copied_users,
+      temporaryUsers: after.authState.temporary_users,
+      ordinaryMarkerRetained: true,
+      overrideMarkerRetained: true
+    }));
+  } catch (error) {
+    serviceKey = '';
+    const code = text(error?.code || error?.message || 'FIXTURE_RECOVERY_OVERRIDE_FAILED').replace(
+      /[^A-Z0-9_]/gi,
+      '_'
+    );
+    try {
+      writeOverrideFailureResult(files, authority, plan, code, transactionResult, recoveryMode);
+    } catch {
+      // The override attempt marker remains the authoritative freeze.
+    }
+    throw categoricalError(code);
+  } finally {
+    serviceKey = '';
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help || options.h) {
@@ -669,7 +846,12 @@ async function main() {
     return;
   }
   const action = requiredOption(options, 'action').toLowerCase();
-  if (!['prepare', 'cleanup', 'recover-film-order-history'].includes(action)) {
+  if (![
+    'prepare',
+    'cleanup',
+    'recover-film-order-history',
+    'recover-transfer-history'
+  ].includes(action)) {
     throw categoricalError('FIXTURE_RECOVERY_ACTION_INVALID');
   }
   const authorityDirectory = path.resolve(requiredOption(options, 'authority-dir'));
@@ -682,6 +864,7 @@ async function main() {
   });
   const authority = loadAuthority(options, files);
   const ownerGuardSource = loadOwnerGuardSource(options);
+  const boxTransferGuardSource = loadBoxTransferGuardSource(options);
   const client = createClient(project.connectionString);
   await client.connect();
   try {
@@ -690,13 +873,15 @@ async function main() {
       files,
       authority,
       ownerGuardSource,
+      boxTransferGuardSource,
       client,
       applicationCommit,
       projectRef: project.projectRef
     };
     if (action === 'prepare') await prepare(options, context);
     else if (action === 'cleanup') await cleanup(options, context);
-    else await recoverFilmOrderHistory(options, context);
+    else if (action === 'recover-film-order-history') await recoverFilmOrderHistory(options, context);
+    else await recoverTransferHistory(options, context);
   } finally {
     authority.key.fill(0);
     await client.end().catch(() => {});

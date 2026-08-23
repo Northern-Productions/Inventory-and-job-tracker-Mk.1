@@ -25,6 +25,12 @@ const OWNER_GUARD_FUNCTION = 'app.prevent_last_owner_loss';
 const OWNER_GUARD_ENABLED = 'O';
 const OWNER_GUARD_DISABLED = 'D';
 const EXPECTED_OWNER_GUARD_TYPE = 27; // ROW + BEFORE + DELETE + UPDATE
+const BOX_TRANSFER_GUARD_TABLE = 'app.box_transfers';
+const BOX_TRANSFER_GUARD_TRIGGER = 'trg_0191_guard_box_transfers';
+const BOX_TRANSFER_GUARD_FUNCTION = 'app_api.guard_box_transfer_mutation';
+const BOX_TRANSFER_GUARD_ENABLED = 'O';
+const BOX_TRANSFER_GUARD_DISABLED = 'D';
+const EXPECTED_BOX_TRANSFER_GUARD_TYPE = 31; // ROW + BEFORE + INSERT + DELETE + UPDATE
 
 function fixtureRecoveryError(code) {
   const error = new Error(code);
@@ -464,6 +470,15 @@ function extractOwnerGuardFunctionSource(migrationSql) {
   return match[1].trim();
 }
 
+function extractBoxTransferGuardFunctionSource(migrationSql) {
+  const source = String(migrationSql || '').replace(/\r\n/g, '\n');
+  const match = source.match(
+    /create or replace function app_api\.guard_box_transfer_mutation\(\)\s*[\s\S]*?as \$\$\n([\s\S]*?)\n\$\$;/i
+  );
+  if (!match) throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_SOURCE_MISSING');
+  return match[1].trim();
+}
+
 async function captureOwnerGuard(client, expectedFunctionSource, { expectedEnabled = OWNER_GUARD_ENABLED } = {}) {
   const result = await client.query(`
     select trigger.tgenabled,
@@ -506,6 +521,65 @@ async function captureOwnerGuard(client, expectedFunctionSource, { expectedEnabl
     table: OWNER_GUARD_TABLE,
     trigger: OWNER_GUARD_TRIGGER,
     function: OWNER_GUARD_FUNCTION,
+    enabled: row.tgenabled,
+    triggerType: Number(row.trigger_type),
+    triggerDefinitionDigest: canonicalDigest(row.trigger_definition),
+    functionSourceDigest: canonicalDigest(normalizedSource),
+    functionConfigDigest: canonicalDigest(row.proconfig),
+    ownerRoleDigest: canonicalDigest(row.owner_role),
+    securityDefiner: true,
+    sourceMatches: true
+  };
+}
+
+async function captureBoxTransferGuard(
+  client,
+  expectedFunctionSource,
+  { expectedEnabled = BOX_TRANSFER_GUARD_ENABLED } = {}
+) {
+  const result = await client.query(`
+    select trigger.tgenabled,
+           trigger.tgtype::integer as trigger_type,
+           pg_get_triggerdef(trigger.oid, false) as trigger_definition,
+           function.prosrc as function_source,
+           function.prosecdef as security_definer,
+           function.proconfig,
+           function_namespace.nspname as function_schema,
+           function.proname as function_name,
+           pg_get_function_identity_arguments(function.oid) as identity_arguments,
+           owner.rolname as owner_role
+      from pg_catalog.pg_trigger trigger
+      join pg_catalog.pg_class relation on relation.oid = trigger.tgrelid
+      join pg_catalog.pg_namespace relation_namespace on relation_namespace.oid = relation.relnamespace
+      join pg_catalog.pg_proc function on function.oid = trigger.tgfoid
+      join pg_catalog.pg_namespace function_namespace on function_namespace.oid = function.pronamespace
+      join pg_catalog.pg_roles owner on owner.oid = function.proowner
+     where relation_namespace.nspname = 'app'
+       and relation.relname = 'box_transfers'
+       and trigger.tgname = 'trg_0191_guard_box_transfers'
+       and not trigger.tgisinternal
+  `);
+  if (result.rowCount !== 1) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_SHAPE_INVALID');
+  }
+  const row = result.rows[0];
+  const normalizedSource = asText(row.function_source).replace(/\r\n/g, '\n');
+  if (
+    row.tgenabled !== expectedEnabled ||
+    Number(row.trigger_type) !== EXPECTED_BOX_TRANSFER_GUARD_TYPE ||
+    row.security_definer !== true ||
+    row.function_schema !== 'app_api' ||
+    row.function_name !== 'guard_box_transfer_mutation' ||
+    asText(row.identity_arguments) !== '' ||
+    runtimeCanonicalSerialize(row.proconfig) !== runtimeCanonicalSerialize(['search_path=public, app, app_api']) ||
+    normalizedSource !== asText(expectedFunctionSource)
+  ) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_CONTRACT_MISMATCH');
+  }
+  return {
+    table: BOX_TRANSFER_GUARD_TABLE,
+    trigger: BOX_TRANSFER_GUARD_TRIGGER,
+    function: BOX_TRANSFER_GUARD_FUNCTION,
     enabled: row.tgenabled,
     triggerType: Number(row.trigger_type),
     triggerDefinitionDigest: canonicalDigest(row.trigger_definition),
@@ -840,16 +914,27 @@ async function captureRecoveryPreconditions(client, authority, expectedFunctionS
 
 function selectFixtureRecoveryMode(plan) {
   const expectedLinks = asSafeCount(
-    plan?.expected?.fixtureCounts?.film_order_box_links,
+    plan?.expected?.fixtureCounts?.film_order_box_links ?? 0,
     'FIXTURE_RECOVERY_FILM_ORDER_LINK_BUDGET_INVALID'
   );
   const expectedOrders = asSafeCount(
-    plan?.expected?.fixtureCounts?.film_orders,
+    plan?.expected?.fixtureCounts?.film_orders ?? 0,
     'FIXTURE_RECOVERY_FILM_ORDER_BUDGET_INVALID'
   );
-  if (expectedLinks === 0 && expectedOrders === 0) return 'ordinary';
-  if (expectedLinks > 0 && expectedOrders > 0) return 'film-order-event-trigger-fk';
-  throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT');
+  const expectedTransfers = asSafeCount(
+    plan?.expected?.fixtureCounts?.box_transfers ?? 0,
+    'FIXTURE_RECOVERY_BOX_TRANSFER_BUDGET_INVALID'
+  );
+  const hasFilmOrderHistory = expectedLinks > 0 && expectedOrders > 0;
+  if ((expectedLinks === 0) !== (expectedOrders === 0)) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT');
+  }
+  if (hasFilmOrderHistory && expectedTransfers > 0) {
+    return 'film-order-and-box-transfer-history';
+  }
+  if (hasFilmOrderHistory) return 'film-order-event-trigger-fk';
+  if (expectedTransfers > 0) return 'box-transfer-immutable-history';
+  return 'ordinary';
 }
 
 async function deleteFilmOrderHistoryForRecovery(client, authority, plan) {
@@ -899,11 +984,65 @@ async function deleteFilmOrderHistoryForRecovery(client, authority, plan) {
   };
 }
 
+async function deleteBoxTransferHistoryForRecovery(
+  client,
+  authority,
+  plan,
+  expectedFunctionSource
+) {
+  const expectedTransfers = asSafeCount(
+    plan?.expected?.fixtureCounts?.box_transfers,
+    'FIXTURE_RECOVERY_BOX_TRANSFER_BUDGET_INVALID'
+  );
+  if (expectedTransfers < 1) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_HISTORY_NOT_APPLICABLE');
+  }
+
+  const before = await captureBoxTransferGuard(client, expectedFunctionSource);
+  await client.query(
+    'ALTER TABLE app.box_transfers DISABLE TRIGGER trg_0191_guard_box_transfers'
+  );
+  const disabled = await captureBoxTransferGuard(client, expectedFunctionSource, {
+    expectedEnabled: BOX_TRANSFER_GUARD_DISABLED
+  });
+  if (
+    disabled.triggerDefinitionDigest !== before.triggerDefinitionDigest ||
+    disabled.functionSourceDigest !== before.functionSourceDigest ||
+    disabled.functionConfigDigest !== before.functionConfigDigest ||
+    disabled.ownerRoleDigest !== before.ownerRoleDigest
+  ) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_DISABLE_DRIFT');
+  }
+
+  const transfers = await client.query(
+    'delete from app.box_transfers where org_id = any($1::uuid[])',
+    [authority.organizationIds]
+  );
+  if (transfers.rowCount !== expectedTransfers) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_DELETE_COUNT_MISMATCH');
+  }
+
+  // Clear deferred FK trigger work before changing the trigger state again.
+  await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+  await client.query(
+    'ALTER TABLE app.box_transfers ENABLE TRIGGER trg_0191_guard_box_transfers'
+  );
+  const restored = await captureBoxTransferGuard(client, expectedFunctionSource);
+  if (runtimeCanonicalSerialize(restored) !== runtimeCanonicalSerialize(before)) {
+    throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_RESTORE_MISMATCH');
+  }
+  return {
+    transfersDeleted: transfers.rowCount,
+    transferGuardRestored: true
+  };
+}
+
 async function executeFixtureRecoveryTransaction({
   client,
   authority,
   plan,
   expectedFunctionSource,
+  expectedBoxTransferGuardSource,
   recoveryMode = 'ordinary'
 }) {
   let transactionStarted = false;
@@ -931,11 +1070,41 @@ async function executeFixtureRecoveryTransaction({
       throw fixtureRecoveryError('FIXTURE_RECOVERY_OWNER_GUARD_DISABLE_DRIFT');
     }
 
-    let recoveryHistory = null;
-    if (recoveryMode === 'film-order-event-trigger-fk') {
-      recoveryHistory = await deleteFilmOrderHistoryForRecovery(client, authority, plan);
-    } else if (recoveryMode !== 'ordinary') {
+    const deleteFilmOrderHistory = [
+      'film-order-event-trigger-fk',
+      'film-order-and-box-transfer-history'
+    ].includes(recoveryMode);
+    const deleteBoxTransferHistory = [
+      'box-transfer-immutable-history',
+      'film-order-and-box-transfer-history'
+    ].includes(recoveryMode);
+    if (
+      recoveryMode !== 'ordinary' &&
+      !deleteFilmOrderHistory &&
+      !deleteBoxTransferHistory
+    ) {
       throw fixtureRecoveryError('FIXTURE_RECOVERY_MODE_INVALID');
+    }
+    const recoveryHistory = {};
+    if (deleteFilmOrderHistory) {
+      Object.assign(
+        recoveryHistory,
+        await deleteFilmOrderHistoryForRecovery(client, authority, plan)
+      );
+    }
+    if (deleteBoxTransferHistory) {
+      if (!asText(expectedBoxTransferGuardSource)) {
+        throw fixtureRecoveryError('FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_SOURCE_MISSING');
+      }
+      Object.assign(
+        recoveryHistory,
+        await deleteBoxTransferHistoryForRecovery(
+          client,
+          authority,
+          plan,
+          expectedBoxTransferGuardSource
+        )
+      );
     }
 
     const deleted = await client.query(
@@ -983,7 +1152,7 @@ async function executeFixtureRecoveryTransaction({
       applicationTablesEqual: afterDelete.tableCount,
       triggerRestored: true,
       protectedStateEqual: true,
-      recoveryHistory
+      recoveryHistory: Object.keys(recoveryHistory).length > 0 ? recoveryHistory : null
     };
   } catch (error) {
     if (transactionStarted && !commitStarted) {
@@ -1047,6 +1216,7 @@ export {
   buildRecoveryResult,
   buildSignedRuntimeRecord,
   captureAuthState,
+  captureBoxTransferGuard,
   captureFixtureState,
   captureIdentityReferences,
   captureOwnerGuard,
@@ -1054,8 +1224,10 @@ export {
   captureProtectionFingerprint,
   captureRecoveryPreconditions,
   captureSideEffectState,
+  deleteBoxTransferHistoryForRecovery,
   deleteFilmOrderHistoryForRecovery,
   executeFixtureRecoveryTransaction,
+  extractBoxTransferGuardFunctionSource,
   extractOwnerGuardFunctionSource,
   fixturePredicate,
   readRuntimeRecoveryAuthority,

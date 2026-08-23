@@ -133,7 +133,12 @@ temporarily disables only `trg_prevent_last_owner_loss` on `app.organization_mem
 deletes only manifest-owned rows. A signed budget containing both Film Order links and Film
 Orders selects exact-root, count-checked link/order/event deletion before organization-root
 deletion so history triggers cannot violate the organization cascade; a one-sided budget
-fails closed. The transaction then proves exact counts and strict nonfixture equality,
+fails closed. A nonzero signed `box_transfers` budget selects exact-root, count-checked
+transfer-history deletion. That path verifies the migration-defined immutable-history guard,
+temporarily disables only `trg_0191_guard_box_transfers`, deletes the exact manifest-root
+budget, forces deferred constraints immediate, and restores and re-verifies the guard before
+organization-root deletion. Film Order and transfer-history ordering compose when both
+budgets are nonzero. The transaction then proves exact counts and strict nonfixture equality,
 re-enables and re-verifies the trigger, proves every surviving
 organization has an active owner, and compares all protected fingerprints before commit.
 The product function and trigger definition are never changed. A rollback restores the
@@ -166,6 +171,15 @@ new exclusive override marker. In one serializable transaction it deletes exact-
 then exact-root orders, then the original plus exactly one generated event per deleted link
 and order, before deleting the same manifest roots. Every count is bound to the plan; the
 manifest remains the sole authority, and ordinary cleanup remains permanently frozen.
+
+If an authenticated ordinary attempt instead failed with `P0001` and a separate rolled-back
+diagnosis positively attributed the failure to `guard_box_transfer_mutation`, the separately
+approved `recover-transfer-history` action may be used once with
+`--confirmed-failure-routine guard_box_transfer_mutation`. It requires the same exact signed
+plan and failed ordinary evidence, verifies the committed trigger source read-only, and uses
+the combined trigger-safe history mode selected solely from signed table budgets. It never
+accepts transfer IDs, discovered roots, or a widened cleanup target. Its exclusive override
+marker remains permanent regardless of outcome.
 
 For B, run the complete PostgreSQL preflight first, pin source and restore fingerprint sessions to UTC, and require the native source-to-restore compatibility result before X-NP. The same encrypted component must feed both D and E. The rehearsal's shared structural smoke identity exists only to keep lineage fingerprints comparable; each real project must receive its own credential and Auth identity through its own Auth Admin API.
 

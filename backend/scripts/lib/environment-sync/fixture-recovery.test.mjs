@@ -16,8 +16,10 @@ import {
   captureOwnerInvariant,
   captureProtectionFingerprint,
   captureSideEffectState,
+  deleteBoxTransferHistoryForRecovery,
   deleteFilmOrderHistoryForRecovery,
   executeFixtureRecoveryTransaction,
+  extractBoxTransferGuardFunctionSource,
   fixturePredicate,
   readRuntimeRecoveryAuthority,
   selectFixtureRecoveryMode,
@@ -296,22 +298,117 @@ test('Film Order history recovery deletes exact-root history in trigger-safe cou
   assert.ok(calls.every(({ values }) => values?.[0] === organizationIds));
 });
 
-test('recovery mode selects trigger-safe Film Order ordering only for a complete signed budget', () => {
+test('recovery mode selects exact trigger-safe history ordering from complete signed budgets', () => {
   assert.equal(
-    selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 0 } } }),
+    selectFixtureRecoveryMode({
+      expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 0, box_transfers: 0 } }
+    }),
     'ordinary'
   );
   assert.equal(
-    selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 1 } } }),
+    selectFixtureRecoveryMode({
+      expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 1, box_transfers: 0 } }
+    }),
     'film-order-event-trigger-fk'
   );
+  assert.equal(
+    selectFixtureRecoveryMode({
+      expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 0, box_transfers: 1 } }
+    }),
+    'box-transfer-immutable-history'
+  );
+  assert.equal(
+    selectFixtureRecoveryMode({
+      expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 1, box_transfers: 2 } }
+    }),
+    'film-order-and-box-transfer-history'
+  );
   assert.throws(
-    () => selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 0 } } }),
+    () => selectFixtureRecoveryMode({
+      expected: { fixtureCounts: { film_order_box_links: 1, film_orders: 0, box_transfers: 0 } }
+    }),
     (error) => error?.code === 'FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT'
   );
   assert.throws(
-    () => selectFixtureRecoveryMode({ expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 1 } } }),
+    () => selectFixtureRecoveryMode({
+      expected: { fixtureCounts: { film_order_box_links: 0, film_orders: 1, box_transfers: 0 } }
+    }),
     (error) => error?.code === 'FIXTURE_RECOVERY_FILM_ORDER_HISTORY_BUDGET_INCONSISTENT'
+  );
+});
+
+test('box transfer recovery suspends only its exact guard and restores it after exact-root deletion', async () => {
+  const organizationIds = [crypto.randomUUID(), crypto.randomUUID()];
+  const expectedSource = 'begin\n  return new;\nend;';
+  const calls = [];
+  let enabled = 'O';
+  const client = {
+    async query(sql, values) {
+      calls.push({ sql: String(sql).trim(), values });
+      if (String(sql).includes('from pg_catalog.pg_trigger trigger')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            tgenabled: enabled,
+            trigger_type: 31,
+            trigger_definition: 'CREATE TRIGGER trg_0191_guard_box_transfers BEFORE INSERT OR DELETE OR UPDATE ON app.box_transfers FOR EACH ROW EXECUTE FUNCTION app_api.guard_box_transfer_mutation()',
+            function_source: expectedSource,
+            security_definer: true,
+            proconfig: ['search_path=public, app, app_api'],
+            function_schema: 'app_api',
+            function_name: 'guard_box_transfer_mutation',
+            identity_arguments: '',
+            owner_role: 'postgres'
+          }]
+        };
+      }
+      if (String(sql).includes('DISABLE TRIGGER trg_0191_guard_box_transfers')) {
+        enabled = 'D';
+        return { rowCount: null, rows: [] };
+      }
+      if (String(sql).startsWith('delete from app.box_transfers')) return { rowCount: 2, rows: [] };
+      if (String(sql) === 'SET CONSTRAINTS ALL IMMEDIATE') return { rowCount: null, rows: [] };
+      if (String(sql).includes('ENABLE TRIGGER trg_0191_guard_box_transfers')) {
+        enabled = 'O';
+        return { rowCount: null, rows: [] };
+      }
+      throw new Error('unexpected query');
+    }
+  };
+
+  const result = await deleteBoxTransferHistoryForRecovery(
+    client,
+    { organizationIds },
+    { expected: { fixtureCounts: { box_transfers: 2 } } },
+    expectedSource
+  );
+  assert.deepEqual(result, { transfersDeleted: 2, transferGuardRestored: true });
+  assert.deepEqual(
+    calls
+      .filter(({ sql }) => !sql.includes('from pg_catalog.pg_trigger trigger'))
+      .map(({ sql }) => sql),
+    [
+      'ALTER TABLE app.box_transfers DISABLE TRIGGER trg_0191_guard_box_transfers',
+      'delete from app.box_transfers where org_id = any($1::uuid[])',
+      'SET CONSTRAINTS ALL IMMEDIATE',
+      'ALTER TABLE app.box_transfers ENABLE TRIGGER trg_0191_guard_box_transfers'
+    ]
+  );
+  assert.equal(calls.find(({ sql }) => sql.startsWith('delete from app.box_transfers')).values[0], organizationIds);
+});
+
+test('box transfer recovery pins the canonical immutable-history guard source', () => {
+  const migration = fs.readFileSync(
+    new URL('../../../migrations/0191_atomic_cross_warehouse_transfer_assisted_allocation.sql', import.meta.url),
+    'utf8'
+  );
+  const source = extractBoxTransferGuardFunctionSource(migration);
+  assert.match(source, /if tg_op = 'DELETE' then/);
+  assert.match(source, /Transfer history cannot be deleted\./);
+  assert.match(source, /current_transfer_workflow_action\(\)/);
+  assert.throws(
+    () => extractBoxTransferGuardFunctionSource('select 1;'),
+    (error) => error?.code === 'FIXTURE_RECOVERY_BOX_TRANSFER_GUARD_SOURCE_MISSING'
   );
 });
 
