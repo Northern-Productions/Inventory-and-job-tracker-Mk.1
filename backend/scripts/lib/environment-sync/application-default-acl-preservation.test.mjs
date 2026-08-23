@@ -11,12 +11,16 @@ import {
   MANAGED_AUTHENTICATED_APPLICATION_DEFAULT_ACL_INTENT,
   REPOSITORY_APPLICATION_DEFAULT_ACL_INTENT,
   authenticateApplicationDefaultAclManifest,
+  assertHardenedApplicationRoutineDefaultProfile,
   buildApplicationDefaultAclPreservationManifest,
   buildApplicationDefaultAclPreservationSql,
+  buildApplicationRoutineDefaultRecoverySql,
   buildProfileApplicationDefaultAclManifest,
   buildRepositoryApplicationDefaultAclManifest,
   captureApplicationDefaultAclEntries,
+  captureApplicationRoutineDefaultProfile,
   captureFuturePublicFunctionDefaultSecurity,
+  normalizeRoutineDefaultProfile,
   verifyApplicationDefaultAclManifest
 } from './application-default-acl-preservation.mjs';
 import {
@@ -246,6 +250,86 @@ test('generated preservation SQL uses supported ALTER DEFAULT PRIVILEGES before 
   assert.doesNotMatch(sql, /DELETE\s+FROM\s+pg_catalog\.pg_default_acl/i);
 });
 
+test('routine-default profiles fail closed on unknown scope, recipient, grant option, or duplicate entry', () => {
+  const safe = {
+    format: 'application-routine-default-profile-v1',
+    ownerRole: 'postgres',
+    schemaNames: ['public', 'app', 'app_api'],
+    records: []
+  };
+  assert.deepEqual(normalizeRoutineDefaultProfile(safe), safe);
+  for (const changed of [
+    { ...safe, ownerRole: 'alternate_creator' },
+    { ...safe, schemaNames: ['app', 'app_api', 'public'] },
+    { ...safe, records: [{ scope: 'private', entries: [] }] },
+    {
+      ...safe,
+      records: [{
+        scope: 'public',
+        entries: [{ grantorRole: 'postgres', grantee: 'reader', privilege: 'EXECUTE', grantOption: false }]
+      }]
+    },
+    {
+      ...safe,
+      records: [{
+        scope: 'public',
+        entries: [
+          { grantorRole: 'postgres', grantee: 'anon', privilege: 'EXECUTE', grantOption: false },
+          { grantorRole: 'postgres', grantee: 'anon', privilege: 'EXECUTE', grantOption: false }
+        ]
+      }]
+    }
+  ]) {
+    assert.throws(
+      () => normalizeRoutineDefaultProfile(changed),
+      /APPLICATION_ROUTINE_DEFAULT_PROFILE_INVALID/
+    );
+  }
+  assert.throws(
+    () => buildApplicationRoutineDefaultRecoverySql({
+      ...safe,
+      records: [{
+        scope: 'public',
+        entries: [{ grantorRole: 'postgres', grantee: 'anon', privilege: 'EXECUTE', grantOption: true }]
+      }]
+    }),
+    /APPLICATION_ROUTINE_RECOVERY_PROFILE_UNSUPPORTED/
+  );
+});
+
+test('pre-0204 recovery is exact-profile only and restores defaults before object creation', () => {
+  const pre0204 = normalizeRoutineDefaultProfile({
+    format: 'application-routine-default-profile-v1',
+    ownerRole: 'postgres',
+    schemaNames: ['public', 'app', 'app_api'],
+    records: [{
+      scope: 'public',
+      entries: [
+        { grantorRole: 'postgres', grantee: 'anon', privilege: 'EXECUTE', grantOption: false },
+        { grantorRole: 'postgres', grantee: 'postgres', privilege: 'EXECUTE', grantOption: false }
+      ]
+    }]
+  });
+  const sql = buildApplicationRoutineDefaultRecoverySql(pre0204);
+  assert.match(sql, /APPLICATION_ROUTINE_RECOVERY_PRECONDITION_MISMATCH/);
+  assert.match(sql, /grant execute on functions to public;/i);
+  assert.match(sql, /in schema "public" grant execute on functions to "anon";/i);
+  assert.match(sql, /APPLICATION_ROUTINE_RECOVERY_POSTCHECK_MISMATCH/);
+  assert.doesNotMatch(sql, /create\s+(?:or\s+replace\s+)?function/i);
+  assert.throws(
+    () => buildApplicationRoutineDefaultRecoverySql({
+      ...pre0204,
+      records: [{
+        scope: '<global>',
+        entries: [{
+          grantorRole: 'postgres', grantee: 'postgres', privilege: 'EXECUTE', grantOption: false
+        }]
+      }]
+    }),
+    /APPLICATION_ROUTINE_RECOVERY_PROFILE_UNSUPPORTED/
+  );
+});
+
 test('disposable PostgreSQL reproduces schema-drop loss and proves corrected future-object inheritance', { timeout: 120_000 }, async (t) => {
   try {
     resolvePostgresTools();
@@ -258,6 +342,8 @@ test('disposable PostgreSQL reproduces schema-drop loss and proves corrected fut
   try {
     cluster = await startDisposablePostgres({ rootDirectory: root });
     await withClient(cluster.connectionString(), async (client) => {
+      await client.query('create role anon nologin');
+      await client.query('create role authenticated nologin');
       await client.query('create role service_role nologin');
       await client.query('create schema app authorization postgres');
       await client.query('create schema app_api authorization postgres');
@@ -312,6 +398,9 @@ test('disposable PostgreSQL reproduces schema-drop loss and proves corrected fut
       const unsafeFunctionDefaults = await captureFuturePublicFunctionDefaultSecurity(client);
       assert.equal(unsafeFunctionDefaults.publicExecute, true);
       assert.equal(unsafeFunctionDefaults.anonExecute, true);
+      assert.equal(unsafeFunctionDefaults.authenticatedExecute, true);
+      assert.equal(unsafeFunctionDefaults.serviceRoleExecute, true);
+      assert.equal(unsafeFunctionDefaults.ownerExecute, true);
       assert.equal(unsafeFunctionDefaults.hardened, false);
       await client.query(
         'alter default privileges in schema public revoke execute on functions from public'
@@ -320,11 +409,20 @@ test('disposable PostgreSQL reproduces schema-drop loss and proves corrected fut
       assert.equal(schemaScopedRevoke.publicExecute, true);
       assert.equal(schemaScopedRevoke.anonExecute, true);
       assert.equal(schemaScopedRevoke.hardened, false);
+      const pre0204Profile = await captureApplicationRoutineDefaultProfile(client);
+      assert.deepEqual(pre0204Profile.records, []);
       await client.query('alter default privileges for role postgres revoke execute on functions from public');
       const hardenedFunctionDefaults = await captureFuturePublicFunctionDefaultSecurity(client);
       assert.equal(hardenedFunctionDefaults.publicExecute, false);
       assert.equal(hardenedFunctionDefaults.anonExecute, false);
+      assert.equal(hardenedFunctionDefaults.authenticatedExecute, false);
+      assert.equal(hardenedFunctionDefaults.serviceRoleExecute, false);
+      assert.equal(hardenedFunctionDefaults.ownerExecute, true);
       assert.equal(hardenedFunctionDefaults.hardened, true);
+      assert.deepEqual(
+        assertHardenedApplicationRoutineDefaultProfile(hardenedFunctionDefaults.profile),
+        hardenedFunctionDefaults.profile
+      );
       await client.query('create function public.future_function_probe() returns integer language sql as $$ select 1 $$');
       const publicExecute = (await client.query(`
         select exists (
@@ -338,6 +436,15 @@ test('disposable PostgreSQL reproduces schema-drop loss and proves corrected fut
       assert.equal(publicExecute, false);
 
       await client.query('drop function public.future_function_probe()');
+      await client.query(buildApplicationRoutineDefaultRecoverySql(pre0204Profile));
+      assert.deepEqual(await captureApplicationRoutineDefaultProfile(client), pre0204Profile);
+      const recoveredFunctionDefaults = await captureFuturePublicFunctionDefaultSecurity(client);
+      assert.equal(recoveredFunctionDefaults.publicExecute, true);
+      assert.equal(recoveredFunctionDefaults.anonExecute, true);
+      assert.equal(recoveredFunctionDefaults.authenticatedExecute, true);
+      assert.equal(recoveredFunctionDefaults.serviceRoleExecute, true);
+      assert.equal(recoveredFunctionDefaults.ownerExecute, true);
+      assert.equal(recoveredFunctionDefaults.hardened, false);
       await client.query('drop sequence app.future_sequence_probe');
       await client.query('drop table app.future_table_probe');
     });

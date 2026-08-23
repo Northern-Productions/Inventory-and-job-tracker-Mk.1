@@ -70,6 +70,46 @@ const MANAGED_PROFILE_TEST_TARGET = Object.freeze({
   environment: 'sandbox',
   projectRef: 's'.repeat(20)
 });
+const SYNTHETIC_0203 = Object.freeze({
+  version: '20260822100000',
+  sql: `
+    create or replace function public.api_get_auth_context(p_org_id uuid)
+    returns jsonb
+    language sql
+    stable
+    security definer
+    set search_path = public, app, app_api
+    as $function$
+      select pg_catalog.jsonb_build_object(
+        'accessStatus', 'approved',
+        'role', member.role,
+        'defaultWarehouse', app_api.get_user_default_warehouse(member.org_id, member.user_id),
+        'permissions', pg_catalog.jsonb_build_object('team_management', true)
+      )
+      from app.organization_members member
+      where member.org_id = p_org_id
+        and member.user_id = (pg_catalog.current_setting('request.jwt.claims', true)::jsonb ->> 'sub')::uuid
+        and member.status = 'active'
+    $function$;
+    revoke execute on function public.api_get_auth_context(uuid) from public, anon, service_role;
+    grant execute on function public.api_get_auth_context(uuid) to authenticated;
+  `
+});
+const SYNTHETIC_0204 = Object.freeze({
+  version: '20260823100000',
+  sql: `
+    do $creator_guard$
+    begin
+      if current_user <> 'postgres' or session_user <> 'postgres' then
+        raise exception 'APPLICATION_ROUTINE_CREATOR_ROLE_MISMATCH';
+      end if;
+    end
+    $creator_guard$;
+    alter default privileges for role postgres revoke execute on functions from public;
+    alter default privileges for role postgres in schema public, app, app_api
+      revoke execute on functions from public, anon, authenticated, service_role;
+  `
+});
 
 function managedCatalogEvidence() {
   const schemaOwners = {
@@ -329,10 +369,20 @@ async function seedManagedSource(connectionString) {
     await client.query(`
       create table app.organization_members (
         id uuid primary key,
+        org_id uuid not null,
         user_id uuid not null references auth.users(id),
         role text not null,
         status text not null
       );
+      create function app_api.get_user_default_warehouse(p_org_id uuid, p_user_id uuid)
+      returns uuid language sql stable
+        as $$ select '55555555-5555-5555-5555-555555555555'::uuid $$;
+      create function public.api_get_auth_context(p_org_id uuid)
+      returns jsonb language sql stable security definer
+      set search_path = public, app, app_api
+        as $$ select pg_catalog.jsonb_build_object('accessStatus', 'legacy') $$;
+      revoke execute on function public.api_get_auth_context(uuid) from public, anon, service_role;
+      grant execute on function public.api_get_auth_context(uuid) to authenticated;
       create function app_api.member_count() returns bigint language sql stable
         as $$ select count(*) from app.organization_members $$;
       create function public.api_member_count() returns bigint language sql stable
@@ -358,7 +408,8 @@ async function seedManagedSource(connectionString) {
       insert into auth.sessions(id) values ('synthetic-session');
       insert into auth.refresh_tokens(id) values ('synthetic-refresh');
       insert into app.organization_members values (
-        '33333333-3333-3333-3333-333333333333','11111111-1111-1111-1111-111111111111','admin','active'
+        '33333333-3333-3333-3333-333333333333','44444444-4444-4444-4444-444444444444',
+        '11111111-1111-1111-1111-111111111111','admin','active'
       );
       grant usage on schema app, app_api to authenticated;
       grant select on app.organization_members to authenticated;
@@ -613,7 +664,7 @@ test('overlay execution target guard rejects PROD and accepts only proven nonpro
   );
 });
 
-test('managed-like PostgreSQL reproduces old ownership failure and passes overlay on blank and populated targets', { timeout: 180_000 }, async (t) => {
+test('managed-like PostgreSQL proves 0203/0204 cutover and exact pre-0204 Y2 recovery on both profiles', { timeout: 240_000 }, async (t) => {
   let tools;
   try {
     tools = resolvePostgresTools();
@@ -659,6 +710,12 @@ test('managed-like PostgreSQL reproduces old ownership failure and passes overla
           size: archiveBytes.length,
           digest: `sha256:${crypto.createHash('sha256').update(archiveBytes).digest('hex')}`
         },
+        postOverlayMigrations: [SYNTHETIC_0203, SYNTHETIC_0204],
+        routineDefaultProfiles: {
+          sandbox: 'pre0204-sandbox',
+          dev: 'pre0204-dev'
+        },
+        rehearsePre0204Recovery: true,
         postgresBin: tools.bin
       });
     } catch (error) {
@@ -694,10 +751,27 @@ test('managed-like PostgreSQL reproduces old ownership failure and passes overla
     assert.equal(result.futureObjectProbes.dev.totalApplicationGrantCount, 6);
     assert.equal(result.futureObjectProbes.dev.publicFunctionDenied, true);
     assert.equal(result.futureObjectProbes.dev.anonFunctionDenied, true);
+    assert.equal(result.futureObjectProbes.dev.authenticatedFunctionDenied, true);
+    assert.equal(result.futureObjectProbes.dev.serviceRoleFunctionDenied, true);
+    assert.equal(result.futureObjectProbes.dev.ownerFunctionAllowed, true);
+    assert.equal(result.futureObjectProbes.dev.functionExact, true);
     assert.equal(result.futureObjectProbes.sandbox.applicationExact, true);
     assert.equal(result.futureObjectProbes.sandbox.totalApplicationGrantCount, 12);
     assert.equal(result.recovery.destructiveSecondOverlayRestoredApplicationDefaults, true);
     assert.equal(result.recovery.futureObjectSemanticsRestored, true);
+    assert.equal(result.recovery.pre0204.forcedPostCommitFailureObserved, true);
+    assert.equal(result.recovery.pre0204.pre0204RoutineDefaultsRestored, true);
+    assert.equal(result.recovery.pre0204.managedFingerprintRestored, true);
+    assert.equal(result.recovery.pre0204.applicationPlaneRestored, true);
+    assert.equal(result.recovery.pre0204.authPlaneRestored, true);
+    assert.equal(result.recovery.pre0204.migrationStateRestored, true);
+    assert.equal(result.recovery.pre0204.futureObjectSemanticsRestored, true);
+    assert.equal(result.recovery.pre0204.futureObjectProbe.functionExact, true);
+    assert.equal(result.recovery.pre0204.futureObjectProbe.publicFunctionDenied, false);
+    assert.equal(result.postOverlayMigration.appliedToAllTargets, true);
+    assert.deepEqual(result.postOverlayMigration.versions, ['20260822100000', '20260823100000']);
+    assert.equal(result.postOverlayMigration.contractProof.migration0204.allTargetsHardened, true);
+    assert.equal(result.routineDefaultProfiles.hardenedBy0204, true);
     assert.equal(result.diagnosticResidue, 0);
   } finally {
     archiveBytes?.fill(0);

@@ -63,6 +63,16 @@ const APPLICATION_DEFAULT_ACL_SOURCE_0103 =
   '0103_service_role_app_schema_rest_access';
 const APPLICATION_DEFAULT_ACL_SOURCE_MANAGED_AUTHENTICATED =
   'supabase-managed-application-defaults';
+const APPLICATION_ROUTINE_DEFAULT_PROFILE_FORMAT =
+  'application-routine-default-profile-v1';
+const APPLICATION_ROUTINE_DEFAULT_SCHEMAS = Object.freeze(['public', 'app', 'app_api']);
+const APPLICATION_ROUTINE_DEFAULT_GRANTEES = Object.freeze([
+  'PUBLIC',
+  'anon',
+  'authenticated',
+  'service_role',
+  'postgres'
+]);
 const REPOSITORY_APPLICATION_DEFAULT_ACL_INTENT = Object.freeze([
   ['table', 'DELETE'],
   ['table', 'INSERT'],
@@ -407,6 +417,224 @@ async function captureApplicationDefaultAclEntries(client) {
   return normalizeSemanticEntries((await client.query(APPLICATION_DEFAULT_ACL_CATALOG_SQL)).rows);
 }
 
+function normalizeRoutineDefaultProfile(profile = {}) {
+  if (
+    profile.format !== APPLICATION_ROUTINE_DEFAULT_PROFILE_FORMAT ||
+    profile.ownerRole !== 'postgres' ||
+    canonicalSerialize(profile.schemaNames) !== canonicalSerialize(APPLICATION_ROUTINE_DEFAULT_SCHEMAS) ||
+    !Array.isArray(profile.records)
+  ) {
+    throw categoricalError('APPLICATION_ROUTINE_DEFAULT_PROFILE_INVALID');
+  }
+  const seenScopes = new Set();
+  const records = profile.records.map((record) => {
+    const scope = String(record?.scope || '');
+    if (
+      (scope !== '<global>' && !APPLICATION_ROUTINE_DEFAULT_SCHEMAS.includes(scope)) ||
+      seenScopes.has(scope) ||
+      !Array.isArray(record?.entries)
+    ) {
+      throw categoricalError('APPLICATION_ROUTINE_DEFAULT_PROFILE_INVALID');
+    }
+    seenScopes.add(scope);
+    const entries = record.entries.map((entry) => {
+      const normalized = {
+        grantorRole: String(entry?.grantorRole || ''),
+        grantee: String(entry?.grantee || ''),
+        privilege: String(entry?.privilege || ''),
+        grantOption: entry?.grantOption
+      };
+      if (
+        normalized.grantorRole !== 'postgres' ||
+        !APPLICATION_ROUTINE_DEFAULT_GRANTEES.includes(normalized.grantee) ||
+        normalized.privilege !== 'EXECUTE' ||
+        typeof normalized.grantOption !== 'boolean'
+      ) {
+        throw categoricalError('APPLICATION_ROUTINE_DEFAULT_PROFILE_INVALID');
+      }
+      return normalized;
+    }).sort((left, right) => canonicalSerialize(left).localeCompare(canonicalSerialize(right)));
+    if (new Set(entries.map(canonicalSerialize)).size !== entries.length) {
+      throw categoricalError('APPLICATION_ROUTINE_DEFAULT_PROFILE_INVALID');
+    }
+    return { scope, entries };
+  }).sort((left, right) => left.scope.localeCompare(right.scope));
+  return {
+    format: APPLICATION_ROUTINE_DEFAULT_PROFILE_FORMAT,
+    ownerRole: 'postgres',
+    schemaNames: [...APPLICATION_ROUTINE_DEFAULT_SCHEMAS],
+    records
+  };
+}
+
+async function captureApplicationRoutineDefaultProfile(client) {
+  if (!client || typeof client.query !== 'function') {
+    throw categoricalError('APPLICATION_DEFAULT_ACL_CLIENT_INVALID');
+  }
+  const rows = (await client.query(`
+    select coalesce(namespace.nspname, '<global>')::text as scope,
+           grantor.rolname::text as "grantorRole",
+           coalesce(grantee.rolname, 'PUBLIC')::text as grantee,
+           acl.privilege_type::text as privilege,
+           acl.is_grantable as "grantOption"
+      from pg_catalog.pg_default_acl defaults
+      join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
+      left join pg_catalog.pg_namespace namespace on namespace.oid = defaults.defaclnamespace
+      cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+      join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+      left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+     where owner.rolname = 'postgres'
+       and defaults.defaclobjtype = 'f'
+       and (
+         defaults.defaclnamespace = 0
+         or namespace.nspname = any(array['public','app','app_api'])
+       )
+     order by scope, "grantorRole", grantee, privilege, "grantOption"
+  `)).rows;
+  const byScope = new Map();
+  for (const row of rows) {
+    if (!byScope.has(row.scope)) byScope.set(row.scope, []);
+    byScope.get(row.scope).push({
+      grantorRole: row.grantorRole,
+      grantee: row.grantee,
+      privilege: row.privilege,
+      grantOption: row.grantOption
+    });
+  }
+  return normalizeRoutineDefaultProfile({
+    format: APPLICATION_ROUTINE_DEFAULT_PROFILE_FORMAT,
+    ownerRole: 'postgres',
+    schemaNames: [...APPLICATION_ROUTINE_DEFAULT_SCHEMAS],
+    records: [...byScope].map(([scope, entries]) => ({ scope, entries }))
+  });
+}
+
+function assertHardenedApplicationRoutineDefaultProfile(profile) {
+  const normalized = normalizeRoutineDefaultProfile(profile);
+  const global = normalized.records.find((record) => record.scope === '<global>');
+  if (
+    !global || global.entries.length !== 1 ||
+    global.entries[0].grantorRole !== 'postgres' ||
+    global.entries[0].grantee !== 'postgres' ||
+    global.entries[0].privilege !== 'EXECUTE' ||
+    global.entries[0].grantOption
+  ) {
+    throw categoricalError('APPLICATION_ROUTINE_GLOBAL_DEFAULT_UNSAFE');
+  }
+  if (
+    normalized.records
+      .filter((record) => record.scope !== '<global>')
+      .some((record) => record.entries.some(
+        (entry) => entry.grantee !== 'postgres' || entry.privilege !== 'EXECUTE' || entry.grantOption
+      ))
+  ) {
+    throw categoricalError('APPLICATION_ROUTINE_SCHEMA_DEFAULT_UNSAFE');
+  }
+  return normalized;
+}
+
+function routineProfileCatalogSql() {
+  return `select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+      'scope', observed.scope,
+      'grantorRole', observed.grantor_role,
+      'grantee', observed.grantee,
+      'privilege', observed.privilege,
+      'grantOption', observed.grant_option
+    ) order by observed.scope, observed.grantor_role, observed.grantee,
+             observed.privilege, observed.grant_option), '[]'::jsonb)
+    from (
+      select coalesce(namespace.nspname, '<global>')::text as scope,
+             grantor.rolname::text as grantor_role,
+             coalesce(grantee.rolname, 'PUBLIC')::text as grantee,
+             acl.privilege_type::text as privilege,
+             acl.is_grantable as grant_option
+        from pg_catalog.pg_default_acl defaults
+        join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
+        left join pg_catalog.pg_namespace namespace on namespace.oid = defaults.defaclnamespace
+        cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+        join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+        left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+       where owner.rolname = 'postgres'
+         and defaults.defaclobjtype = 'f'
+         and (defaults.defaclnamespace = 0 or namespace.nspname = any(array['public','app','app_api']))
+    ) observed`;
+}
+
+function buildApplicationRoutineDefaultRecoverySql(beforeProfile) {
+  const before = normalizeRoutineDefaultProfile(beforeProfile);
+  if (before.records.some((record) => record.scope === '<global>')) {
+    throw categoricalError('APPLICATION_ROUTINE_RECOVERY_PROFILE_UNSUPPORTED');
+  }
+  const schemaEntries = before.records.flatMap((record) =>
+    record.entries.map((entry) => ({ ...entry, scope: record.scope }))
+  );
+  if (schemaEntries.some(
+    (entry) => entry.grantOption || entry.privilege !== 'EXECUTE' ||
+      !APPLICATION_ROUTINE_DEFAULT_GRANTEES.includes(entry.grantee)
+  )) {
+    throw categoricalError('APPLICATION_ROUTINE_RECOVERY_PROFILE_UNSUPPORTED');
+  }
+  const expectedRows = schemaEntries
+    .map((entry) => ({
+      scope: entry.scope,
+      grantorRole: entry.grantorRole,
+      grantee: entry.grantee,
+      privilege: entry.privilege,
+      grantOption: entry.grantOption
+    }))
+    .sort((left, right) => canonicalSerialize(left).localeCompare(canonicalSerialize(right)));
+  const expectedJson = JSON.stringify(expectedRows).replaceAll("'", "''");
+  const reset = APPLICATION_ROUTINE_DEFAULT_SCHEMAS.map((schemaName) =>
+    `alter default privileges for role postgres in schema ${quoteIdentifier(schemaName)} ` +
+    'revoke execute on functions from public, anon, authenticated, service_role, postgres;'
+  ).join('\n');
+  const grants = before.records
+    .filter((record) => record.scope !== '<global>')
+    .flatMap((record) => record.entries.map((entry) =>
+      `alter default privileges for role postgres in schema ${quoteIdentifier(record.scope)} ` +
+      `grant execute on functions to ${entry.grantee === 'PUBLIC' ? 'PUBLIC' : quoteIdentifier(entry.grantee)};`
+    )).join('\n');
+  return `do $application_routine_recovery_precheck$
+begin
+  if current_user <> 'postgres' or session_user <> 'postgres' then
+    raise exception 'APPLICATION_ROUTINE_RECOVERY_ROLE_MISMATCH';
+  end if;
+  if not exists (
+    select 1 from pg_catalog.pg_default_acl defaults
+    join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
+    cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+    where owner.rolname = 'postgres' and defaults.defaclnamespace = 0
+      and defaults.defaclobjtype = 'f' and acl.grantee = owner.oid
+      and acl.privilege_type = 'EXECUTE' and not acl.is_grantable
+  ) or exists (
+    select 1 from pg_catalog.pg_default_acl defaults
+    join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
+    left join pg_catalog.pg_namespace namespace on namespace.oid = defaults.defaclnamespace
+    cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+    where owner.rolname = 'postgres' and defaults.defaclobjtype = 'f'
+      and (defaults.defaclnamespace = 0 or namespace.nspname = any(array['public','app','app_api']))
+      and (acl.grantee <> owner.oid or acl.privilege_type <> 'EXECUTE' or acl.is_grantable)
+  ) then
+    raise exception 'APPLICATION_ROUTINE_RECOVERY_PRECONDITION_MISMATCH';
+  end if;
+end
+$application_routine_recovery_precheck$;
+alter default privileges for role postgres grant execute on functions to public;
+${reset}
+${grants}
+do $application_routine_recovery_postcheck$
+declare
+  v_expected jsonb := '${expectedJson}'::jsonb;
+  v_actual jsonb;
+begin
+  select (${routineProfileCatalogSql()}) into v_actual;
+  if v_actual <> v_expected then
+    raise exception 'APPLICATION_ROUTINE_RECOVERY_POSTCHECK_MISMATCH';
+  end if;
+end
+$application_routine_recovery_postcheck$;`;
+}
+
 async function captureFuturePublicFunctionDefaultSecurity(
   client,
   { ownerRole = 'postgres', schemaName = 'public' } = {}
@@ -437,38 +665,69 @@ async function captureFuturePublicFunctionDefaultSecurity(
           on defaults.defaclrole = owner.oid
          and defaults.defaclnamespace = namespace.oid
          and defaults.defaclobjtype = 'f'
+    ), combined_acl as (
+      select acl.* from global_acl defaults
+      cross join lateral pg_catalog.aclexplode(defaults.acl) acl
+      union all
+      select acl.* from schema_acl defaults
+      cross join lateral pg_catalog.aclexplode(defaults.acl) acl
     ), public_execute as (
       select exists (
-        select 1 from global_acl defaults
-        cross join lateral pg_catalog.aclexplode(defaults.acl) acl
+        select 1 from combined_acl acl
         where acl.grantee = 0 and acl.privilege_type = 'EXECUTE'
       ) as allowed
     )
     select
       (select allowed from public_execute) as public_execute,
       (select allowed from public_execute) or exists (
-        select 1 from (
-          select acl.* from global_acl defaults
-          cross join lateral pg_catalog.aclexplode(defaults.acl) acl
-          union all
-          select acl.* from schema_acl defaults
-          cross join lateral pg_catalog.aclexplode(defaults.acl) acl
-        ) grants
+        select 1 from combined_acl grants
         join pg_catalog.pg_roles grantee on grantee.oid = grants.grantee
         where grantee.rolname = 'anon' and grants.privilege_type = 'EXECUTE'
       ) as anon_execute,
+      (select allowed from public_execute) or exists (
+        select 1 from combined_acl grants
+        join pg_catalog.pg_roles grantee on grantee.oid = grants.grantee
+        where grantee.rolname = 'authenticated' and grants.privilege_type = 'EXECUTE'
+      ) as authenticated_execute,
+      (select allowed from public_execute) or exists (
+        select 1 from combined_acl grants
+        join pg_catalog.pg_roles grantee on grantee.oid = grants.grantee
+        where grantee.rolname = 'service_role' and grants.privilege_type = 'EXECUTE'
+      ) as service_role_execute,
+      (select allowed from public_execute) or exists (
+        select 1 from combined_acl grants
+        join pg_catalog.pg_roles grantee on grantee.oid = grants.grantee
+        where grantee.rolname = $1::name and grants.privilege_type = 'EXECUTE'
+      ) as owner_execute,
       coalesce((select record_present from global_acl), false) as global_record_present,
       coalesce((select record_present from schema_acl), false) as schema_record_present
   `, [owner, schema])).rows[0];
   if (!result) throw categoricalError('APPLICATION_DEFAULT_ACL_FUNCTION_SECURITY_UNAVAILABLE');
+  const profile = await captureApplicationRoutineDefaultProfile(client);
+  let hardenedProfile = false;
+  try {
+    assertHardenedApplicationRoutineDefaultProfile(profile);
+    hardenedProfile = true;
+  } catch (error) {
+    if (!['APPLICATION_ROUTINE_GLOBAL_DEFAULT_UNSAFE', 'APPLICATION_ROUTINE_SCHEMA_DEFAULT_UNSAFE'].includes(error.code)) {
+      throw error;
+    }
+  }
   return {
     ownerRole: owner,
     schemaName: schema,
     publicExecute: result.public_execute === true,
     anonExecute: result.anon_execute === true,
+    authenticatedExecute: result.authenticated_execute === true,
+    serviceRoleExecute: result.service_role_execute === true,
+    ownerExecute: result.owner_execute === true,
     globalRecordPresent: result.global_record_present === true,
     schemaRecordPresent: result.schema_record_present === true,
-    hardened: result.public_execute === false && result.anon_execute === false
+    profile,
+    hardened:
+      hardenedProfile && result.public_execute === false && result.anon_execute === false &&
+      result.authenticated_execute === false && result.service_role_execute === false &&
+      result.owner_execute === true
   };
 }
 
@@ -569,6 +828,7 @@ export {
   APPLICATION_DEFAULT_ACL_MANIFEST_FORMAT,
   APPLICATION_DEFAULT_ACL_SOURCE_0103,
   APPLICATION_DEFAULT_ACL_SOURCE_MANAGED_AUTHENTICATED,
+  APPLICATION_ROUTINE_DEFAULT_PROFILE_FORMAT,
   APPLICATION_DEFAULT_ACL_STRATEGY,
   MANAGED_AUTHENTICATED_APPLICATION_DEFAULT_ACL_INTENT,
   REPOSITORY_APPLICATION_DEFAULT_ACL_INTENT,
@@ -576,10 +836,14 @@ export {
   buildApplicationDefaultAclPreservationManifest,
   buildApplicationDefaultAclPreservationSql,
   buildApplicationDefaultAclVerificationSql,
+  buildApplicationRoutineDefaultRecoverySql,
   buildProfileApplicationDefaultAclManifest,
   buildRepositoryApplicationDefaultAclManifest,
   captureApplicationDefaultAclEntries,
+  captureApplicationRoutineDefaultProfile,
   captureFuturePublicFunctionDefaultSecurity,
+  assertHardenedApplicationRoutineDefaultProfile,
+  normalizeRoutineDefaultProfile,
   normalizeSemanticEntries,
   verifyApplicationDefaultAclManifest
 };

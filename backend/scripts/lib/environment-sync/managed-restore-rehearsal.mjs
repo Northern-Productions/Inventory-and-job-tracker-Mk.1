@@ -11,8 +11,12 @@ import { applyAuthQuarantine, createTargetNativeSmokeIdentity } from './auth-qua
 import { captureApplicationAclContract } from './application-acl-convergence.mjs';
 import {
   authenticateApplicationDefaultAclManifest,
+  assertHardenedApplicationRoutineDefaultProfile,
+  buildApplicationRoutineDefaultRecoverySql,
   buildProfileApplicationDefaultAclManifest,
-  captureApplicationDefaultAclEntries
+  captureApplicationDefaultAclEntries,
+  captureApplicationRoutineDefaultProfile,
+  captureFuturePublicFunctionDefaultSecurity
 } from './application-default-acl-preservation.mjs';
 import {
   removeDisposablePostgres,
@@ -193,7 +197,8 @@ async function installManagedPlane({
   tocText,
   tools,
   privateDirectory,
-  profileStyle
+  profileStyle,
+  routineDefaultProfile = 'hardened'
 }) {
   await installExtensionPlane(adminConnection);
   const listPath = privateArtifactPath(
@@ -218,6 +223,9 @@ async function installManagedPlane({
   await withClient(adminConnection, async (client) => {
     if (!['dev-historical', 'sandbox-current'].includes(profileStyle)) {
       throw categoricalError('MANAGED_REHEARSAL_PROFILE_STYLE_INVALID');
+    }
+    if (!['hardened', 'pre0204-dev', 'pre0204-sandbox'].includes(routineDefaultProfile)) {
+      throw categoricalError('MANAGED_REHEARSAL_ROUTINE_DEFAULT_PROFILE_INVALID');
     }
     if (profileStyle === 'dev-historical') {
       await client.query('alter schema public owner to postgres');
@@ -251,7 +259,17 @@ async function installManagedPlane({
         'alter default privileges for role postgres in schema app grant usage, select on sequences to authenticated'
       );
     }
-    await client.query('alter default privileges for role postgres revoke execute on functions from public');
+    if (routineDefaultProfile === 'hardened') {
+      await client.query('alter default privileges for role postgres revoke execute on functions from public');
+    } else if (routineDefaultProfile === 'pre0204-dev') {
+      await client.query(
+        'alter default privileges for role postgres in schema public revoke execute on functions from public'
+      );
+    } else {
+      await client.query(
+        'alter default privileges for role postgres in schema public grant execute on functions to postgres, anon, authenticated, service_role'
+      );
+    }
     if (profileStyle === 'dev-historical') {
       await client.query(
         'alter default privileges for role supabase_auth_admin in schema auth grant select on tables to postgres'
@@ -544,6 +562,36 @@ async function applyPostOverlayMigration(connectionString, migration) {
   });
 }
 
+function normalizePostOverlayMigrations(postOverlayMigration, postOverlayMigrations) {
+  if (postOverlayMigration !== null && postOverlayMigrations !== null) {
+    throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_MIGRATION_INPUT_AMBIGUOUS');
+  }
+  const requested = postOverlayMigrations ?? (postOverlayMigration === null ? [] : [postOverlayMigration]);
+  if (!Array.isArray(requested) || requested.length > 8) {
+    throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_MIGRATION_INVALID');
+  }
+  const normalized = requested.map((migration) => ({
+    version: String(migration?.version || ''),
+    sql: String(migration?.sql || '')
+  }));
+  if (
+    normalized.some((migration) => !/^20\d{12}$/.test(migration.version) || !migration.sql.trim()) ||
+    new Set(normalized.map((migration) => migration.version)).size !== normalized.length ||
+    normalized.some((migration, index) => index > 0 && migration.version <= normalized[index - 1].version)
+  ) {
+    throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_MIGRATION_INVALID');
+  }
+  return normalized;
+}
+
+async function applyPostOverlayMigrations(connectionString, migrations) {
+  const results = [];
+  for (const migration of migrations) {
+    results.push(await applyPostOverlayMigration(connectionString, migration));
+  }
+  return results;
+}
+
 async function capture0203Proof(connectionString) {
   return withClient(connectionString, async (client) => {
     await client.query('begin');
@@ -737,7 +785,17 @@ function issueSyntheticApplicationDefaultAcl({ target, targetCatalog, key }) {
   }), key);
 }
 
-async function probeFutureObjectDefaults(connectionString, expectedDefaults) {
+async function probeFutureObjectDefaults(
+  connectionString,
+  expectedDefaults,
+  expectedFunctionSecurity = {
+    publicExecute: false,
+    anonExecute: false,
+    authenticatedExecute: false,
+    serviceRoleExecute: false,
+    ownerExecute: true
+  }
+) {
   return withClient(connectionString, async (client) => {
     await client.query('begin');
     try {
@@ -776,7 +834,16 @@ async function probeFutureObjectDefaults(connectionString, expectedDefaults) {
           ) as public_execute,
           pg_catalog.has_function_privilege(
             'anon', 'public.default_acl_future_function()', 'EXECUTE'
-          ) as anon_execute
+          ) as anon_execute,
+          pg_catalog.has_function_privilege(
+            'authenticated', 'public.default_acl_future_function()', 'EXECUTE'
+          ) as authenticated_execute,
+          pg_catalog.has_function_privilege(
+            'service_role', 'public.default_acl_future_function()', 'EXECUTE'
+          ) as service_role_execute,
+          pg_catalog.has_function_privilege(
+            'postgres', 'public.default_acl_future_function()', 'EXECUTE'
+          ) as owner_execute
       `)).rows[0];
       const expectedApplication = expectedDefaults.map((entry) => [
         entry.objectClass,
@@ -790,8 +857,17 @@ async function probeFutureObjectDefaults(connectionString, expectedDefaults) {
         row.privilege_type,
         row.is_grantable
       ]);
+      const observedFunctionSecurity = {
+        publicExecute: routine.public_execute === true,
+        anonExecute: routine.anon_execute === true,
+        authenticatedExecute: routine.authenticated_execute === true,
+        serviceRoleExecute: routine.service_role_execute === true,
+        ownerExecute: routine.owner_execute === true
+      };
       return {
         applicationExact: canonicalDigest(observedApplication) === canonicalDigest(expectedApplication),
+        functionExact:
+          canonicalDigest(observedFunctionSecurity) === canonicalDigest(expectedFunctionSecurity),
         tableGrantCount: application.filter(
           (row) => row.object_class === 'table' && row.grantee === 'service_role'
         ).length,
@@ -800,7 +876,11 @@ async function probeFutureObjectDefaults(connectionString, expectedDefaults) {
         ).length,
         totalApplicationGrantCount: application.length,
         publicFunctionDenied: routine.public_execute === false,
-        anonFunctionDenied: routine.anon_execute === false
+        anonFunctionDenied: routine.anon_execute === false,
+        authenticatedFunctionDenied: routine.authenticated_execute === false,
+        serviceRoleFunctionDenied: routine.service_role_execute === false,
+        ownerFunctionAllowed: routine.owner_execute === true,
+        observedFunctionSecurity
       };
     } finally {
       await client.query('rollback');
@@ -822,10 +902,34 @@ async function runManagedRestoreCompatibilityRehearsal({
   archivePath,
   sourceComponent,
   postOverlayMigration = null,
+  postOverlayMigrations = null,
+  routineDefaultProfiles = null,
+  rehearsePre0204Recovery = false,
   postgresBin = '',
   temporaryParent = os.tmpdir()
 } = {}) {
   const tools = resolvePostgresTools(postgresBin);
+  const migrationSequence = normalizePostOverlayMigrations(
+    postOverlayMigration,
+    postOverlayMigrations
+  );
+  const includes0204 = migrationSequence.some(
+    (migration) => migration.version === '20260823100000'
+  );
+  const selectedRoutineDefaultProfiles = routineDefaultProfiles ?? {
+    sandbox: 'hardened',
+    dev: 'hardened'
+  };
+  if (
+    !selectedRoutineDefaultProfiles ||
+    !['hardened', 'pre0204-sandbox'].includes(selectedRoutineDefaultProfiles.sandbox) ||
+    !['hardened', 'pre0204-dev'].includes(selectedRoutineDefaultProfiles.dev) ||
+    (rehearsePre0204Recovery && (
+      !includes0204 || selectedRoutineDefaultProfiles.dev !== 'pre0204-dev'
+    ))
+  ) {
+    throw categoricalError('MANAGED_REHEARSAL_ROUTINE_DEFAULT_PROFILE_INVALID');
+  }
   const token = crypto.randomBytes(8).toString('hex');
   const root = path.join(temporaryParent, `environment-sync-rehearsal-managed-${token}`);
   let cluster;
@@ -842,6 +946,7 @@ async function runManagedRestoreCompatibilityRehearsal({
     const sandboxName = `x_rehearsal_sandbox_managed_${token}`;
     const devName = `x_rehearsal_dev_managed_${token}`;
     const sourceDatabase = await createDatabase(adminRootConnection, sourceName, 'postgres');
+    const sourceMigrationConnection = connectionForUser(sourceDatabase, 'postgres');
     const sandboxAdmin = await createDatabase(adminRootConnection, sandboxName, 'postgres');
     const devAdmin = await createDatabase(adminRootConnection, devName, 'postgres');
     const sandboxConnection = connectionForUser(sandboxAdmin, 'postgres');
@@ -879,7 +984,8 @@ async function runManagedRestoreCompatibilityRehearsal({
       tocText,
       tools,
       privateDirectory,
-      profileStyle: 'sandbox-current'
+      profileStyle: 'sandbox-current',
+      routineDefaultProfile: selectedRoutineDefaultProfiles.sandbox
     });
     await installManagedPlane({
       adminConnection: devAdmin,
@@ -887,8 +993,17 @@ async function runManagedRestoreCompatibilityRehearsal({
       tocText,
       tools,
       privateDirectory,
-      profileStyle: 'dev-historical'
+      profileStyle: 'dev-historical',
+      routineDefaultProfile: selectedRoutineDefaultProfiles.dev
     });
+    const routineDefaultsBefore = {
+      source: await withClient(sourceDatabase, captureApplicationRoutineDefaultProfile),
+      sandbox: await withClient(sandboxConnection, captureApplicationRoutineDefaultProfile),
+      dev: await withClient(devConnection, captureApplicationRoutineDefaultProfile)
+    };
+    const futureFunctionSecurityBefore = {
+      dev: await withClient(devConnection, captureFuturePublicFunctionDefaultSecurity)
+    };
     const managedBefore = {
       sandbox: await captureManagedPlaneFingerprint(sandboxConnection),
       dev: await captureManagedPlaneFingerprint(devConnection)
@@ -1124,26 +1239,52 @@ async function runManagedRestoreCompatibilityRehearsal({
       targetGuard: { mode: 'disposable-managed-local', loopback: true },
       diagnosticDirectory: devRefreshPrivateDirectory
     }));
-    const postOverlay = await Promise.all([
-      applyPostOverlayMigration(sourceDatabase, postOverlayMigration),
-      applyPostOverlayMigration(sandboxConnection, postOverlayMigration),
-      applyPostOverlayMigration(devConnection, postOverlayMigration)
-    ]);
-    const postOverlayContractProof = postOverlayMigration?.version === '20260822100000'
-      ? await Promise.all([
-          capture0203Proof(sourceDatabase),
-          capture0203Proof(sandboxConnection),
-          capture0203Proof(devConnection)
-        ])
-      : [];
-    if (
-      postOverlayContractProof.length > 0 &&
-      (
-        canonicalDigest(postOverlayContractProof[0]) !== canonicalDigest(postOverlayContractProof[1]) ||
-        canonicalDigest(postOverlayContractProof[0]) !== canonicalDigest(postOverlayContractProof[2])
-      )
-    ) {
-      throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_CONTRACT_PARITY_FAILED');
+    const postOverlay = [
+      await atRehearsalStage('post-overlay-migrations-source', () =>
+        applyPostOverlayMigrations(sourceMigrationConnection, migrationSequence)),
+      await atRehearsalStage('post-overlay-migrations-sandbox', () =>
+        applyPostOverlayMigrations(sandboxConnection, migrationSequence)),
+      await atRehearsalStage('post-overlay-migrations-dev', () =>
+        applyPostOverlayMigrations(devConnection, migrationSequence))
+    ];
+    const postOverlayContractProof = {};
+    if (migrationSequence.some((migration) => migration.version === '20260822100000')) {
+      const proof0203 = await Promise.all([
+        capture0203Proof(sourceMigrationConnection),
+        capture0203Proof(sandboxConnection),
+        capture0203Proof(devConnection)
+      ]);
+      if (
+        canonicalDigest(proof0203[0]) !== canonicalDigest(proof0203[1]) ||
+        canonicalDigest(proof0203[0]) !== canonicalDigest(proof0203[2])
+      ) {
+        throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_CONTRACT_PARITY_FAILED');
+      }
+      postOverlayContractProof.migration0203 = proof0203[0];
+    }
+    const routineDefaultsAfter0204 = {};
+    if (includes0204) {
+      const profiles = await Promise.all([
+        withClient(sourceMigrationConnection, captureApplicationRoutineDefaultProfile),
+        withClient(sandboxConnection, captureApplicationRoutineDefaultProfile),
+        withClient(devConnection, captureApplicationRoutineDefaultProfile)
+      ]);
+      const security = await Promise.all([
+        withClient(sourceMigrationConnection, captureFuturePublicFunctionDefaultSecurity),
+        withClient(sandboxConnection, captureFuturePublicFunctionDefaultSecurity),
+        withClient(devConnection, captureFuturePublicFunctionDefaultSecurity)
+      ]);
+      profiles.forEach(assertHardenedApplicationRoutineDefaultProfile);
+      if (security.some((entry) => !entry.hardened)) {
+        throw categoricalError('MANAGED_REHEARSAL_0204_CONTRACT_MISMATCH');
+      }
+      [routineDefaultsAfter0204.source, routineDefaultsAfter0204.sandbox, routineDefaultsAfter0204.dev] = profiles;
+      postOverlayContractProof.migration0204 = {
+        allTargetsHardened: true,
+        sourceRecordCount: profiles[0].records.length,
+        sandboxRecordCount: profiles[1].records.length,
+        devRecordCount: profiles[2].records.length
+      };
     }
     const futureObjectProbes = {
       sandbox: await probeFutureObjectDefaults(
@@ -1157,7 +1298,9 @@ async function runManagedRestoreCompatibilityRehearsal({
     };
     if (
       Object.values(futureObjectProbes).some((probe) =>
-        !probe.applicationExact || !probe.publicFunctionDenied || !probe.anonFunctionDenied
+        !probe.applicationExact || !probe.functionExact || !probe.publicFunctionDenied ||
+        !probe.anonFunctionDenied || !probe.authenticatedFunctionDenied ||
+        !probe.serviceRoleFunctionDenied || !probe.ownerFunctionAllowed
       )
     ) {
       throw categoricalError('MANAGED_REHEARSAL_FUTURE_OBJECT_DEFAULT_MISMATCH');
@@ -1216,11 +1359,98 @@ async function runManagedRestoreCompatibilityRehearsal({
       sandbox: await captureManagedPlaneFingerprint(sandboxConnection),
       dev: await captureManagedPlaneFingerprint(devConnection)
     };
-    if (
-      canonicalDigest([managedBefore.sandbox]) !== canonicalDigest([managedAfter.sandbox]) ||
-      canonicalDigest([managedBefore.dev]) !== canonicalDigest([managedAfter.dev])
-    ) {
+    const withoutDefaultAcl = ({ defaultAclDigest: _ignored, ...fingerprint }) => fingerprint;
+    const managedPlaneStable = includes0204
+      ? canonicalDigest([withoutDefaultAcl(managedBefore.sandbox)]) ===
+          canonicalDigest([withoutDefaultAcl(managedAfter.sandbox)]) &&
+        canonicalDigest([withoutDefaultAcl(managedBefore.dev)]) ===
+          canonicalDigest([withoutDefaultAcl(managedAfter.dev)])
+      : canonicalDigest([managedBefore.sandbox]) === canonicalDigest([managedAfter.sandbox]) &&
+        canonicalDigest([managedBefore.dev]) === canonicalDigest([managedAfter.dev]);
+    const approvedRoutineDefaultDelta = !includes0204 || (
+      routineDefaultsAfter0204.source && routineDefaultsAfter0204.sandbox &&
+      routineDefaultsAfter0204.dev &&
+      (
+        selectedRoutineDefaultProfiles.sandbox === 'hardened' ||
+        managedBefore.sandbox.defaultAclDigest !== managedAfter.sandbox.defaultAclDigest
+      ) &&
+      (
+        selectedRoutineDefaultProfiles.dev === 'hardened' ||
+        managedBefore.dev.defaultAclDigest !== managedAfter.dev.defaultAclDigest
+      )
+    );
+    if (!managedPlaneStable || !approvedRoutineDefaultDelta) {
       throw categoricalError('MANAGED_PLANE_CHANGED');
+    }
+    let recoveryProof = null;
+    if (rehearsePre0204Recovery) {
+      let forcedFailureObserved = false;
+      try {
+        throw categoricalError('MANAGED_REHEARSAL_FORCED_POST_COMMIT_FAILURE');
+      } catch (error) {
+        if (error.code !== 'MANAGED_REHEARSAL_FORCED_POST_COMMIT_FAILURE') throw error;
+        forcedFailureObserved = true;
+      }
+      await atRehearsalStage('mock-dev-y2-routine-default-recovery', () => withClient(devConnection, async (client) => {
+        await client.query('begin');
+        try {
+          await client.query(buildApplicationRoutineDefaultRecoverySql(routineDefaultsBefore.dev));
+          await client.query('commit');
+        } catch (error) {
+          await client.query('rollback').catch(() => {});
+          throw error;
+        }
+      }));
+      await atRehearsalStage('mock-dev-y2-application-recovery', () => executeManagedOverlayPackage({
+        psqlPath: tools.psql,
+        connectionString: devConnection,
+        packageResult: devRefreshPackage,
+        targetGuard: { mode: 'disposable-managed-local', loopback: true },
+        diagnosticDirectory: devRefreshPrivateDirectory
+      }));
+      const recoveredProfile = await withClient(
+        devConnection,
+        captureApplicationRoutineDefaultProfile
+      );
+      const recoveredManaged = await captureManagedPlaneFingerprint(devConnection);
+      const recoveredApplication = await captureApplicationPlane(devConnection);
+      const recoveredAuth = await captureAuthParity(devConnection);
+      const recoveryFutureProbe = await probeFutureObjectDefaults(
+        devConnection,
+        targetCatalog.dev.applicationDefaultAclEntries,
+        {
+          publicExecute: futureFunctionSecurityBefore.dev.publicExecute,
+          anonExecute: futureFunctionSecurityBefore.dev.anonExecute,
+          authenticatedExecute: futureFunctionSecurityBefore.dev.authenticatedExecute,
+          serviceRoleExecute: futureFunctionSecurityBefore.dev.serviceRoleExecute,
+          ownerExecute: futureFunctionSecurityBefore.dev.ownerExecute
+        }
+      );
+      const profileEqual = canonicalDigest(recoveredProfile) === canonicalDigest(routineDefaultsBefore.dev);
+      const managedEqual = canonicalDigest([recoveredManaged]) === canonicalDigest([managedBefore.dev]);
+      const applicationEqual = Object.values(
+        compareApplicationPlane(sourcePlane, recoveredApplication)
+      ).every(Boolean);
+      const authEqual = canonicalDigest([sourceAuth]) === canonicalDigest([recoveredAuth]);
+      const migrationStateRestored =
+        canonicalDigest(recoveredApplication.migration) === canonicalDigest(sourcePlane.migration);
+      if (
+        !forcedFailureObserved || !profileEqual || !managedEqual || !applicationEqual ||
+        !authEqual || !migrationStateRestored || !recoveryFutureProbe.applicationExact ||
+        !recoveryFutureProbe.functionExact
+      ) {
+        throw categoricalError('MANAGED_REHEARSAL_Y2_RECOVERY_MISMATCH');
+      }
+      recoveryProof = {
+        forcedPostCommitFailureObserved: true,
+        pre0204RoutineDefaultsRestored: true,
+        managedFingerprintRestored: true,
+        applicationPlaneRestored: true,
+        authPlaneRestored: true,
+        migrationStateRestored,
+        futureObjectSemanticsRestored: true,
+        futureObjectProbe: recoveryFutureProbe
+      };
     }
     const residualFiles = [
       privateDirectory,
@@ -1266,8 +1496,11 @@ async function runManagedRestoreCompatibilityRehearsal({
           managedBefore.sandbox.publicOwner === managedAfter.sandbox.publicOwner,
         devPublicOwnerPreserved: managedBefore.dev.publicOwner === managedAfter.dev.publicOwner,
         defaultAclsPreserved:
-          managedBefore.sandbox.defaultAclDigest === managedAfter.sandbox.defaultAclDigest &&
-          managedBefore.dev.defaultAclDigest === managedAfter.dev.defaultAclDigest,
+          includes0204
+            ? approvedRoutineDefaultDelta
+            : managedBefore.sandbox.defaultAclDigest === managedAfter.sandbox.defaultAclDigest &&
+              managedBefore.dev.defaultAclDigest === managedAfter.dev.defaultAclDigest,
+        approvedRoutineDefaultDelta,
         applicationDefaultAclsPreserved:
           canonicalDigest(applicationDefaultsAfter.sandbox) ===
             canonicalDigest(targetCatalog.sandbox.applicationDefaultAclEntries) &&
@@ -1293,21 +1526,35 @@ async function runManagedRestoreCompatibilityRehearsal({
       },
       migration: expectedSourcePlane.migration,
       futureObjectProbes,
+      routineDefaultProfiles: {
+        selected: { ...selectedRoutineDefaultProfiles },
+        beforeRecordCounts: {
+          source: routineDefaultsBefore.source.records.length,
+          sandbox: routineDefaultsBefore.sandbox.records.length,
+          dev: routineDefaultsBefore.dev.records.length
+        },
+        hardenedBy0204: includes0204
+      },
       recovery: {
         destructiveSecondOverlayRestoredApplicationDefaults: true,
         futureObjectSemanticsRestored: futureObjectProbes.dev.applicationExact,
-        applicationDefaultAclEntryCount: applicationDefaultsAfter.dev.length
+        applicationDefaultAclEntryCount: applicationDefaultsAfter.dev.length,
+        pre0204: recoveryProof
       },
       postOverlayMigration: {
-        requested: postOverlayMigration !== null,
-        appliedToAllTargets: postOverlay.every((entry) => entry.applied) || postOverlayMigration === null,
-        version: postOverlayMigration === null ? '' : postOverlay[0].version,
-        contractProof: postOverlayContractProof[0] || null
+        requested: migrationSequence.length > 0,
+        appliedToAllTargets:
+          postOverlay.flat().every((entry) => entry.applied) || migrationSequence.length === 0,
+        versions: migrationSequence.map((migration) => migration.version),
+        version: migrationSequence.length === 1 ? migrationSequence[0].version : '',
+        contractProof: Object.keys(postOverlayContractProof).length > 0
+          ? postOverlayContractProof
+          : null
       },
       devPreservation,
       atomic: packageResult.atomic,
       diagnosticResidue: 0,
-      managedPlanePreserved: true
+      managedPlanePreserved: managedPlaneStable && approvedRoutineDefaultDelta
     };
   } finally {
     managedProfileKey.fill(0);
