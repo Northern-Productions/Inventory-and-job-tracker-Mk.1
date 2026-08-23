@@ -47,6 +47,21 @@ import {
   sanitizePostgresDiagnostic
 } from './private-diagnostics.mjs';
 import { runManagedRestoreCompatibilityRehearsal } from './managed-restore-rehearsal.mjs';
+import {
+  APPLICATION_FACING_ROLES,
+  MANAGED_PROFILE_SECURITY_POLICY_FORMAT,
+  authenticateManagedProfileCertificate,
+  buildManagedProfileCertificate,
+  managedProfileEvidenceFromCatalog
+} from './managed-profile.mjs';
+
+const MANAGED_PROFILE_TEST_KEY = Buffer.from(
+  'managed-restore-profile-test-key-00000000000000000000000000000000'
+);
+const MANAGED_PROFILE_TEST_TARGET = Object.freeze({
+  environment: 'sandbox',
+  projectRef: 's'.repeat(20)
+});
 
 function managedCatalogEvidence() {
   const schemaOwners = {
@@ -77,17 +92,86 @@ function managedCatalogEvidence() {
       'anon', 'authenticated', 'authenticator', 'postgres', 'service_role',
       'supabase_admin', 'supabase_auth_admin', 'supabase_realtime_admin',
       'supabase_storage_admin', 'pg_database_owner'
-    ].sort().map((role_name) => ({ role_name, rolsuper: false, rolcanlogin: role_name === 'postgres' })),
+    ].sort().map((role_name) => ({
+      role_name,
+      rolsuper: false,
+      rolinherit: true,
+      rolcreaterole: false,
+      rolcreatedb: false,
+      rolcanlogin: role_name === 'postgres',
+      rolreplication: false,
+      rolbypassrls: role_name === 'service_role',
+      rolconfig: []
+    })),
     schemas: Object.entries(schemaOwners).map(([schema_name, owner_role]) => ({ schema_name, owner_role })),
     authOwners: [{ owner_role: 'supabase_auth_admin' }],
     extensions: [
-      { extension_name: 'pgcrypto', schema_name: 'extensions' },
-      { extension_name: 'uuid-ossp', schema_name: 'extensions' }
+      { extension_name: 'pgcrypto', schema_name: 'extensions', owner_role: 'postgres', extension_version: '1.3' },
+      { extension_name: 'uuid-ossp', schema_name: 'extensions', owner_role: 'postgres', extension_version: '1.1' }
     ],
-    publications: [{ publication_name: 'supabase_realtime' }],
+    publications: [{
+      publication_name: 'supabase_realtime', owner_role: 'postgres', all_tables: false,
+      insert_enabled: true, update_enabled: true, delete_enabled: true,
+      truncate_enabled: true, via_root: false
+    }],
+    publicationRelations: [],
     defaultAcls: [],
     memberships: [],
-    schemaAcls: []
+    schemaAcls: [
+      ...APPLICATION_FACING_ROLES.map((grantee) => ({
+        schema_name: 'public', owner_role: 'pg_database_owner',
+        grantor_role: 'pg_database_owner', grantee, privilege_type: 'USAGE',
+        is_grantable: false
+      })),
+      {
+        schema_name: 'public', owner_role: 'pg_database_owner',
+        grantor_role: 'pg_database_owner', grantee: 'pg_database_owner',
+        privilege_type: 'CREATE', is_grantable: true
+      },
+      {
+        schema_name: 'public', owner_role: 'pg_database_owner',
+        grantor_role: 'pg_database_owner', grantee: 'pg_database_owner',
+        privilege_type: 'USAGE', is_grantable: true
+      }
+    ],
+    managedObjects: [],
+    managedObjectAcls: [],
+    roleCapabilities: [
+      'anon', 'authenticated', 'authenticator', 'postgres', 'service_role',
+      'supabase_admin', 'supabase_auth_admin', 'supabase_realtime_admin',
+      'supabase_storage_admin', 'pg_database_owner'
+    ].sort().map((role_name) => ({
+      role_name,
+      public_usage: APPLICATION_FACING_ROLES.includes(role_name) || role_name === 'pg_database_owner',
+      public_create: role_name === 'pg_database_owner',
+      public_owner_member: role_name === 'pg_database_owner'
+    }))
+  };
+}
+
+function managedProfileProof(evidence = managedCatalogEvidence()) {
+  const certificate = authenticateManagedProfileCertificate(buildManagedProfileCertificate({
+    profileId: 'sandbox-current-managed-profile',
+    target: MANAGED_PROFILE_TEST_TARGET,
+    evidence: managedProfileEvidenceFromCatalog(evidence),
+    securityPolicy: {
+      format: MANAGED_PROFILE_SECURITY_POLICY_FORMAT,
+      expectedPublicOwner: 'pg_database_owner',
+      applicationFacingRoles: [...APPLICATION_FACING_ROLES],
+      allowedApplicationPublicUsageRoles: [...APPLICATION_FACING_ROLES],
+      allowedApplicationLoginRoles: [],
+      allowedApplicationBypassRlsRoles: ['service_role'],
+      allowedApplicationPrivilegePaths: [
+        { source_role: 'service_role', target_role: 'service_role', capability: 'bypass_rls' }
+      ],
+      certifiedPrivilegedRoles: ['pg_database_owner', 'service_role']
+    }
+  }), MANAGED_PROFILE_TEST_KEY);
+  return {
+    certificate,
+    key: MANAGED_PROFILE_TEST_KEY,
+    target: MANAGED_PROFILE_TEST_TARGET,
+    expectedProfileId: 'sandbox-current-managed-profile'
   };
 }
 
@@ -283,6 +367,15 @@ test('managed restore manifest is deterministic and digest protected', () => {
   assert.throws(() => verifyManagedRestoreManifest(changed), /MANAGED_RESTORE_MANIFEST_DIGEST_MISMATCH/);
 });
 
+test('all source default ACL entries remain target-native and never enter the restore list', () => {
+  const toc = `${SYNTHETIC_TOC}23; 0 0 DEFAULT ACL app DEFAULT PRIVILEGES FOR FUNCTIONS postgres\n`;
+  const manifest = buildManagedRestoreManifest({ tocText: toc, sourceComponent: sourceComponent() });
+  const entry = manifest.entries.find((candidate) => candidate.dumpId === 23);
+  assert.equal(entry.action, 'preserve-target-native');
+  assert.equal(entry.category, MANAGED_RESTORE_CATEGORIES.F);
+  assert.doesNotMatch(applicationRestoreList(toc, manifest), /DEFAULT ACL app/);
+});
+
 test('unknown public objects and managed-owned application objects fail closed', () => {
   const unknown = `${SYNTHETIC_TOC}23; 1259 22 TABLE public unreviewed postgres\n`;
   assert.throws(
@@ -318,7 +411,11 @@ test('Auth overlay requires byte-equivalent reviewed native shape and no user tr
 });
 
 test('managed target proof requires native ownership and a read-only non-superuser executor', () => {
-  const catalog = assertManagedTargetCatalogCompatibility(managedCatalogEvidence());
+  const catalogEvidence = managedCatalogEvidence();
+  const catalog = assertManagedTargetCatalogCompatibility(
+    catalogEvidence,
+    managedProfileProof(catalogEvidence)
+  );
   const shape = exactAuthShape();
   const auth = assertAuthOverlayCompatibility({ sourceColumns: shape, targetColumns: shape, targetTriggers: [] });
   const manifest = buildManagedRestoreManifest({ tocText: SYNTHETIC_TOC, sourceComponent: sourceComponent() });
@@ -340,14 +437,14 @@ test('managed target proof requires native ownership and a read-only non-superus
   const superuser = structuredClone(managedCatalogEvidence());
   superuser.transaction.rolsuper = true;
   assert.throws(
-    () => assertManagedTargetCatalogCompatibility(superuser),
+    () => assertManagedTargetCatalogCompatibility(superuser, managedProfileProof(superuser)),
     /MANAGED_TARGET_EXECUTION_ROLE_INCOMPATIBLE/
   );
   const wrongOwner = structuredClone(managedCatalogEvidence());
-  wrongOwner.schemas.find((entry) => entry.schema_name === 'auth').owner_role = 'postgres';
+  wrongOwner.schemas.find((entry) => entry.schema_name === 'public').owner_role = 'postgres';
   assert.throws(
-    () => assertManagedTargetCatalogCompatibility(wrongOwner),
-    /MANAGED_TARGET_SCHEMA_OWNERSHIP_INCOMPATIBLE/
+    () => assertManagedTargetCatalogCompatibility(wrongOwner, managedProfileProof()),
+    /MANAGED_PROFILE_EVIDENCE_MISMATCH/
   );
   assert.throws(
     () => assertApplicationReplacementCompatibility(manifest, {
@@ -383,6 +480,10 @@ test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, a
   });
   assert.match(sql, /^\\set ON_ERROR_STOP on\nBEGIN ISOLATION LEVEL SERIALIZABLE;/);
   assert.ok(sql.indexOf('DROP SCHEMA IF EXISTS app CASCADE') < sql.indexOf('CREATE SCHEMA app;'));
+  assert.doesNotMatch(sql, /DROP SCHEMA(?: IF EXISTS)? public\b/i);
+  assert.doesNotMatch(sql, /CREATE SCHEMA public\b/i);
+  assert.doesNotMatch(sql, /ALTER SCHEMA public OWNER\b/i);
+  assert.doesNotMatch(sql, /ALTER DEFAULT PRIVILEGES\b/i);
   assert.ok(sql.indexOf('CREATE SCHEMA app;') < sql.indexOf('delete from auth.users;'));
   assert.ok(sql.indexOf('delete from auth.users;') < sql.indexOf('INSERT INTO auth.users'));
   assert.ok(sql.indexOf('INSERT INTO auth.identities') < sql.indexOf('INSERT INTO app.boxes'));
@@ -516,6 +617,11 @@ test('managed-like PostgreSQL reproduces old ownership failure and passes overla
     assert.equal(result.auth.sessions, 0);
     assert.equal(result.auth.refreshTokens, 0);
     assert.equal(result.manifest.unknownCount, 0);
+    assert.equal(result.targetCatalog.distinctAuthenticatedProfiles, true);
+    assert.equal(result.targetCatalog.sandboxPublicOwnerPreserved, true);
+    assert.equal(result.targetCatalog.devPublicOwnerPreserved, true);
+    assert.equal(result.targetCatalog.defaultAclsPreserved, true);
+    assert.equal(result.targetCatalog.membershipsPreserved, true);
     assert.equal(result.diagnosticResidue, 0);
   } finally {
     archiveBytes?.fill(0);

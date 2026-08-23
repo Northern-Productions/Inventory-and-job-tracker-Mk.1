@@ -35,12 +35,20 @@ import {
   writePrivateBytesExclusive
 } from './private-artifacts.mjs';
 import { runPrivateDiagnosticCommand } from './private-diagnostics.mjs';
+import {
+  APPLICATION_FACING_ROLES,
+  MANAGED_PROFILE_SECURITY_POLICY_FORMAT,
+  authenticateManagedProfileCertificate,
+  buildManagedProfileCertificate,
+  managedProfileEvidenceFromCatalog
+} from './managed-profile.mjs';
 
 const { Client } = pg;
 const LOCAL_MANAGED_ROLES = Object.freeze([
   ['anon', 'NOLOGIN'],
   ['authenticated', 'NOLOGIN'],
   ['authenticator', 'NOLOGIN'],
+  ['cli_login_postgres', 'LOGIN'],
   ['dashboard_user', 'NOLOGIN CREATEROLE CREATEDB REPLICATION'],
   ['pgbouncer', 'NOLOGIN'],
   ['service_role', 'NOLOGIN BYPASSRLS'],
@@ -139,6 +147,8 @@ async function bootstrapManagedRoles(cluster) {
     for (const [role, attributes] of LOCAL_MANAGED_ROLES) {
       await client.query(`create role ${quoteIdentifier(role)} ${attributes}`);
     }
+    await client.query('grant anon, authenticated, service_role to authenticator');
+    await client.query('grant postgres to cli_login_postgres');
   });
   return cluster.connectionString();
 }
@@ -177,7 +187,8 @@ async function installManagedPlane({
   archivePath,
   tocText,
   tools,
-  privateDirectory
+  privateDirectory,
+  profileStyle
 }) {
   await installExtensionPlane(adminConnection);
   const listPath = privateArtifactPath(
@@ -200,6 +211,12 @@ async function installManagedPlane({
     postgresChildEnvironment(adminConnection, { PGOPTIONS: '-c statement_timeout=0' })
   );
   await withClient(adminConnection, async (client) => {
+    if (!['dev-historical', 'sandbox-current'].includes(profileStyle)) {
+      throw categoricalError('MANAGED_REHEARSAL_PROFILE_STYLE_INVALID');
+    }
+    if (profileStyle === 'dev-historical') {
+      await client.query('alter schema public owner to postgres');
+    }
     for (const [schemaName, owner] of [
       ['storage', 'supabase_admin'],
       ['realtime', 'supabase_admin'],
@@ -216,6 +233,16 @@ async function installManagedPlane({
     await client.query('alter default privileges for role postgres in schema public grant execute on functions to anon');
     await client.query('alter default privileges for role postgres in schema public grant execute on functions to authenticated');
     await client.query('alter default privileges for role postgres in schema public grant execute on functions to service_role');
+    if (profileStyle === 'dev-historical') {
+      await client.query(
+        'alter default privileges for role supabase_auth_admin in schema auth grant select on tables to postgres'
+      );
+    } else {
+      await client.query('grant usage on schema public to authenticator');
+    }
+    await client.query('create schema supabase_migrations authorization postgres');
+    await client.query('create table supabase_migrations.schema_migrations(version text primary key)');
+    await client.query('alter table supabase_migrations.schema_migrations owner to postgres');
     await client.query('create publication supabase_realtime');
   });
   fs.rmSync(listPath, { force: true });
@@ -245,6 +272,12 @@ async function captureAuthShape(connectionString) {
 
 async function captureManagedPlaneFingerprint(connectionString) {
   return withClient(connectionString, async (client) => {
+    const publicSchema = (await client.query(
+      `select owner.rolname as owner_role
+         from pg_catalog.pg_namespace namespace
+         join pg_catalog.pg_roles owner on owner.oid = namespace.nspowner
+        where namespace.nspname = 'public'`
+    )).rows[0];
     const catalog = (await client.query(
       `select n.nspname as schema_name, c.relname as object_name, c.relkind,
               r.rolname as owner_role
@@ -304,6 +337,7 @@ async function captureManagedPlaneFingerprint(connectionString) {
         order by schema_name, grantee, privilege_type, is_grantable`
     )).rows;
     return {
+      publicOwner: publicSchema.owner_role,
       catalogDigest: canonicalDigest(catalog),
       routineDigest: canonicalDigest(routines),
       defaultAclDigest: canonicalDigest(defaultAcls),
@@ -408,7 +442,7 @@ async function restoreSource({ tools, archivePath, connectionString, diagnosticD
   await runPrivateDiagnosticCommand({
     executable: tools.pgRestore,
     args: [
-      '--exit-on-error', '--no-owner',
+      '--exit-on-error',
       '--dbname', parseDatabaseConnection(connectionString).database,
       archivePath
     ],
@@ -457,7 +491,195 @@ async function installTargetNativeSmoke(connectionString, smokeProfile) {
   );
 }
 
-async function captureTargetCatalogProof(connectionString, manifest) {
+async function applyPostOverlayMigration(connectionString, migration) {
+  if (!migration) return { applied: false, version: '' };
+  const version = String(migration.version || '');
+  const sql = String(migration.sql || '');
+  if (
+    !/^20\d{12}$/.test(version) || !sql.trim() ||
+    /^\s*(?:begin|commit|rollback)\s*;/im.test(sql)
+  ) {
+    throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_MIGRATION_INVALID');
+  }
+  return withClient(connectionString, async (client) => {
+    await client.query('begin');
+    try {
+      const existing = await client.query(
+        'select count(*)::bigint as count from supabase_migrations.schema_migrations where version = $1',
+        [version]
+      );
+      if (Number(existing.rows[0].count) !== 0) {
+        throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_MIGRATION_ALREADY_APPLIED');
+      }
+      await client.query(sql);
+      await client.query(
+        'insert into supabase_migrations.schema_migrations(version) values ($1)',
+        [version]
+      );
+      await client.query('commit');
+      return { applied: true, version };
+    } catch (error) {
+      await client.query('rollback').catch(() => {});
+      throw error;
+    }
+  });
+}
+
+async function capture0203Proof(connectionString) {
+  return withClient(connectionString, async (client) => {
+    await client.query('begin');
+    try {
+      const metadata = (await client.query(
+        `select owner.rolname as owner_role, routine.prosecdef as security_definer,
+                coalesce(routine.proconfig, array[]::text[]) as configuration
+           from pg_catalog.pg_proc routine
+           join pg_catalog.pg_namespace namespace on namespace.oid = routine.pronamespace
+           join pg_catalog.pg_roles owner on owner.oid = routine.proowner
+          where namespace.nspname = 'public'
+            and routine.proname = 'api_get_auth_context'
+            and pg_catalog.pg_get_function_identity_arguments(routine.oid) = 'p_org_id uuid'`
+      )).rows;
+      const grants = (await client.query(
+        `select coalesce(grantee.rolname, 'PUBLIC') as grantee,
+                acl.privilege_type, acl.is_grantable
+           from pg_catalog.pg_proc routine
+           join pg_catalog.pg_namespace namespace on namespace.oid = routine.pronamespace
+           cross join lateral pg_catalog.aclexplode(
+             coalesce(routine.proacl, pg_catalog.acldefault('f', routine.proowner))
+           ) acl
+           left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+          where namespace.nspname = 'public'
+            and routine.proname = 'api_get_auth_context'
+            and pg_catalog.pg_get_function_identity_arguments(routine.oid) = 'p_org_id uuid'
+          order by grantee, acl.privilege_type, acl.is_grantable`
+      )).rows;
+      const candidate = (await client.query(
+        `select member.org_id::text as org_id, member.user_id::text as user_id,
+                member.role, users.email,
+                app_api.get_user_default_warehouse(member.org_id, member.user_id) as expected_warehouse,
+                (select count(*)::bigint from app.organization_members peer
+                  where peer.user_id = member.user_id and peer.status = 'active') as active_orgs
+           from app.organization_members member
+           join auth.users users on users.id = member.user_id
+          where member.status = 'active'
+          order by active_orgs desc, member.role, member.org_id
+          limit 1`
+      )).rows[0];
+      if (!candidate) throw categoricalError('MANAGED_REHEARSAL_0203_BEHAVIOR_SUBJECT_MISSING');
+      await client.query(
+        `select pg_catalog.set_config(
+           'request.jwt.claims',
+           pg_catalog.json_build_object(
+             'sub', $1::text,
+             'email', $2::text,
+             'user_metadata', pg_catalog.json_build_object('name', 'Synthetic Rehearsal')
+           )::text,
+           true
+         )`,
+        [candidate.user_id, candidate.email]
+      );
+      const context = (await client.query(
+        'select public.api_get_auth_context($1::uuid) as context',
+        [candidate.org_id]
+      )).rows[0].context;
+      const activeAfter = (await client.query(
+        `select count(*)::bigint as count from app.organization_members
+          where user_id = $1::uuid and status = 'active'`,
+        [candidate.user_id]
+      )).rows[0];
+      await client.query('rollback');
+      const direct = new Map(grants.map((entry) => [entry.grantee, entry]));
+      const configuration = metadata[0]?.configuration || [];
+      const safe = {
+        routineCount: metadata.length,
+        ownerExact: metadata[0]?.owner_role === 'postgres',
+        securityDefiner: metadata[0]?.security_definer === true,
+        searchPathExact:
+          configuration.length === 1 && configuration[0] === 'search_path=public, app, app_api',
+        authenticatedExecute:
+          direct.get('authenticated')?.privilege_type === 'EXECUTE' &&
+          direct.get('authenticated')?.is_grantable === false,
+        publicExecute: direct.has('PUBLIC'),
+        anonExecute: direct.has('anon'),
+        serviceRoleExecute: direct.has('service_role'),
+        behaviorApproved:
+          context?.accessStatus === 'approved' && context?.role === candidate.role &&
+          String(context?.defaultWarehouse || '') === String(candidate.expected_warehouse || '') &&
+          context?.permissions?.team_management != null,
+        activeOrganizationCountStable: Number(activeAfter.count) === Number(candidate.active_orgs),
+        multiOrganizationSubject: Number(candidate.active_orgs) > 1
+      };
+      if (
+        safe.routineCount !== 1 || !safe.ownerExact || !safe.securityDefiner ||
+        !safe.searchPathExact || !safe.authenticatedExecute || safe.publicExecute ||
+        safe.anonExecute || safe.serviceRoleExecute || !safe.behaviorApproved ||
+        !safe.activeOrganizationCountStable
+      ) {
+        throw categoricalError('MANAGED_REHEARSAL_0203_CONTRACT_MISMATCH');
+      }
+      return safe;
+    } catch (error) {
+      await client.query('rollback').catch(() => {});
+      throw error;
+    }
+  });
+}
+
+function syntheticManagedSecurityPolicy(evidence) {
+  const roles = new Map(evidence.roles.map((entry) => [entry.role_name, entry]));
+  const capabilities = new Map(
+    evidence.roleCapabilities.map((entry) => [entry.role_name, entry])
+  );
+  const publicOwner = evidence.schemas.find((entry) => entry.schema_name === 'public')?.owner_role;
+  const privilegedRoles = evidence.roles
+    .filter(
+      (role) =>
+        role.rolsuper || role.rolcreaterole || role.rolcreatedb || role.rolreplication ||
+        role.rolbypassrls || role.role_name === publicOwner
+    )
+    .map((role) => role.role_name);
+  const memberships = new Map();
+  for (const membership of evidence.memberships) {
+    if (!memberships.has(membership.member_role)) memberships.set(membership.member_role, new Set());
+    memberships.get(membership.member_role).add(membership.granted_role);
+  }
+  const paths = [];
+  for (const sourceRole of APPLICATION_FACING_ROLES) {
+    const reached = new Set([sourceRole]);
+    const queue = [sourceRole];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      for (const next of memberships.get(current) || []) {
+        if (reached.has(next)) continue;
+        reached.add(next);
+        queue.push(next);
+      }
+    }
+    for (const targetRole of reached) {
+      if (roles.get(targetRole)?.rolbypassrls) {
+        paths.push({ source_role: sourceRole, target_role: targetRole, capability: 'bypass_rls' });
+      }
+    }
+  }
+  return {
+    format: MANAGED_PROFILE_SECURITY_POLICY_FORMAT,
+    expectedPublicOwner: publicOwner,
+    applicationFacingRoles: [...APPLICATION_FACING_ROLES],
+    allowedApplicationPublicUsageRoles: APPLICATION_FACING_ROLES.filter(
+      (roleName) => capabilities.get(roleName)?.public_usage
+    ),
+    allowedApplicationLoginRoles: APPLICATION_FACING_ROLES.filter(
+      (roleName) => roles.get(roleName)?.rolcanlogin
+    ),
+    allowedApplicationBypassRlsRoles: APPLICATION_FACING_ROLES.filter(
+      (roleName) => roles.get(roleName)?.rolbypassrls
+    ),
+    allowedApplicationPrivilegePaths: paths,
+    certifiedPrivilegedRoles: privilegedRoles
+  };
+}
+
+async function captureTargetCatalogEvidence(connectionString, manifest) {
   return withClient(
     connectionString,
     async (client) => {
@@ -465,13 +687,8 @@ async function captureTargetCatalogProof(connectionString, manifest) {
       try {
         const evidence = await captureManagedTargetCatalog(client);
         const applicationEvidence = await captureApplicationReplacementCatalog(client);
-        const proof = assertManagedTargetCatalogCompatibility(evidence);
-        const applicationReplacement = assertApplicationReplacementCompatibility(
-          manifest,
-          applicationEvidence
-        );
         await client.query('rollback');
-        return { ...proof, applicationReplacement };
+        return { evidence, applicationEvidence };
       } catch (error) {
         await client.query('rollback').catch(() => {});
         throw error;
@@ -481,9 +698,29 @@ async function captureTargetCatalogProof(connectionString, manifest) {
   );
 }
 
+function issueSyntheticManagedProfile({ profileId, target, evidence, key }) {
+  return authenticateManagedProfileCertificate(buildManagedProfileCertificate({
+    profileId,
+    target,
+    evidence: managedProfileEvidenceFromCatalog(evidence),
+    securityPolicy: syntheticManagedSecurityPolicy(evidence)
+  }), key);
+}
+
+async function captureTargetCatalogProof(connectionString, manifest, managedProfile) {
+  const captured = await captureTargetCatalogEvidence(connectionString, manifest);
+  const proof = assertManagedTargetCatalogCompatibility(captured.evidence, managedProfile);
+  const applicationReplacement = assertApplicationReplacementCompatibility(
+    manifest,
+    captured.applicationEvidence
+  );
+  return { ...proof, applicationReplacement };
+}
+
 async function runManagedRestoreCompatibilityRehearsal({
   archivePath,
   sourceComponent,
+  postOverlayMigration = null,
   postgresBin = '',
   temporaryParent = os.tmpdir()
 } = {}) {
@@ -491,6 +728,7 @@ async function runManagedRestoreCompatibilityRehearsal({
   const token = crypto.randomBytes(8).toString('hex');
   const root = path.join(temporaryParent, `environment-sync-rehearsal-managed-${token}`);
   let cluster;
+  const managedProfileKey = crypto.randomBytes(32);
   try {
     cluster = await startDisposablePostgres({
       rootDirectory: root,
@@ -502,22 +740,24 @@ async function runManagedRestoreCompatibilityRehearsal({
     const sandboxName = `x_rehearsal_sandbox_managed_${token}`;
     const devName = `x_rehearsal_dev_managed_${token}`;
     const sourceDatabase = await createDatabase(adminRootConnection, sourceName, 'postgres');
-    const sourceAdmin = connectionForUser(sourceDatabase, 'postgres');
     const sandboxAdmin = await createDatabase(adminRootConnection, sandboxName, 'postgres');
     const devAdmin = await createDatabase(adminRootConnection, devName, 'postgres');
     const sandboxConnection = connectionForUser(sandboxAdmin, 'postgres');
     const devConnection = connectionForUser(devAdmin, 'postgres');
     const privateDirectory = path.join(root, 'managed-overlay-private');
+    const devInitialPrivateDirectory = path.join(root, 'managed-overlay-private-dev-initial');
     const devRefreshPrivateDirectory = path.join(root, 'managed-overlay-private-dev-refresh');
     createPrivateDirectory(privateDirectory);
+    createPrivateDirectory(devInitialPrivateDirectory);
     createPrivateDirectory(devRefreshPrivateDirectory);
     verifyPrivateDirectoryProtection(privateDirectory);
+    verifyPrivateDirectoryProtection(devInitialPrivateDirectory);
     verifyPrivateDirectoryProtection(devRefreshPrivateDirectory);
-    await installExtensionPlane(sourceAdmin, { removePublic: true });
+    await installExtensionPlane(sourceDatabase, { removePublic: true });
     await restoreSource({
       tools,
       archivePath,
-      connectionString: sourceAdmin,
+      connectionString: sourceDatabase,
       diagnosticDirectory: privateDirectory
     });
 
@@ -536,14 +776,16 @@ async function runManagedRestoreCompatibilityRehearsal({
       archivePath,
       tocText,
       tools,
-      privateDirectory
+      privateDirectory,
+      profileStyle: 'sandbox-current'
     });
     await installManagedPlane({
       adminConnection: devAdmin,
       archivePath,
       tocText,
       tools,
-      privateDirectory
+      privateDirectory,
+      profileStyle: 'dev-historical'
     });
     const managedBefore = {
       sandbox: await captureManagedPlaneFingerprint(sandboxConnection),
@@ -588,9 +830,9 @@ async function runManagedRestoreCompatibilityRehearsal({
       throw categoricalError('OLD_MANAGED_RESTORE_REPRODUCTION_MISMATCH');
     }
 
-    const sourceTransform = await quarantineSource(sourceAdmin);
+    const sourceTransform = await quarantineSource(sourceDatabase);
     const [sourceShape, sandboxShape, devShape] = await Promise.all([
-      captureAuthShape(sourceAdmin),
+      captureAuthShape(sourceDatabase),
       captureAuthShape(sandboxConnection),
       captureAuthShape(devConnection)
     ]);
@@ -606,20 +848,61 @@ async function runManagedRestoreCompatibilityRehearsal({
         targetTriggers: devShape.triggers
       })
     };
-    const targetCatalog = {
-      sandbox: await captureTargetCatalogProof(sandboxConnection, manifest),
-      dev: await captureTargetCatalogProof(devConnection, manifest)
+    const profileTargets = {
+      sandbox: { environment: 'sandbox', projectRef: 's'.repeat(20) },
+      dev: { environment: 'dev', projectRef: 'd'.repeat(20) }
     };
-    if (targetCatalog.sandbox.catalogDigest !== targetCatalog.dev.catalogDigest) {
-      throw categoricalError('MANAGED_TARGET_CATALOG_PARITY_FAILED');
+    const initialCatalog = {
+      sandbox: await captureTargetCatalogEvidence(sandboxConnection, manifest),
+      dev: await captureTargetCatalogEvidence(devConnection, manifest)
+    };
+    const profileCertificates = {
+      sandbox: issueSyntheticManagedProfile({
+        profileId: 'sandbox-current-managed-profile',
+        target: profileTargets.sandbox,
+        evidence: initialCatalog.sandbox.evidence,
+        key: managedProfileKey
+      }),
+      dev: issueSyntheticManagedProfile({
+        profileId: 'dev-historical-managed-profile',
+        target: profileTargets.dev,
+        evidence: initialCatalog.dev.evidence,
+        key: managedProfileKey
+      })
+    };
+    const managedProfiles = {
+      sandbox: {
+        certificate: profileCertificates.sandbox,
+        key: managedProfileKey,
+        target: profileTargets.sandbox,
+        expectedProfileId: 'sandbox-current-managed-profile'
+      },
+      dev: {
+        certificate: profileCertificates.dev,
+        key: managedProfileKey,
+        target: profileTargets.dev,
+        expectedProfileId: 'dev-historical-managed-profile'
+      }
+    };
+    const targetCatalog = {
+      sandbox: await captureTargetCatalogProof(sandboxConnection, manifest, managedProfiles.sandbox),
+      dev: await captureTargetCatalogProof(devConnection, manifest, managedProfiles.dev)
+    };
+    if (
+      targetCatalog.sandbox.catalogDigest === targetCatalog.dev.catalogDigest ||
+      targetCatalog.sandbox.profileId === targetCatalog.dev.profileId ||
+      managedBefore.sandbox.publicOwner !== 'pg_database_owner' ||
+      managedBefore.dev.publicOwner !== 'postgres'
+    ) {
+      throw categoricalError('MANAGED_TARGET_PROFILE_SEPARATION_FAILED');
     }
-    const sourcePlane = await captureApplicationPlane(sourceAdmin);
-    const sourceAclContract = await withClient(sourceAdmin, captureApplicationAclContract);
+    const sourcePlane = await captureApplicationPlane(sourceDatabase);
+    const sourceAclContract = await withClient(sourceDatabase, captureApplicationAclContract);
     const packageResult = generateManagedOverlayPackage({
       pgRestorePath: tools.pgRestore,
       pgDumpPath: tools.pgDump,
       archivePath,
-      sourceConnectionString: sourceAdmin,
+      sourceConnectionString: sourceDatabase,
       privateDirectory,
       sourceComponent,
       authEvidence: sourceTransform.evidence,
@@ -629,6 +912,23 @@ async function runManagedRestoreCompatibilityRehearsal({
       applicationReplacement: targetCatalog.sandbox.applicationReplacement,
       sourceAclContract
     });
+    const devInitialPackage = generateManagedOverlayPackage({
+      pgRestorePath: tools.pgRestore,
+      pgDumpPath: tools.pgDump,
+      archivePath,
+      sourceConnectionString: sourceDatabase,
+      privateDirectory: devInitialPrivateDirectory,
+      sourceComponent,
+      authEvidence: sourceTransform.evidence,
+      migration: sourcePlane.migration,
+      authCompatibility: authCompatibility.dev,
+      targetCatalog: targetCatalog.dev,
+      applicationReplacement: targetCatalog.dev.applicationReplacement,
+      sourceAclContract
+    });
+    if (devInitialPackage.script.semanticDigest !== packageResult.script.semanticDigest) {
+      throw categoricalError('MANAGED_DUAL_PROFILE_PACKAGE_DRIFT');
+    }
     await atRehearsalStage('mock-sandbox-initial-overlay', () => executeManagedOverlayPackage({
       psqlPath: tools.psql,
       connectionString: sandboxConnection,
@@ -639,7 +939,7 @@ async function runManagedRestoreCompatibilityRehearsal({
     await atRehearsalStage('mock-dev-initial-overlay', () => executeManagedOverlayPackage({
       psqlPath: tools.psql,
       connectionString: devConnection,
-      packageResult,
+      packageResult: devInitialPackage,
       targetGuard: { mode: 'disposable-managed-local', loopback: true },
       diagnosticDirectory: privateDirectory
     }));
@@ -658,12 +958,16 @@ async function runManagedRestoreCompatibilityRehearsal({
     ) {
       throw categoricalError('MANAGED_POPULATED_DEV_SETUP_FAILED');
     }
-    const devRefreshCatalog = await captureTargetCatalogProof(devConnection, manifest);
+    const devRefreshCatalog = await captureTargetCatalogProof(
+      devConnection,
+      manifest,
+      managedProfiles.dev
+    );
     const devRefreshPackage = generateManagedOverlayPackage({
       pgRestorePath: tools.pgRestore,
       pgDumpPath: tools.pgDump,
       archivePath,
-      sourceConnectionString: sourceAdmin,
+      sourceConnectionString: sourceDatabase,
       privateDirectory: devRefreshPrivateDirectory,
       sourceComponent,
       authEvidence: sourceTransform.evidence,
@@ -683,16 +987,38 @@ async function runManagedRestoreCompatibilityRehearsal({
       targetGuard: { mode: 'disposable-managed-local', loopback: true },
       diagnosticDirectory: devRefreshPrivateDirectory
     }));
+    const postOverlay = await Promise.all([
+      applyPostOverlayMigration(sourceDatabase, postOverlayMigration),
+      applyPostOverlayMigration(sandboxConnection, postOverlayMigration),
+      applyPostOverlayMigration(devConnection, postOverlayMigration)
+    ]);
+    const postOverlayContractProof = postOverlayMigration?.version === '20260822100000'
+      ? await Promise.all([
+          capture0203Proof(sourceDatabase),
+          capture0203Proof(sandboxConnection),
+          capture0203Proof(devConnection)
+        ])
+      : [];
+    if (
+      postOverlayContractProof.length > 0 &&
+      (
+        canonicalDigest(postOverlayContractProof[0]) !== canonicalDigest(postOverlayContractProof[1]) ||
+        canonicalDigest(postOverlayContractProof[0]) !== canonicalDigest(postOverlayContractProof[2])
+      )
+    ) {
+      throw categoricalError('MANAGED_REHEARSAL_POST_OVERLAY_CONTRACT_PARITY_FAILED');
+    }
+    const expectedSourcePlane = await captureApplicationPlane(sourceDatabase);
     const [sandboxPlane, devPlane, sourceAuth, sandboxAuth, devAuthBeforePreservation] = await Promise.all([
       captureApplicationPlane(sandboxConnection),
       captureApplicationPlane(devConnection),
-      captureAuthParity(sourceAdmin),
+      captureAuthParity(sourceDatabase),
       captureAuthParity(sandboxConnection),
       captureAuthParity(devConnection)
     ]);
     const applicationParity = {
-      sandbox: compareApplicationPlane(sourcePlane, sandboxPlane),
-      dev: compareApplicationPlane(sourcePlane, devPlane)
+      sandbox: compareApplicationPlane(expectedSourcePlane, sandboxPlane),
+      dev: compareApplicationPlane(expectedSourcePlane, devPlane)
     };
     const parity = {
       applicationSandbox: Object.values(applicationParity.sandbox).every(Boolean),
@@ -705,8 +1031,8 @@ async function runManagedRestoreCompatibilityRehearsal({
       error.parity = parity;
       error.applicationParity = applicationParity;
       error.routineDifferences = {
-        sandbox: summarizeRoutineDifferences(sourcePlane.routineRows, sandboxPlane.routineRows),
-        dev: summarizeRoutineDifferences(sourcePlane.routineRows, devPlane.routineRows)
+        sandbox: summarizeRoutineDifferences(expectedSourcePlane.routineRows, sandboxPlane.routineRows),
+        dev: summarizeRoutineDifferences(expectedSourcePlane.routineRows, devPlane.routineRows)
       };
       throw error;
     }
@@ -730,7 +1056,11 @@ async function runManagedRestoreCompatibilityRehearsal({
     ) {
       throw categoricalError('MANAGED_PLANE_CHANGED');
     }
-    const residualFiles = [privateDirectory, devRefreshPrivateDirectory].flatMap((directory) =>
+    const residualFiles = [
+      privateDirectory,
+      devInitialPrivateDirectory,
+      devRefreshPrivateDirectory
+    ].flatMap((directory) =>
       fs.readdirSync(directory).filter((name) => name.startsWith('postgres-diagnostic-'))
     );
     if (residualFiles.length !== 0) throw categoricalError('MANAGED_DIAGNOSTIC_RESIDUE');
@@ -759,7 +1089,19 @@ async function runManagedRestoreCompatibilityRehearsal({
       targetCatalog: {
         sandboxCompatible: targetCatalog.sandbox.compatible,
         devCompatible: targetCatalog.dev.compatible,
-        readOnlyProof: targetCatalog.sandbox.transactionReadOnly && targetCatalog.dev.transactionReadOnly
+        readOnlyProof: targetCatalog.sandbox.transactionReadOnly && targetCatalog.dev.transactionReadOnly,
+        distinctAuthenticatedProfiles:
+          targetCatalog.sandbox.authenticated && targetCatalog.dev.authenticated &&
+          targetCatalog.sandbox.catalogDigest !== targetCatalog.dev.catalogDigest,
+        sandboxPublicOwnerPreserved:
+          managedBefore.sandbox.publicOwner === managedAfter.sandbox.publicOwner,
+        devPublicOwnerPreserved: managedBefore.dev.publicOwner === managedAfter.dev.publicOwner,
+        defaultAclsPreserved:
+          managedBefore.sandbox.defaultAclDigest === managedAfter.sandbox.defaultAclDigest &&
+          managedBefore.dev.defaultAclDigest === managedAfter.dev.defaultAclDigest,
+        membershipsPreserved:
+          managedBefore.sandbox.roleMembershipDigest === managedAfter.sandbox.roleMembershipDigest &&
+          managedBefore.dev.roleMembershipDigest === managedAfter.dev.roleMembershipDigest
       },
       targets: {
         mockSandboxManaged: {
@@ -775,13 +1117,20 @@ async function runManagedRestoreCompatibilityRehearsal({
           preservationUsersAdded: 1
         }
       },
-      migration: sourcePlane.migration,
+      migration: expectedSourcePlane.migration,
+      postOverlayMigration: {
+        requested: postOverlayMigration !== null,
+        appliedToAllTargets: postOverlay.every((entry) => entry.applied) || postOverlayMigration === null,
+        version: postOverlayMigration === null ? '' : postOverlay[0].version,
+        contractProof: postOverlayContractProof[0] || null
+      },
       devPreservation,
       atomic: packageResult.atomic,
       diagnosticResidue: 0,
       managedPlanePreserved: true
     };
   } finally {
+    managedProfileKey.fill(0);
     if (cluster) await removeDisposablePostgres(cluster);
   }
 }

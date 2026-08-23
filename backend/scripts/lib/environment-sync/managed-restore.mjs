@@ -20,6 +20,10 @@ import {
   writePrivateJsonExclusive
 } from './private-artifacts.mjs';
 import { runPrivateDiagnosticCommand } from './private-diagnostics.mjs';
+import {
+  managedProfileEvidenceFromCatalog,
+  verifyManagedProfileCertificate
+} from './managed-profile.mjs';
 
 const MANAGED_RESTORE_MANIFEST_FORMAT = 'supabase-managed-overlay-restore-manifest-v1';
 const MANAGED_RESTORE_CANONICALIZATION = 'supabase-managed-overlay-toc-c14n-v1';
@@ -61,16 +65,6 @@ const TARGET_NATIVE_SCHEMAS = Object.freeze([
   'storage',
   'vault'
 ]);
-const TARGET_NATIVE_SCHEMA_OWNERS = Object.freeze({
-  auth: 'supabase_admin',
-  extensions: 'postgres',
-  graphql: 'supabase_admin',
-  graphql_public: 'supabase_admin',
-  public: 'pg_database_owner',
-  realtime: 'supabase_admin',
-  storage: 'supabase_admin',
-  vault: 'supabase_admin'
-});
 const REQUIRED_TARGET_EXTENSIONS = Object.freeze(['pgcrypto', 'uuid-ossp']);
 const AUTH_OVERLAY_TABLES = Object.freeze(['users', 'identities']);
 const AUTH_PRESERVED_TABLES = Object.freeze(['instances', 'schema_migrations']);
@@ -157,6 +151,14 @@ function isSchemaMetadata(entry, schemaName) {
 function classifyTocEntry(entry) {
   const isData = ['TABLE DATA', 'SEQUENCE SET'].includes(entry.objectType);
   const isGrant = ['ACL', 'DEFAULT ACL'].includes(entry.objectType);
+
+  if (entry.objectType === 'DEFAULT ACL') {
+    return disposition(
+      MANAGED_RESTORE_CATEGORIES.F,
+      'preserve-target-native',
+      'target-native default privileges are certified by the managed profile'
+    );
+  }
 
   if (['app', 'app_api'].includes(entry.schema)) {
     if (entry.owner !== 'postgres') {
@@ -443,19 +445,19 @@ async function captureManagedTargetCatalog(client) {
       where r.rolname = current_user`
   )).rows[0];
   const roles = (await client.query(
-    `select rolname as role_name, rolsuper, rolcanlogin
+    `select rolname as role_name, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
+            rolcanlogin, rolreplication, rolbypassrls,
+            coalesce(rolconfig, array[]::text[]) as rolconfig
        from pg_catalog.pg_roles
-      where rolname = any($1::text[])
-      order by rolname`,
-    [[...REQUIRED_MANAGED_ROLES, 'pg_database_owner']]
+      order by rolname`
   )).rows;
   const schemas = (await client.query(
     `select n.nspname as schema_name, r.rolname as owner_role
        from pg_catalog.pg_namespace n
        join pg_catalog.pg_roles r on r.oid = n.nspowner
-      where n.nspname = any($1::text[])
-      order by n.nspname`,
-    [[...TARGET_NATIVE_SCHEMAS]]
+      where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
+        and n.nspname <> all(array['app','app_api'])
+      order by n.nspname`
   )).rows;
   const authOwners = (await client.query(
     `select distinct owner_role from (
@@ -473,42 +475,65 @@ async function captureManagedTargetCatalog(client) {
      ) owners order by owner_role`
   )).rows;
   const extensions = (await client.query(
-    `select e.extname as extension_name, n.nspname as schema_name
+    `select e.extname as extension_name, n.nspname as schema_name,
+            owner.rolname as owner_role, e.extversion as extension_version
        from pg_catalog.pg_extension e
        join pg_catalog.pg_namespace n on n.oid = e.extnamespace
-      where e.extname = any($1::text[])
-      order by e.extname`,
-    [[...REQUIRED_TARGET_EXTENSIONS]]
+       join pg_catalog.pg_roles owner on owner.oid = e.extowner
+      order by e.extname`
   )).rows;
   const publications = (await client.query(
-    `select pubname as publication_name
-       from pg_catalog.pg_publication
-      where pubname = 'supabase_realtime'
+    `select publication.pubname as publication_name, owner.rolname as owner_role,
+            publication.puballtables as all_tables,
+            publication.pubinsert as insert_enabled,
+            publication.pubupdate as update_enabled,
+            publication.pubdelete as delete_enabled,
+            publication.pubtruncate as truncate_enabled,
+            publication.pubviaroot as via_root
+       from pg_catalog.pg_publication publication
+       join pg_catalog.pg_roles owner on owner.oid = publication.pubowner
       order by pubname`
+  )).rows;
+  const publicationRelations = (await client.query(
+    `select publication.pubname as publication_name,
+            namespace.nspname as schema_name, relation.relname as relation_name
+       from pg_catalog.pg_publication_rel membership
+       join pg_catalog.pg_publication publication on publication.oid = membership.prpubid
+       join pg_catalog.pg_class relation on relation.oid = membership.prrelid
+       join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      order by publication_name, schema_name, relation_name`
   )).rows;
   const defaultAcls = (await client.query(
     `select owner.rolname as owner_role,
             coalesce(namespace.nspname, '') as schema_name,
             defaults.defaclobjtype as object_type,
+            grantor.rolname as grantor_role,
             coalesce(grantee.rolname, 'PUBLIC') as grantee,
             acl.privilege_type, acl.is_grantable
        from pg_catalog.pg_default_acl defaults
        join pg_catalog.pg_roles owner on owner.oid = defaults.defaclrole
        left join pg_catalog.pg_namespace namespace on namespace.oid = defaults.defaclnamespace
        cross join lateral pg_catalog.aclexplode(defaults.defaclacl) acl
+       join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
        left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
-      order by owner_role, schema_name, object_type, grantee, privilege_type, is_grantable`
+      order by owner_role, schema_name, object_type, grantor_role, grantee,
+               privilege_type, is_grantable`
   )).rows;
   const memberships = (await client.query(
     `select member.rolname as member_role, granted.rolname as granted_role,
-            membership.admin_option, membership.inherit_option, membership.set_option
+            grantor.rolname as grantor_role, membership.admin_option,
+            membership.inherit_option, membership.set_option
        from pg_catalog.pg_auth_members membership
        join pg_catalog.pg_roles member on member.oid = membership.member
        join pg_catalog.pg_roles granted on granted.oid = membership.roleid
-      order by member_role, granted_role`
+       join pg_catalog.pg_roles grantor on grantor.oid = membership.grantor
+      order by member_role, granted_role, grantor_role`
   )).rows;
   const schemaAcls = (await client.query(
     `select namespace.nspname as schema_name, owner.rolname as owner_role,
+            grantor.rolname as grantor_role,
             coalesce(grantee.rolname, 'PUBLIC') as grantee,
             acl.privilege_type, acl.is_grantable
        from pg_catalog.pg_namespace namespace
@@ -516,10 +541,102 @@ async function captureManagedTargetCatalog(client) {
        cross join lateral pg_catalog.aclexplode(
          coalesce(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner))
        ) acl
+       join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
        left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
-      where namespace.nspname = any($1::text[])
-      order by schema_name, grantee, privilege_type, is_grantable`,
-    [[...TARGET_NATIVE_SCHEMAS]]
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api'])
+      order by schema_name, owner_role, grantor_role, grantee, privilege_type, is_grantable`
+  )).rows;
+  const managedObjects = (await client.query(
+    `select namespace.nspname as schema_name,
+            'relation:' || relation.relkind::text as object_type,
+            relation.relname as object_identity, owner.rolname as owner_role
+       from pg_catalog.pg_class relation
+       join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
+       join pg_catalog.pg_roles owner on owner.oid = relation.relowner
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      union
+     select namespace.nspname, 'routine:' || routine.prokind::text,
+            routine.proname || '(' || pg_catalog.pg_get_function_identity_arguments(routine.oid) || ')',
+            owner.rolname
+       from pg_catalog.pg_proc routine
+       join pg_catalog.pg_namespace namespace on namespace.oid = routine.pronamespace
+       join pg_catalog.pg_roles owner on owner.oid = routine.proowner
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      union
+     select namespace.nspname, 'type:' || type.typtype::text,
+            type.typname, owner.rolname
+       from pg_catalog.pg_type type
+       join pg_catalog.pg_namespace namespace on namespace.oid = type.typnamespace
+       join pg_catalog.pg_roles owner on owner.oid = type.typowner
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      order by schema_name, object_type, object_identity, owner_role`
+  )).rows;
+  const managedObjectAcls = (await client.query(
+    `select namespace.nspname as schema_name,
+            'relation:' || relation.relkind::text as object_type,
+            relation.relname as object_identity, owner.rolname as owner_role,
+            grantor.rolname as grantor_role, coalesce(grantee.rolname, 'PUBLIC') as grantee,
+            acl.privilege_type, acl.is_grantable
+       from pg_catalog.pg_class relation
+       join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
+       join pg_catalog.pg_roles owner on owner.oid = relation.relowner
+       cross join lateral pg_catalog.aclexplode(coalesce(
+         relation.relacl,
+         pg_catalog.acldefault(
+           case when relation.relkind = 'S' then 'S'::\"char\" else 'r'::\"char\" end,
+           relation.relowner
+         )
+       )) acl
+       join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+       left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+      where relation.relkind = any(array['r','p','v','m','S','f']::\"char\"[])
+        and namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      union
+     select namespace.nspname, 'routine:' || routine.prokind::text,
+            routine.proname || '(' || pg_catalog.pg_get_function_identity_arguments(routine.oid) || ')',
+            owner.rolname, grantor.rolname, coalesce(grantee.rolname, 'PUBLIC'),
+            acl.privilege_type, acl.is_grantable
+       from pg_catalog.pg_proc routine
+       join pg_catalog.pg_namespace namespace on namespace.oid = routine.pronamespace
+       join pg_catalog.pg_roles owner on owner.oid = routine.proowner
+       cross join lateral pg_catalog.aclexplode(coalesce(
+         routine.proacl, pg_catalog.acldefault('f', routine.proowner)
+       )) acl
+       join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+       left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      union
+     select namespace.nspname, 'type:' || type.typtype::text, type.typname,
+            owner.rolname, grantor.rolname, coalesce(grantee.rolname, 'PUBLIC'),
+            acl.privilege_type, acl.is_grantable
+       from pg_catalog.pg_type type
+       join pg_catalog.pg_namespace namespace on namespace.oid = type.typnamespace
+       join pg_catalog.pg_roles owner on owner.oid = type.typowner
+       cross join lateral pg_catalog.aclexplode(coalesce(
+         type.typacl, pg_catalog.acldefault('T', type.typowner)
+       )) acl
+       join pg_catalog.pg_roles grantor on grantor.oid = acl.grantor
+       left join pg_catalog.pg_roles grantee on grantee.oid = nullif(acl.grantee, 0)
+      where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'
+        and namespace.nspname <> all(array['app','app_api','public','supabase_migrations'])
+      order by schema_name, object_type, object_identity, owner_role, grantor_role,
+               grantee, privilege_type, is_grantable`
+  )).rows;
+  const roleCapabilities = (await client.query(
+    `select role.rolname as role_name,
+            pg_catalog.has_schema_privilege(role.oid, namespace.oid, 'USAGE') as public_usage,
+            pg_catalog.has_schema_privilege(role.oid, namespace.oid, 'CREATE') as public_create,
+            pg_catalog.pg_has_role(role.oid, namespace.nspowner, 'MEMBER') as public_owner_member
+       from pg_catalog.pg_roles role
+       cross join pg_catalog.pg_namespace namespace
+      where namespace.nspname = 'public'
+      order by role.rolname`
   )).rows;
   return {
     transaction,
@@ -528,9 +645,13 @@ async function captureManagedTargetCatalog(client) {
     authOwners,
     extensions,
     publications,
+    publicationRelations,
     defaultAcls,
     memberships,
-    schemaAcls
+    schemaAcls,
+    managedObjects,
+    managedObjectAcls,
+    roleCapabilities
   };
 }
 
@@ -638,12 +759,15 @@ function assertApplicationReplacementCompatibility(manifest, evidence = {}) {
   };
 }
 
-function assertManagedTargetCatalogCompatibility(evidence = {}) {
+function assertManagedTargetCatalogCompatibility(evidence = {}, managedProfile = {}) {
   const transaction = evidence.transaction || {};
   if (
     !Array.isArray(evidence.defaultAcls) ||
     !Array.isArray(evidence.memberships) ||
-    !Array.isArray(evidence.schemaAcls)
+    !Array.isArray(evidence.schemaAcls) ||
+    !Array.isArray(evidence.managedObjects) ||
+    !Array.isArray(evidence.managedObjectAcls) ||
+    !Array.isArray(evidence.roleCapabilities)
   ) {
     throw categoricalError('MANAGED_TARGET_SECURITY_CATALOG_INCOMPATIBLE');
   }
@@ -667,12 +791,8 @@ function assertManagedTargetCatalogCompatibility(evidence = {}) {
     throw categoricalError('MANAGED_TARGET_ROLE_SET_INCOMPATIBLE');
   }
   const schemaOwners = new Map((evidence.schemas || []).map((row) => [row.schema_name, row.owner_role]));
-  if (
-    Object.entries(TARGET_NATIVE_SCHEMA_OWNERS).some(
-      ([schemaName, ownerRole]) => schemaOwners.get(schemaName) !== ownerRole
-    )
-  ) {
-    throw categoricalError('MANAGED_TARGET_SCHEMA_OWNERSHIP_INCOMPATIBLE');
+  if (TARGET_NATIVE_SCHEMAS.some((schemaName) => !schemaOwners.has(schemaName))) {
+    throw categoricalError('MANAGED_TARGET_SCHEMA_SET_INCOMPATIBLE');
   }
   const authOwners = [...new Set((evidence.authOwners || []).map((row) => row.owner_role))];
   if (authOwners.length !== 1 || authOwners[0] !== 'supabase_auth_admin') {
@@ -690,13 +810,29 @@ function assertManagedTargetCatalogCompatibility(evidence = {}) {
   ) {
     throw categoricalError('MANAGED_TARGET_PUBLICATION_PLANE_INCOMPATIBLE');
   }
+  const profile = verifyManagedProfileCertificate({
+    certificate: managedProfile.certificate,
+    key: managedProfile.key,
+    target: managedProfile.target,
+    evidence: managedProfileEvidenceFromCatalog(evidence),
+    expectedProfileId: managedProfile.expectedProfileId
+  });
   return {
     compatible: true,
-    catalogDigest: canonicalDigest(evidence),
+    authenticated: profile.authenticated,
+    catalogDigest: profile.profileDigest,
+    profileDigest: profile.profileDigest,
+    profileId: profile.profileId,
+    profileTarget: profile.target,
+    securityDigest: profile.securityDigest,
+    security: profile.security,
     transactionReadOnly: true,
     executionRole: 'postgres',
     requiredRoles: [...REQUIRED_MANAGED_ROLES],
-    requiredSchemas: [...TARGET_NATIVE_SCHEMAS]
+    requiredSchemas: [...TARGET_NATIVE_SCHEMAS],
+    managedSchemaCount: (evidence.schemas || []).length,
+    defaultAclCount: evidence.defaultAcls.length,
+    membershipCount: evidence.memberships.length
   };
 }
 
@@ -707,8 +843,13 @@ function assertManagedCompatibilityProof({ authCompatibility, targetCatalog, app
     !/^sha256:[a-f0-9]{64}$/.test(String(authCompatibility?.targetDigest || '')) ||
     canonicalSerialize(authCompatibility?.copiedTables) !== canonicalSerialize(AUTH_OVERLAY_TABLES) ||
     targetCatalog?.compatible !== true ||
+    targetCatalog?.authenticated !== true ||
     targetCatalog?.transactionReadOnly !== true ||
     !/^sha256:[a-f0-9]{64}$/.test(String(targetCatalog?.catalogDigest || '')) ||
+    !/^sha256:[a-f0-9]{64}$/.test(String(targetCatalog?.securityDigest || '')) ||
+    !/^[a-z][a-z0-9._-]{2,95}$/.test(String(targetCatalog?.profileId || '')) ||
+    !['dev', 'sandbox'].includes(targetCatalog?.profileTarget?.environment) ||
+    !/^[a-z0-9]{20}$/.test(String(targetCatalog?.profileTarget?.projectRef || '')) ||
     applicationReplacement?.compatible !== true ||
     applicationReplacement?.externalDependencyCount !== 0 ||
     !/^sha256:[a-f0-9]{64}$/.test(String(applicationReplacement?.replacementDigest || ''))
@@ -718,6 +859,10 @@ function assertManagedCompatibilityProof({ authCompatibility, targetCatalog, app
   return {
     authShapeDigest: authCompatibility.targetDigest,
     catalogDigest: targetCatalog.catalogDigest,
+    managedProfileDigest: targetCatalog.profileDigest,
+    managedProfileId: targetCatalog.profileId,
+    managedProfileTarget: targetCatalog.profileTarget,
+    managedProfileSecurityDigest: targetCatalog.securityDigest,
     applicationReplacementDigest: applicationReplacement.replacementDigest,
     copiedAuthTables: [...AUTH_OVERLAY_TABLES],
     transactionReadOnly: true
@@ -1228,6 +1373,13 @@ async function executeManagedOverlayPackage({
     !targetCompatibility ||
     (executionTarget.loopback !== true && (
       targetGuard?.managedCatalogDigest !== targetCompatibility.catalogDigest ||
+      targetGuard?.managedProfileDigest !== targetCompatibility.managedProfileDigest ||
+      targetGuard?.managedProfileId !== targetCompatibility.managedProfileId ||
+      targetGuard?.managedProfileSecurityDigest !== targetCompatibility.managedProfileSecurityDigest ||
+      canonicalSerialize(targetGuard?.managedProfileTarget) !==
+        canonicalSerialize(targetCompatibility.managedProfileTarget) ||
+      targetCompatibility.managedProfileTarget?.environment !== executionTarget.target ||
+      targetCompatibility.managedProfileTarget?.projectRef !== executionTarget.projectRef ||
       targetGuard?.authShapeDigest !== targetCompatibility.authShapeDigest ||
       targetGuard?.applicationReplacementDigest !== targetCompatibility.applicationReplacementDigest ||
       targetGuard?.restorePlanDigest !== packageResult.manifest.planDigest
@@ -1295,7 +1447,6 @@ export {
   MANAGED_RESTORE_MANIFEST_FORMAT,
   REQUIRED_MANAGED_ROLES,
   TARGET_NATIVE_SCHEMAS,
-  TARGET_NATIVE_SCHEMA_OWNERS,
   applicationRestoreList,
   assertApplicationReplacementCompatibility,
   assertAuthOverlayCompatibility,
