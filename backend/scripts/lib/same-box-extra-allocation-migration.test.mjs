@@ -195,7 +195,7 @@ test('0201 keeps the private planner and worker ACLs narrow and the schema guard
     migration,
     /revoke execute on function public\.api_allocations_apply\(uuid, text, jsonb\)\s+from public, anon, authenticated, service_role/s
   );
-  assert.match(schemaLatest, /const LATEST_MIGRATION = '0204_global_function_default_execute_hardening\.sql'/);
+  assert.match(schemaLatest, /const LATEST_MIGRATION = '0205_weight_authoritative_box_checkin\.sql'/);
   assert.match(schemaLatest, /app_api\.build_allocation_apply_plan_0201\(uuid, text, jsonb\)/);
   assert.match(schemaLatest, /v_plan := app_api\.build_allocation_apply_plan_0201/);
   assert.match(schemaLatest, /app_api\.film_allocation_reserves_capacity\(app\.allocations, text\)/);

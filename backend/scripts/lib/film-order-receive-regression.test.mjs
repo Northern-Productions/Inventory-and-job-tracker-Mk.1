@@ -539,6 +539,10 @@ function createRecordingClient() {
         return { rows: [] };
       }
 
+      if (sql.includes('select * from app.film_catalog') && sql.includes('and film_key = $2')) {
+        return { rows: [] };
+      }
+
       throw new Error(`Unexpected query during receive regression test: ${sql}`);
     },
   };
@@ -569,6 +573,7 @@ test('receiveOrderedBox receives a linked ordered box and recalculates film-orde
   assert.equal(response.data.box.lotRun, 'LOT-42');
   assert.equal(response.data.box.coreType, 'Red plastic');
   assert.equal(response.data.box.coreWeightLbs, 0.925);
+  assert.equal(response.data.box.lfWeightLbsPerFt, 0.11575);
   assert.match(
     response.warnings.join(' '),
     /automatically allocated to job 5555 for Film Order FO-RECEIVE-1/i

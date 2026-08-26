@@ -18,6 +18,7 @@ import {
   applyCheckInWarnings,
   toPublicBox,
   findBoxById,
+  findFilmCatalogByFilmKey,
   findJobById,
   listJobs,
   saveBoxRecord,
@@ -37,7 +38,7 @@ import {
   getCheckoutJobNumberFromAuditNotes,
 } from '../checkout/audit.mjs';
 import { cancelActiveAllocationsForCheckInJob } from '../checkout/cancellations.mjs';
-import { planBoxCheckIn } from '../runtimeBoxCheckin.mjs';
+import { planBoxCheckIn, resolveBoxWeightCalibration } from '../runtimeBoxCheckin.mjs';
 import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mjs';
 import { processLinkedFilmOrderReceipt } from '../runtimeAllocationPlanning.mjs';
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
@@ -253,14 +254,22 @@ async function setBoxStatus(client, orgId, payload, actor) {
     }
 
     const existingAllocations = await listAllocationsByBox(client, orgId, updatedBox.boxId);
+    let calibration = resolveBoxWeightCalibration(existing);
+    if (!calibration.resolved) {
+      calibration = resolveBoxWeightCalibration(
+        existing,
+        await findFilmCatalogByFilmKey(client, orgId, existing.filmKey)
+      );
+    }
     const checkInPlan = planBoxCheckIn(existing, payload, existingAllocations, checkoutJob, {
-      jobId: checkoutJobId
+      jobId: checkoutJobId,
+      calibration
     });
     const directToSiteFirstReturnNote = allowsFirstReturnCalibration
       ? buildDirectToJobSiteFirstReturnNote({
           jobNumber: checkoutJob,
           lastRollWeightLbs: checkInPlan.lastRollWeightLbs,
-          currentFeetOnRoll: checkInPlan.currentFeetOnRoll ?? checkInPlan.physicalFeetAfterCheckIn,
+          currentFeetOnRoll: checkInPlan.physicalFeetAfterCheckIn,
           userNote: payload.auditNote
         })
       : asTrimmedString(payload.auditNote);

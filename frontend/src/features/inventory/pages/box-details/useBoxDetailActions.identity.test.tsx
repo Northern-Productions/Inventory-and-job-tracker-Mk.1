@@ -156,9 +156,7 @@ describe('useBoxDetailActions checkout identity', () => {
     try {
       await act(async () => {
         await hook.result.current.handleFilmCheckinConfirm({
-          lastRollWeightLbs: '0',
-          currentFeetOnRoll: '',
-          coreType: ''
+          lastRollWeightLbs: '0'
         });
       });
 

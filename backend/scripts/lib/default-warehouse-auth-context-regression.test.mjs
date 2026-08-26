@@ -125,7 +125,7 @@ test('Edge auth resolution consumes the restored RPC field without a runtime sou
 
 test('schema latest retains the 0203 warehouse contract through migration 0204', async () => {
   const schemaLatest = await readFile(schemaLatestUrl, 'utf8');
-  assert.match(schemaLatest, /LATEST_MIGRATION = '0204_global_function_default_execute_hardening\.sql'/);
+  assert.match(schemaLatest, /LATEST_MIGRATION = '0205_weight_authoritative_box_checkin\.sql'/);
   assert.match(
     schemaLatest,
     /v_default_warehouse := app_api\.get_user_default_warehouse\(p_org_id, v_user_id\);/

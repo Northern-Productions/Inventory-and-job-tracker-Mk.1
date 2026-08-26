@@ -9,6 +9,7 @@ import {
   todayDateString,
   toPublicBox,
   findBoxById,
+  findFilmCatalogByFilmKey,
   listAllocationsByBox,
   saveBoxRecord,
   seedFilmCatalogRecordIfMissing,
@@ -20,6 +21,7 @@ import { recalculateFilmOrdersForBoxLinks } from '../runtimeAllocationCleanup.mj
 import { applyReservationMetricsToBox } from '../runtimeAllocationReservations.mjs';
 import { allocationReservesCapacity } from '../../../../../../shared/domain/filmAllocationReservations.mjs';
 import { recordFilmWeightSampleFromBox } from '../../filmWeightProfiles.mjs';
+import { resolveBoxWeightCalibration } from '../runtimeBoxCheckin.mjs';
 
 function parseOptionalReceivedWeight(value) {
   const trimmed = asTrimmedString(value);
@@ -170,6 +172,19 @@ async function receiveOrderedBox(client, orgId, payload, actor) {
     updatedBox.initialWeightLbs = receivedWeightLbs;
     updatedBox.lastRollWeightLbs = receivedWeightLbs;
     updatedBox.lastWeighedDate = receivedDate;
+  }
+
+  let calibration = resolveBoxWeightCalibration(updatedBox);
+  if (!calibration.resolved) {
+    calibration = resolveBoxWeightCalibration(
+      updatedBox,
+      await findFilmCatalogByFilmKey(client, orgId, updatedBox.filmKey)
+    );
+  }
+  if (calibration.resolved) {
+    updatedBox.coreType = calibration.coreType || updatedBox.coreType;
+    updatedBox.coreWeightLbs = calibration.coreWeightLbs;
+    updatedBox.lfWeightLbsPerFt = calibration.lfWeightLbsPerFt;
   }
 
   let persistedBox = await saveBoxRecord(client, orgId, updatedBox);

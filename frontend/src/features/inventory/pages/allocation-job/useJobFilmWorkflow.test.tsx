@@ -236,9 +236,7 @@ describe('useJobFilmWorkflow remove allocation identity', () => {
     });
     await act(async () => {
       workflow.result.current.handleFilmCheckinConfirm({
-        lastRollWeightLbs: '10',
-        currentFeetOnRoll: '',
-        coreType: ''
+        lastRollWeightLbs: '10'
       });
     });
 
@@ -302,9 +300,7 @@ describe('useJobFilmWorkflow remove allocation identity', () => {
       });
       await act(async () => {
         workflow.result.current.handleFilmCheckinConfirm({
-          lastRollWeightLbs: '0',
-          currentFeetOnRoll: '',
-          coreType: ''
+          lastRollWeightLbs: '0'
         });
       });
 

@@ -9,7 +9,7 @@ import { normalizeFunctionDefinitionForSemanticCheck } from './lib/schema-check-
 const DATABASE_URL = String(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
 const SKIP_SCHEMA_CHECK = String(process.env.SCHEMA_CHECK_SKIP || '').trim().toLowerCase() === 'true';
 
-const LATEST_MIGRATION = '0204_global_function_default_execute_hardening.sql';
+const LATEST_MIGRATION = '0205_weight_authoritative_box_checkin.sql';
 
 const ORG_TABLE_RLS_ALLOWLIST = new Set([]);
 const ORG_TABLE_DIRECT_AUTH_WRITE_ALLOWLIST = new Set([]);
@@ -144,6 +144,7 @@ const REQUIRED_OBJECTS = [
   { kind: 'function', signature: 'app_api.requirement_film_is_compatible(uuid, text, text, text, text)' },
   { kind: 'function', signature: 'public.api_acl_boxes_delete(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_boxes_delete(uuid, text, jsonb)' },
+  { kind: 'function', signature: 'app_api.resolve_box_weight_calibration(uuid, app.boxes)' },
   { kind: 'function', signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_acl_boxes_mark_labels_printed(uuid, text, jsonb)' },
   { kind: 'function', signature: 'public.api_allocations_apply(uuid, text, jsonb)' },
@@ -940,6 +941,20 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ]
   },
   {
+    signature: 'app_api.resolve_box_weight_calibration(uuid, app.boxes)',
+    includes: [
+      "'source', 'SAVED_BOX'",
+      "'source', 'BOX_INITIAL_BASELINE'",
+      'app_api.try_derive_lf_weight_lbs_per_ft(',
+      'from app.film_catalog c',
+      'c.org_id = p_org_id',
+      'c.film_key = p_box.film_key',
+      "'source', 'FILM_CATALOG'",
+      "'source', 'UNRESOLVED'"
+    ],
+    excludes: []
+  },
+  {
     signature: 'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)',
     includes: [
       'v_locked_allocated_feet := app_api.physical_film_commitment_feet_for_box(p_org_id, v_lookup_box_id);',
@@ -948,6 +963,8 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'v_box.feet_available := greatest(coalesce(v_box.initial_feet, 0) - coalesce(v_locked_allocated_feet, 0), 0);',
       "v_core_type := app_api.normalize_core_type(v_payload->>'coreType', true);",
       'v_box.core_weight_lbs := app_api.derive_core_weight_lbs(v_core_type, v_box.width_in);',
+      'v_receipt_result := app_api.resolve_box_weight_calibration(p_org_id, v_box);',
+      "v_box.lf_weight_lbs_per_ft := nullif(v_receipt_result->>'lfWeightLbsPerFt', '')::numeric;",
       'v_box.has_label := false;',
       'v_material_reconciliation_result := app_api.reconcile_box_checkin_allocations',
       'v_receipt_result := app_api.process_linked_box_receipt(p_org_id, v_box, p_actor);',
@@ -1518,6 +1535,9 @@ const REQUIRED_FUNCTION_SEMANTICS = [
       'Consumed during film box check-in after actual LF was recorded.',
       'Resolved %s checked-out allocation%s totaling %s LF for job %s.',
       'v_reconciliation_result := app_api.reconcile_box_checkin_allocations',
+      'v_resolution := app_api.resolve_box_weight_calibration(p_org_id, v_existing);',
+      'This box is missing the roll-weight calibration needed to calculate remaining LF.',
+      'v_physical_feet_after := app_api.derive_feet_available_from_roll_weight(',
       'v_box.last_checkout_job_id := null;',
       'v_checkout_job_id,',
       'perform app_api.recalculate_film_orders_for_box_links(p_org_id, v_box.box_id, p_actor);',
@@ -1525,7 +1545,10 @@ const REQUIRED_FUNCTION_SEMANTICS = [
     ],
     excludes: [
       "Received physical LF cannot be lower than the box''s active allocated feet",
-      "Released %s active planning allocation%s totaling %s LF for job %s during check-in."
+      "Released %s active planning allocation%s totaling %s LF for job %s during check-in.",
+      "p_payload->>'currentFeetOnRoll'",
+      'CurrentFeetOnRoll is required when this box cannot derive feet from weight alone.',
+      'CoreType is required before this return can establish future weight-based LF math.'
     ]
   },
   {

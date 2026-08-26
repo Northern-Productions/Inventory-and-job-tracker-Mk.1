@@ -20,11 +20,11 @@ function createBoxRow(overrides = {}) {
     status: 'CHECKED_OUT',
     order_date: '2026-04-23',
     received_date: null,
-    initial_weight_lbs: null,
+    initial_weight_lbs: 32.42,
     last_roll_weight_lbs: null,
     last_weighed_date: null,
     film_key: 'SOLAR_GARD|SLATE_20',
-    core_type: '',
+    core_type: 'Red plastic',
     core_weight_lbs: null,
     lf_weight_lbs_per_ft: null,
     price_per_lf: null,
@@ -310,6 +310,9 @@ test('setBoxStatus reuses the direct-to-site first-return note for roll history 
   assert.equal(response.ok, true);
   assert.equal(client.state.rollHistoryEntries.length, 1);
   assert.equal(client.state.auditEntries.length, 1);
+  assert.equal(client.state.box.core_type, 'Red plastic');
+  assert.equal(client.state.box.core_weight_lbs, 0.925);
+  assert.equal(client.state.box.lf_weight_lbs_per_ft, 0.31495);
 
   const rollHistoryNote = client.state.rollHistoryEntries[0].notes;
   const auditNote = client.state.auditEntries[0].notes;
@@ -371,8 +374,8 @@ test('setBoxStatus delegates check-in overuse reconciliation and surfaces affect
       boxId: 'IL1-DTS-2',
       status: 'IN_STOCK',
       lastRollWeightLbs: 2.5,
-      currentFeetOnRoll: 5,
-      coreType: 'Red plastic',
+      currentFeetOnRoll: 99,
+      coreType: 'Cardboard 3/8"',
       auditNote: 'Returned with less LF than other reservations expected',
     },
     'warehouse-user'
@@ -442,8 +445,8 @@ test('setBoxStatus records usage before resolving same-job active allocations du
       boxId: 'IL1-DTS-3',
       status: 'IN_STOCK',
       lastRollWeightLbs: 2.5,
-      currentFeetOnRoll: 5,
-      coreType: 'Red plastic',
+      currentFeetOnRoll: 99,
+      coreType: 'Cardboard 3/8"',
       auditNote: 'Returned with less LF than the checkout job allocation expected',
     },
     'warehouse-user'

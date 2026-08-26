@@ -4,9 +4,10 @@ import {
   asTrimmedString,
   coerceNonNegativeNumber,
   integerOrZero,
-  roundToDecimals,
   normalizeCoreType,
   deriveCoreWeightLbs,
+  deriveLfWeightLbsPerFt,
+  deriveLfWeightLbsPerFtIfPossible,
   deriveFeetAvailableFromRollWeight,
   clampFeetToInitialRange,
   normalizeJobNumberKey,
@@ -18,12 +19,17 @@ import {
 } from '../../../../../shared/domain/filmAllocationReservations.mjs';
 
 function canDeriveCheckInFeetFromWeight(box) {
+  const coreWeightLbs = Number(box?.coreWeightLbs);
+  const lfWeightLbsPerFt = Number(box?.lfWeightLbsPerFt);
   return (
     box?.coreWeightLbs !== null &&
     box?.coreWeightLbs !== undefined &&
     box?.lfWeightLbsPerFt !== null &&
     box?.lfWeightLbsPerFt !== undefined &&
-    Number(box.lfWeightLbsPerFt) > 0
+    Number.isFinite(coreWeightLbs) &&
+    coreWeightLbs >= 0 &&
+    Number.isFinite(lfWeightLbsPerFt) &&
+    lfWeightLbsPerFt > 0
   );
 }
 
@@ -47,46 +53,76 @@ function derivePhysicalFeetBeforeCheckIn(box, lockedAllocatedFeetBeforeCheckIn) 
   );
 }
 
-function parseOptionalCurrentFeetOnRoll(value) {
-  const trimmed = asTrimmedString(value);
-  if (!trimmed) {
+function finiteNumberOrNull(value) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 
-  if (!/^\d+$/.test(trimmed)) {
-    throw new HttpError(400, 'CurrentFeetOnRoll must be a whole number greater than or equal to 0.');
-  }
-
-  return Number(trimmed);
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function resolveCheckInCoreMetrics(box, payloadCoreType) {
-  const submittedCoreType = normalizeCoreType(payloadCoreType, true);
-  if (submittedCoreType) {
+function resolveBoxWeightCalibration(box, filmCatalog = null) {
+  const savedCoreType = normalizeCoreType(box?.coreType, true);
+  const savedCoreWeightLbs = finiteNumberOrNull(box?.coreWeightLbs);
+  const savedLfWeightLbsPerFt = finiteNumberOrNull(box?.lfWeightLbsPerFt);
+
+  if (
+    savedCoreWeightLbs !== null &&
+    savedCoreWeightLbs >= 0 &&
+    savedLfWeightLbsPerFt !== null &&
+    savedLfWeightLbsPerFt > 0
+  ) {
     return {
-      coreType: submittedCoreType,
-      coreWeightLbs: deriveCoreWeightLbs(submittedCoreType, box.widthIn),
+      resolved: true,
+      source: 'SAVED_BOX',
+      coreType: savedCoreType,
+      coreWeightLbs: savedCoreWeightLbs,
+      lfWeightLbsPerFt: savedLfWeightLbsPerFt,
     };
   }
 
-  const existingCoreType = normalizeCoreType(box.coreType, true);
-  if (box.coreWeightLbs !== null && box.coreWeightLbs !== undefined) {
-    return {
-      coreType: existingCoreType,
-      coreWeightLbs: Number(box.coreWeightLbs),
-    };
+  if (savedCoreType) {
+    const coreWeightLbs = deriveCoreWeightLbs(savedCoreType, Number(box?.widthIn));
+    const lfWeightLbsPerFt = deriveLfWeightLbsPerFtIfPossible(
+      finiteNumberOrNull(box?.initialWeightLbs),
+      coreWeightLbs,
+      Number(box?.widthIn),
+      Number(box?.initialFeet)
+    );
+    if (lfWeightLbsPerFt !== null && lfWeightLbsPerFt > 0) {
+      return {
+        resolved: true,
+        source: 'BOX_INITIAL_BASELINE',
+        coreType: savedCoreType,
+        coreWeightLbs,
+        lfWeightLbsPerFt,
+      };
+    }
   }
 
-  if (existingCoreType) {
-    return {
-      coreType: existingCoreType,
-      coreWeightLbs: deriveCoreWeightLbs(existingCoreType, box.widthIn),
-    };
+  const catalogWeight = finiteNumberOrNull(filmCatalog?.sqFtWeightLbsPerSqFt);
+  const catalogCoreType = savedCoreType || normalizeCoreType(filmCatalog?.defaultCoreType, true);
+  if (catalogWeight !== null && catalogWeight > 0 && catalogCoreType) {
+    const coreWeightLbs = deriveCoreWeightLbs(catalogCoreType, Number(box?.widthIn));
+    const lfWeightLbsPerFt = deriveLfWeightLbsPerFt(catalogWeight, Number(box?.widthIn));
+    if (lfWeightLbsPerFt > 0) {
+      return {
+        resolved: true,
+        source: 'FILM_CATALOG',
+        coreType: catalogCoreType,
+        coreWeightLbs,
+        lfWeightLbsPerFt,
+      };
+    }
   }
 
   return {
-    coreType: '',
+    resolved: false,
+    source: 'UNRESOLVED',
+    coreType: savedCoreType,
     coreWeightLbs: null,
+    lfWeightLbsPerFt: null,
   };
 }
 
@@ -126,7 +162,6 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber, op
   const normalizedCheckoutJob = normalizeJobNumberKey(checkoutJobNumber);
   const checkoutJobId = asTrimmedString(options.jobId);
   const firstReturnCalibration = requiresFirstReturnCalibration(existingBox);
-  const currentFeetOnRoll = parseOptionalCurrentFeetOnRoll(payload.currentFeetOnRoll);
   const activeAllocations = Array.isArray(allocations)
     ? allocations.filter((entry) => asTrimmedString(entry?.status).toUpperCase() === 'ACTIVE')
     : [];
@@ -157,17 +192,7 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber, op
     activeLockedAllocatedFeetBeforeCheckIn
   );
 
-  let physicalFeetAfterCheckIn = 0;
-  let resolvedCoreType = normalizeCoreType(existingBox.coreType, true);
-  let resolvedCoreWeightLbs =
-    existingBox.coreWeightLbs === null || existingBox.coreWeightLbs === undefined
-      ? null
-      : Number(existingBox.coreWeightLbs);
-  let resolvedLfWeightLbsPerFt =
-    existingBox.lfWeightLbsPerFt === null || existingBox.lfWeightLbsPerFt === undefined
-      ? null
-      : Number(existingBox.lfWeightLbsPerFt);
-  let usedCalibration = false;
+  const calibration = options.calibration || resolveBoxWeightCalibration(existingBox, options.filmCatalog);
 
   /**
    * PURPOSE:
@@ -187,67 +212,19 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber, op
    * Blocking valid first returns, letting generic status edits bypass
    * calibration, or failing to zero out fully-consumed direct-to-site returns.
    */
-  if (canDeriveCheckInFeetFromWeight(existingBox)) {
-    physicalFeetAfterCheckIn = deriveFeetAvailableFromRollWeight(
-      lastRollWeightLbs,
-      Number(existingBox.coreWeightLbs),
-      Number(existingBox.lfWeightLbsPerFt),
-      integerOrZero(existingBox.initialFeet)
+  if (!calibration.resolved) {
+    throw new HttpError(
+      400,
+      'This box is missing the roll-weight calibration needed to calculate remaining LF. Update its roll-tracking details before checking it in.'
     );
-  } else {
-    if (currentFeetOnRoll === null) {
-      throw new HttpError(
-        400,
-        'CurrentFeetOnRoll is required when this box cannot derive feet from weight alone.'
-      );
-    }
-
-    if (currentFeetOnRoll > integerOrZero(existingBox.initialFeet)) {
-      throw new HttpError(
-        400,
-        `CurrentFeetOnRoll cannot be greater than this box's InitialFeet (${integerOrZero(existingBox.initialFeet)}).`
-      );
-    }
-
-    physicalFeetAfterCheckIn = currentFeetOnRoll;
-    usedCalibration = true;
-
-    if (currentFeetOnRoll === 0) {
-      if (lastRollWeightLbs > 0) {
-        throw new HttpError(
-          400,
-          'CurrentFeetOnRoll cannot be 0 while LastRollWeightLbs is still above 0.'
-        );
-      }
-
-      resolvedCoreType = normalizeCoreType(payload.coreType, true) || resolvedCoreType;
-      if (!resolvedCoreWeightLbs && resolvedCoreType) {
-        resolvedCoreWeightLbs = deriveCoreWeightLbs(resolvedCoreType, existingBox.widthIn);
-      }
-    } else {
-      const resolvedCoreMetrics = resolveCheckInCoreMetrics(existingBox, payload.coreType);
-      if (resolvedCoreMetrics.coreWeightLbs === null) {
-        throw new HttpError(
-          400,
-          'CoreType is required before this return can establish future weight-based LF math.'
-        );
-      }
-
-      if (lastRollWeightLbs <= resolvedCoreMetrics.coreWeightLbs) {
-        throw new HttpError(
-          400,
-          'LastRollWeightLbs must be greater than the core weight when CurrentFeetOnRoll is above 0.'
-        );
-      }
-
-      resolvedCoreType = resolvedCoreMetrics.coreType;
-      resolvedCoreWeightLbs = resolvedCoreMetrics.coreWeightLbs;
-      resolvedLfWeightLbsPerFt = roundToDecimals(
-        (lastRollWeightLbs - resolvedCoreWeightLbs) / currentFeetOnRoll,
-        6
-      );
-    }
   }
+
+  const physicalFeetAfterCheckIn = deriveFeetAvailableFromRollWeight(
+    lastRollWeightLbs,
+    calibration.coreWeightLbs,
+    calibration.lfWeightLbsPerFt,
+    integerOrZero(existingBox.initialFeet)
+  );
 
   const manualReservationOverageFeet = Math.max(otherStoredAllocatedFeet - physicalFeetAfterCheckIn, 0);
 
@@ -266,7 +243,6 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber, op
 
   return {
     lastRollWeightLbs,
-    currentFeetOnRoll,
     physicalFeetBeforeCheckIn,
     physicalFeetAfterCheckIn,
     feetAvailableAfterCheckIn,
@@ -278,10 +254,11 @@ function planBoxCheckIn(existingBox, payload, allocations, checkoutJobNumber, op
     manualReservationOverageFeet,
     autoPlannedReservationOverageFeet,
     otherJobs: summarizeOtherJobs(otherActiveAllocations),
-    coreType: resolvedCoreType,
-    coreWeightLbs: resolvedCoreWeightLbs,
-    lfWeightLbsPerFt: resolvedLfWeightLbsPerFt,
-    usedCalibration,
+    coreType: calibration.coreType,
+    coreWeightLbs: calibration.coreWeightLbs,
+    lfWeightLbsPerFt: calibration.lfWeightLbsPerFt,
+    calibrationSource: calibration.source,
+    usedCalibration: calibration.source !== 'SAVED_BOX',
     autoMoveToZeroed,
   };
 }
@@ -290,5 +267,6 @@ export {
   canDeriveCheckInFeetFromWeight,
   canDeriveStoredPhysicalFeetFromWeight,
   derivePhysicalFeetBeforeCheckIn,
+  resolveBoxWeightCalibration,
   planBoxCheckIn,
 };
