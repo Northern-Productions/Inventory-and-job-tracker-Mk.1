@@ -3,6 +3,7 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AllocationJobDetailEntry, Box, FilmOrderEntry, JobListEntry } from '../../../domain';
+import { FilmCheckinDialog } from '../components/FilmCheckinDialog';
 import { JobConfirmationDialogs } from './allocation-job/JobConfirmationDialogs';
 import { useJobFilmWorkflow } from './allocation-job/useJobFilmWorkflow';
 
@@ -197,31 +198,63 @@ describe('Allocation job film returns', () => {
     }));
   });
 
-  it('renders the dedicated return dialog for checked-out allocations that need current feet', async () => {
+  it('renders the shared weight-only return dialog for checked-out allocations', async () => {
     const onConfirmFilmCheckin = vi.fn();
     renderJobDialogs(onConfirmFilmCheckin);
 
     const dialog = await screen.findByRole('dialog', { name: 'Check In MS1-919' });
-    expect(within(dialog).getByLabelText(/Current Linear Feet/i)).toBeTruthy();
+    const returnedWeightInput = within(dialog).getByRole('spinbutton', {
+      name: /Returned Roll Weight/i
+    }) as HTMLInputElement;
+    expect(returnedWeightInput.value).toBe('');
+    expect(within(dialog).queryByLabelText(/Current Linear Feet/i)).toBeNull();
+    expect(within(dialog).queryByLabelText(/Core Type/i)).toBeNull();
     expect(within(dialog).getByText(/close the current checkout for job 4580/i)).toBeTruthy();
 
-    fireEvent.change(within(dialog).getByRole('spinbutton', { name: /Last Roll Weight/i }), {
+    fireEvent.change(returnedWeightInput, {
       target: { value: '3.34' }
-    });
-    fireEvent.change(within(dialog).getByLabelText(/Current Linear Feet/i), {
-      target: { value: '19' }
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Check In' }));
 
     await waitFor(() =>
       expect(onConfirmFilmCheckin).toHaveBeenCalledWith(
         expect.objectContaining({
-          lastRollWeightLbs: '3.34',
-          currentFeetOnRoll: '19',
-          coreType: 'Red plastic'
+          lastRollWeightLbs: '3.34'
         })
       )
     );
+  });
+
+  it('clears an abandoned returned weight before the dialog reopens', () => {
+    const box = buildFilmBox();
+    const props = {
+      box,
+      pending: false,
+      loading: false,
+      onCancel: vi.fn(),
+      onConfirm: vi.fn()
+    };
+    const { rerender } = render(<FilmCheckinDialog open {...props} />);
+    const dialogs = screen.getAllByRole('dialog');
+    const dialog = dialogs[dialogs.length - 1];
+    expect(dialog).toBeTruthy();
+    const returnedWeightInput = within(dialog as HTMLElement).getByRole('spinbutton', {
+      name: /Returned Roll Weight/i
+    }) as HTMLInputElement;
+
+    fireEvent.change(returnedWeightInput, { target: { value: '3.34' } });
+    fireEvent.click(within(dialog as HTMLElement).getByRole('button', { name: 'Cancel' }));
+    rerender(<FilmCheckinDialog open={false} {...props} />);
+    rerender(<FilmCheckinDialog open {...props} />);
+
+    const reopenedDialogs = screen.getAllByRole('dialog');
+    const reopenedDialog = reopenedDialogs[reopenedDialogs.length - 1];
+    expect(reopenedDialog).toBeTruthy();
+    expect(
+      (within(reopenedDialog as HTMLElement).getByRole('spinbutton', {
+        name: /Returned Roll Weight/i
+      }) as HTMLInputElement).value
+    ).toBe('');
   });
 
   it('renders a stale fulfilled-requirement film order prompt with explicit keep and cancel actions', async () => {
@@ -294,9 +327,7 @@ describe('Allocation job film returns', () => {
 
     act(() => {
       result.current.handleFilmCheckinConfirm({
-        lastRollWeightLbs: '3.34',
-        currentFeetOnRoll: '19',
-        coreType: 'Red plastic'
+        lastRollWeightLbs: '3.34'
       });
     });
 
@@ -306,14 +337,14 @@ describe('Allocation job film returns', () => {
           boxId: 'MS1-919',
           status: 'IN_STOCK',
           lastRollWeightLbs: 3.34,
-          currentFeetOnRoll: 19,
-          auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
+          auditNote: 'Checked in at 3.34 lbs'
         })
       )
     );
 
     const submittedPayload = setBoxStatus.mock.calls[0]?.[0];
     expect(submittedPayload).not.toHaveProperty('coreType');
+    expect(submittedPayload).not.toHaveProperty('currentFeetOnRoll');
     expect(result.current.filmCheckinEntry).toBeNull();
 
     await waitFor(() => {

@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Box } from '../../../domain';
 import {
   buildFilmCheckinPayload,
-  checkInNeedsCurrentFeet,
-  createFilmCheckinDraft,
-  requiresFirstReturnCalibration
+  createFilmCheckinDraft
 } from './boxHelpers';
 
 function createBox(overrides: Partial<Box> = {}): Box {
@@ -42,20 +40,23 @@ function createBox(overrides: Partial<Box> = {}): Box {
 }
 
 describe('boxCheckin helpers', () => {
-  it('keeps the normal weight-only check-in payload when feet can already be derived from weight', () => {
+  it('always creates a blank returned-weight draft instead of reusing the prior weight', () => {
+    expect(createFilmCheckinDraft(createBox({ lastRollWeightLbs: 7.25 }))).toEqual({
+      lastRollWeightLbs: ''
+    });
+  });
+
+  it('builds a weight-only check-in payload when saved calibration is present', () => {
     const payload = buildFilmCheckinPayload(
       createBox({
         coreWeightLbs: 1.2847,
         lfWeightLbsPerFt: 0.108174
       }),
       {
-        lastRollWeightLbs: '3.34',
-        currentFeetOnRoll: '',
-        coreType: ''
+        lastRollWeightLbs: '3.34'
       }
     );
 
-    expect(checkInNeedsCurrentFeet(createBox({ coreWeightLbs: 1.2847, lfWeightLbsPerFt: 0.108174 }))).toBe(false);
     expect(payload).toEqual({
       boxId: 'MS1-919',
       status: 'IN_STOCK',
@@ -64,7 +65,7 @@ describe('boxCheckin helpers', () => {
     });
   });
 
-  it('includes current feet but omits an unchanged core type during missing-initial-weight calibration', () => {
+  it('does not send LF or core overrides when calibration must self-heal on the server', () => {
     const box = createBox({
       coreType: 'Red plastic',
       coreWeightLbs: null,
@@ -72,21 +73,20 @@ describe('boxCheckin helpers', () => {
     });
     const draft = createFilmCheckinDraft(box);
     draft.lastRollWeightLbs = '3.34';
-    draft.currentFeetOnRoll = '19';
 
     const payload = buildFilmCheckinPayload(box, draft);
 
-    expect(checkInNeedsCurrentFeet(box)).toBe(true);
     expect(payload).toEqual({
       boxId: 'MS1-919',
       status: 'IN_STOCK',
       lastRollWeightLbs: 3.34,
-      currentFeetOnRoll: 19,
-      auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
+      auditNote: 'Checked in at 3.34 lbs'
     });
+    expect(payload).not.toHaveProperty('currentFeetOnRoll');
+    expect(payload).not.toHaveProperty('coreType');
   });
 
-  it('treats direct-to-site first returns without a received date as required calibration', () => {
+  it('uses the same weight-only contract for direct-to-site first returns', () => {
     const box = createBox({
       receivedDate: '',
       directToJobSite: true,
@@ -95,71 +95,31 @@ describe('boxCheckin helpers', () => {
       lfWeightLbsPerFt: null
     });
 
-    expect(requiresFirstReturnCalibration(box)).toBe(true);
-    expect(checkInNeedsCurrentFeet(box)).toBe(true);
     expect(
       buildFilmCheckinPayload(box, {
-        lastRollWeightLbs: '3.34',
-        currentFeetOnRoll: '19',
-        coreType: ''
+        lastRollWeightLbs: '3.34'
       })
     ).toEqual({
       boxId: 'MS1-919',
       status: 'IN_STOCK',
       lastRollWeightLbs: 3.34,
-      currentFeetOnRoll: 19,
-      auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
+      auditNote: 'Checked in at 3.34 lbs'
     });
   });
 
-  it('includes a submitted core type when calibration needs it', () => {
-    const payload = buildFilmCheckinPayload(
-      createBox({
-        coreType: '',
-        coreWeightLbs: null,
-        lfWeightLbsPerFt: null
-      }),
-      {
-        lastRollWeightLbs: '3.34',
-        currentFeetOnRoll: '19',
-        coreType: 'Red plastic'
-      }
-    );
-
-    expect(payload).toEqual({
-      boxId: 'MS1-919',
-      status: 'IN_STOCK',
-      lastRollWeightLbs: 3.34,
-      currentFeetOnRoll: 19,
-      coreType: 'Red plastic',
-      auditNote: 'Checked in at 3.34 lbs with 19 LF remaining'
-    });
-  });
-
-  it('rejects impossible zero-foot returns that still have weight on the roll', () => {
+  it('requires a returned weight', () => {
     expect(() =>
       buildFilmCheckinPayload(createBox(), {
-        lastRollWeightLbs: '3.34',
-        currentFeetOnRoll: '0',
-        coreType: 'Red plastic'
+        lastRollWeightLbs: ''
       })
-    ).toThrow('Current Linear Feet cannot be 0 while Last Roll Weight is still above 0.');
+    ).toThrow('Returned Roll Weight is required.');
   });
 
-  it('rejects positive-foot calibration when no core type can be resolved', () => {
+  it('rejects negative returned weight without consulting LF or core data', () => {
     expect(() =>
-      buildFilmCheckinPayload(
-        createBox({
-          coreType: '',
-          coreWeightLbs: null,
-          lfWeightLbsPerFt: null
-        }),
-        {
-          lastRollWeightLbs: '3.34',
-          currentFeetOnRoll: '19',
-          coreType: ''
-        }
-      )
-    ).toThrow('Core Type is required before this return can establish future weight-based LF math.');
+      buildFilmCheckinPayload(createBox(), {
+        lastRollWeightLbs: '-0.01'
+      })
+    ).toThrow('Returned Roll Weight must be a valid non-negative number.');
   });
 });

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planBoxCheckIn } from '../../src/app/services/runtime/runtimeBoxCheckin.mjs';
+import {
+  planBoxCheckIn,
+  resolveBoxWeightCalibration,
+} from '../../src/app/services/runtime/runtimeBoxCheckin.mjs';
 
 function buildBox(overrides = {}) {
   return {
@@ -14,7 +17,7 @@ function buildBox(overrides = {}) {
     feetAvailable: 5,
     status: 'CHECKED_OUT',
     receivedDate: '2023-07-31',
-    initialWeightLbs: null,
+    initialWeightLbs: 6.15,
     lastRollWeightLbs: null,
     lastWeighedDate: '',
     coreType: 'Red plastic',
@@ -42,12 +45,65 @@ function buildAllocation(overrides = {}) {
   };
 }
 
-test('planBoxCheckIn calibrates missing-initial-weight returns and releases same-job planning feet', () => {
+test('resolveBoxWeightCalibration prefers valid saved calibration', () => {
+  const calibration = resolveBoxWeightCalibration(
+    buildBox({
+      coreWeightLbs: 1.2,
+      lfWeightLbsPerFt: 0.1,
+    }),
+    {
+      sqFtWeightLbsPerSqFt: 0.5,
+      defaultCoreType: 'Cardboard 1/8"',
+    }
+  );
+
+  assert.deepEqual(calibration, {
+    resolved: true,
+    source: 'SAVED_BOX',
+    coreType: 'Red plastic',
+    coreWeightLbs: 1.2,
+    lfWeightLbsPerFt: 0.1,
+  });
+});
+
+test('resolveBoxWeightCalibration derives a box-specific baseline before catalog fallback', () => {
+  const calibration = resolveBoxWeightCalibration(buildBox(), {
+    sqFtWeightLbsPerSqFt: 0.5,
+    defaultCoreType: 'Cardboard 1/8"',
+  });
+
+  assert.equal(calibration.resolved, true);
+  assert.equal(calibration.source, 'BOX_INITIAL_BASELINE');
+  assert.equal(calibration.coreType, 'Red plastic');
+  assert.equal(calibration.coreWeightLbs, 1.2847);
+  assert.equal(calibration.lfWeightLbsPerFt, 0.108118);
+});
+
+test('resolveBoxWeightCalibration uses the existing film catalog when box-specific history is incomplete', () => {
+  const calibration = resolveBoxWeightCalibration(
+    buildBox({
+      initialWeightLbs: null,
+      coreType: '',
+    }),
+    {
+      sqFtWeightLbsPerSqFt: 0.03,
+      defaultCoreType: 'Cardboard 1/8"',
+    }
+  );
+
+  assert.equal(calibration.resolved, true);
+  assert.equal(calibration.source, 'FILM_CATALOG');
+  assert.equal(calibration.coreType, 'Cardboard 1/8"');
+  assert.equal(calibration.lfWeightLbsPerFt, 0.125);
+});
+
+test('planBoxCheckIn self-heals missing saved calibration and releases same-job planning feet', () => {
   const plan = planBoxCheckIn(
     buildBox(),
     {
       lastRollWeightLbs: 3.34,
-      currentFeetOnRoll: 19,
+      currentFeetOnRoll: 44,
+      coreType: 'Cardboard 3/8"',
     },
     [buildAllocation()],
     '4580'
@@ -61,7 +117,8 @@ test('planBoxCheckIn calibrates missing-initial-weight returns and releases same
   assert.equal(plan.otherActiveAllocatedFeet, 0);
   assert.equal(plan.coreType, 'Red plastic');
   assert.equal(plan.coreWeightLbs, 1.2847);
-  assert.equal(plan.lfWeightLbsPerFt, 0.108174);
+  assert.equal(plan.lfWeightLbsPerFt, 0.108118);
+  assert.equal(plan.calibrationSource, 'BOX_INITIAL_BASELINE');
   assert.equal(plan.usedCalibration, true);
   assert.equal(plan.autoMoveToZeroed, false);
 });
@@ -71,7 +128,7 @@ test('planBoxCheckIn preserves other-job reservations after same-job check-in re
     buildBox(),
     {
       lastRollWeightLbs: 2.37,
-      currentFeetOnRoll: 10,
+      currentFeetOnRoll: 40,
     },
     [
       buildAllocation(),
@@ -99,7 +156,7 @@ test('planBoxCheckIn scopes same-number check-in release by jobId when available
     buildBox(),
     {
       lastRollWeightLbs: 2.37,
-      currentFeetOnRoll: 10,
+      currentFeetOnRoll: 40,
     },
     [
       buildAllocation({
@@ -130,7 +187,7 @@ test('planBoxCheckIn flags zero-foot returns for auto-zero handling', () => {
     buildBox(),
     {
       lastRollWeightLbs: 0,
-      currentFeetOnRoll: 0,
+      currentFeetOnRoll: 40,
     },
     [buildAllocation()],
     '4580'
@@ -150,7 +207,6 @@ test('planBoxCheckIn allows direct-to-site first returns without a received date
     }),
     {
       lastRollWeightLbs: 0,
-      currentFeetOnRoll: 0,
     },
     [buildAllocation()],
     '4580'
@@ -161,23 +217,22 @@ test('planBoxCheckIn allows direct-to-site first returns without a received date
   assert.equal(plan.autoMoveToZeroed, true);
 });
 
-test('planBoxCheckIn requires current feet for approved direct-to-site first returns', () => {
-  assert.throws(
-    () =>
-      planBoxCheckIn(
-        buildBox({
-          receivedDate: '',
-          directToJobSite: true,
-          lastRollWeightLbs: null,
-        }),
-        {
-          lastRollWeightLbs: 3.34,
-        },
-        [buildAllocation()],
-        '4580'
-      ),
-    /CurrentFeetOnRoll is required/
+test('planBoxCheckIn keeps direct-to-site first returns weight-only when initial history is sufficient', () => {
+  const plan = planBoxCheckIn(
+    buildBox({
+      receivedDate: '',
+      directToJobSite: true,
+      lastRollWeightLbs: null,
+    }),
+    {
+      lastRollWeightLbs: 3.34,
+    },
+    [buildAllocation()],
+    '4580'
   );
+
+  assert.equal(plan.physicalFeetAfterCheckIn, 19);
+  assert.equal(plan.calibrationSource, 'BOX_INITIAL_BASELINE');
 });
 
 test('planBoxCheckIn keeps normal weight-only returns on the existing derived path', () => {
@@ -209,7 +264,7 @@ test('planBoxCheckIn allows manual reservations to exceed returned physical LF f
     buildBox(),
     {
       lastRollWeightLbs: 1.9,
-      currentFeetOnRoll: 5,
+      currentFeetOnRoll: 40,
     },
     [
       buildAllocation(),
@@ -232,7 +287,7 @@ test('planBoxCheckIn leaves AUTO_PLANNED overage for planner reconciliation', ()
     buildBox(),
     {
       lastRollWeightLbs: 1.9,
-      currentFeetOnRoll: 5,
+      currentFeetOnRoll: 40,
     },
     [
       buildAllocation(),
@@ -253,37 +308,40 @@ test('planBoxCheckIn leaves AUTO_PLANNED overage for planner reconciliation', ()
   assert.equal(plan.autoPlannedReservationOverageFeet, 5);
 });
 
-test('planBoxCheckIn requires a core type when calibration cannot derive a core weight', () => {
+test('planBoxCheckIn fails explicitly when no canonical calibration source can resolve', () => {
   assert.throws(
     () =>
       planBoxCheckIn(
         buildBox({
           coreType: '',
           coreWeightLbs: null,
+          initialWeightLbs: null,
         }),
         {
           lastRollWeightLbs: 3.34,
           currentFeetOnRoll: 19,
+          coreType: 'Red plastic',
         },
         [buildAllocation()],
         '4580'
       ),
-    /CoreType is required/
+    /missing the roll-weight calibration needed to calculate remaining LF/
   );
 });
 
-test('planBoxCheckIn rejects nonzero weight when current feet is zero', () => {
-  assert.throws(
-    () =>
-      planBoxCheckIn(
-        buildBox(),
-        {
-          lastRollWeightLbs: 0.5,
-          currentFeetOnRoll: 0,
-        },
-        [buildAllocation()],
-        '4580'
-      ),
-    /CurrentFeetOnRoll cannot be 0/
+test('planBoxCheckIn derives LF from returned weight even when an old client submits conflicting LF', () => {
+  const plan = planBoxCheckIn(
+    buildBox(),
+    {
+      lastRollWeightLbs: 3.34,
+      currentFeetOnRoll: 0,
+      coreType: 'Cardboard 3/8"',
+    },
+    [buildAllocation()],
+    '4580'
   );
+
+  assert.equal(plan.physicalFeetAfterCheckIn, 19);
+  assert.equal(plan.coreType, 'Red plastic');
+  assert.equal(plan.lfWeightLbsPerFt, 0.108118);
 });

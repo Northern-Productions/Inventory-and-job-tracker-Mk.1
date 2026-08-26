@@ -1,15 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../../components/Button';
 import { DialogSurface } from '../../../components/DialogSurface';
 import { Input } from '../../../components/Input';
-import { Select } from '../../../components/Select';
 import type { Box } from '../../../domain';
 import {
-  CORE_TYPE_OPTIONS,
-  checkInNeedsCurrentFeet,
-  checkInRequiresCoreType,
   createFilmCheckinDraft,
-  requiresFirstReturnCalibration,
   type FilmCheckinDraft,
   validateFilmCheckinDraft
 } from '../utils/boxHelpers';
@@ -26,14 +21,6 @@ interface FilmCheckinDialogProps {
   onConfirm: (draft: FilmCheckinDraft) => void | Promise<void>;
 }
 
-const CORE_TYPE_SELECT_OPTIONS = [
-  { label: 'Select core type', value: '' },
-  ...CORE_TYPE_OPTIONS.map((entry) => ({
-    label: entry,
-    value: entry
-  }))
-];
-
 export function FilmCheckinDialog({
   open,
   box,
@@ -46,9 +33,7 @@ export function FilmCheckinDialog({
   onConfirm
 }: FilmCheckinDialogProps) {
   const [draft, setDraft] = useState<FilmCheckinDraft>({
-    lastRollWeightLbs: '',
-    currentFeetOnRoll: '',
-    coreType: ''
+    lastRollWeightLbs: ''
   });
   const [error, setError] = useState('');
 
@@ -62,34 +47,18 @@ export function FilmCheckinDialog({
       initialDraft ||
         (box
           ? createFilmCheckinDraft(box)
-          : { lastRollWeightLbs: '', currentFeetOnRoll: '', coreType: '' })
+          : { lastRollWeightLbs: '' })
     );
     setError('');
   }, [box, initialDraft, open]);
-
-  const needsCurrentFeet = box ? checkInNeedsCurrentFeet(box) : false;
-  const coreTypeRequired = box ? checkInRequiresCoreType(box, draft.currentFeetOnRoll) : false;
-  const introCopy = useMemo(() => {
-    if (!box) {
-      return 'Loading the latest box details before completing this return.';
-    }
-
-    if (requiresFirstReturnCalibration(box)) {
-      return 'This direct-to-site roll is arriving at the warehouse for the first time, so both the returned roll weight and Current Linear Feet are required to establish its tracked inventory baseline.';
-    }
-
-    if (needsCurrentFeet) {
-      return 'This box does not have enough saved weight history to derive remaining LF from weight alone, so Current Linear Feet is required for this return.';
-    }
-
-    return 'Enter the returned roll weight to complete this box check-in.';
-  }, [box, needsCurrentFeet]);
 
   function handleRequestClose() {
     if (pending) {
       return;
     }
 
+    setDraft({ lastRollWeightLbs: '' });
+    setError('');
     onCancel();
   }
 
@@ -134,7 +103,9 @@ export function FilmCheckinDialog({
         </button>
       </div>
       <p id="film-checkin-dialog-description" className="muted-text dialog-message">
-        {introCopy}
+        {box
+          ? 'Enter the returned roll weight to complete this box check-in.'
+          : 'Loading the latest box details before completing this return.'}
       </p>
       {releaseJobNumber ? (
         <p className="muted-text">
@@ -145,7 +116,7 @@ export function FilmCheckinDialog({
       {loadError ? <p className="error-text">{loadError}</p> : null}
       <div className="form-grid">
         <Input
-          label="Last Roll Weight (lbs)"
+          label="Returned Roll Weight (lbs)"
           type="number"
           step="0.01"
           min="0"
@@ -156,45 +127,9 @@ export function FilmCheckinDialog({
             setDraft((current) => ({ ...current, lastRollWeightLbs: event.target.value }));
             setError('');
           }}
-          hint="Save the returned roll weight in pounds."
+          hint="The returned scale weight determines physical remaining LF."
           disabled={pending || loading || !box}
         />
-        {needsCurrentFeet ? (
-          <Input
-            label={coreTypeRequired ? 'Current Linear Feet *' : 'Current Linear Feet'}
-            value={draft.currentFeetOnRoll}
-            placeholder="Required"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            onChange={(event) => {
-              const nextValue = event.target.value.replace(/[^0-9]/g, '');
-              setDraft((current) => ({ ...current, currentFeetOnRoll: nextValue }));
-              setError('');
-            }}
-            hint="Required because this box cannot derive remaining LF from weight alone yet."
-            disabled={pending || loading || !box}
-          />
-        ) : null}
-        {needsCurrentFeet ? (
-          <Select
-            label={coreTypeRequired ? 'Core Type *' : 'Core Type'}
-            options={CORE_TYPE_SELECT_OPTIONS}
-            value={draft.coreType}
-            onChange={(event) => {
-              setDraft((current) => ({
-                ...current,
-                coreType: event.target.value as FilmCheckinDraft['coreType']
-              }));
-              setError('');
-            }}
-            hint={
-              coreTypeRequired
-                ? 'Required to establish future weight-based LF math for this box.'
-                : 'Leave the saved core type selected unless the returned roll is on a different core.'
-            }
-            disabled={pending || loading || !box}
-          />
-        ) : null}
       </div>
       {error ? <p className="error-text">{error}</p> : null}
       <div className="dialog-actions dialog-actions-sticky-footer">

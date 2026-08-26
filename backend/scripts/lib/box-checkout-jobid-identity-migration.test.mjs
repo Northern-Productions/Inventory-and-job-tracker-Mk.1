@@ -230,7 +230,7 @@ test('box status duplicate checkout guard requires jobId for ambiguous checkout 
   assert.match(localBoxStatus, /async function assertLegacyCheckoutJobNumberIsUnambiguous/);
   assert.match(localBoxStatus, /matches\.length > 1/);
   assert.match(localBoxStatus, /await assertLegacyCheckoutJobNumberIsUnambiguous\(client, orgId, jobNumber\);/);
-  assert.match(localBoxStatus, /planBoxCheckIn\(existing, payload, existingAllocations, checkoutJob, \{\s+jobId: checkoutJobId\s+\}\)/s);
+  assert.match(localBoxStatus, /planBoxCheckIn\(existing, payload, existingAllocations, checkoutJob, \{\s+jobId: checkoutJobId,\s+calibration\s+\}\)/s);
   assert.match(localBoxStatus, /jobId: checkoutJobId/);
 
 
