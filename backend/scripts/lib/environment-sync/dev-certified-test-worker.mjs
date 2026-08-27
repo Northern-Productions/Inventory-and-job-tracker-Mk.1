@@ -126,6 +126,7 @@ function runOperationWorker() {
     return;
   }
   const forbidden = Object.keys(process.env).filter((name) =>
+    name !== 'DEV_REFRESH_AUTHORITY_KEY_FD' &&
     /(?:PROD|SANDBOX|VERCEL|DEPLOY|RELEASE|TOKEN|SECRET|PASSWORD|AUTH)/i.test(name));
   if (forbidden.length > 0 || process.env.DEV_REFRESH_TARGET !== 'dev') process.exit(93);
   const refreshContract = contract(

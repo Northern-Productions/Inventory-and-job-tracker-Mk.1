@@ -24,6 +24,10 @@ import {
   startDisposablePostgres,
   withClient
 } from './disposable-postgres.mjs';
+import {
+  captureNativeSmokePreservation,
+  verifyNativeSmokePreservation
+} from './native-smoke-preservation.mjs';
 import { parseDatabaseConnection, postgresChildEnvironment } from './encrypted-baseline.mjs';
 import {
   assertApplicationReplacementCompatibility,
@@ -414,7 +418,12 @@ async function captureManagedPlaneFingerprint(connectionString) {
   });
 }
 
-async function captureApplicationPlane(connectionString) {
+async function captureApplicationPlane(connectionString, { excludeOrganizationId = '' } = {}) {
+  const excludedOrganization = String(excludeOrganizationId || '').toLowerCase();
+  if (
+    excludedOrganization &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(excludedOrganization)
+  ) throw categoricalError('MANAGED_APPLICATION_EXCLUSION_INVALID');
   return withClient(connectionString, async (client) => {
     const relations = (await client.query(
       `select n.nspname as schema_name, c.relname as relation_name, c.relkind
@@ -445,10 +454,27 @@ async function captureApplicationPlane(connectionString) {
     const tableRows = [];
     for (const relation of relations.filter((entry) => ['r', 'p'].includes(entry.relkind))) {
       const qualified = `${quoteIdentifier(relation.schema_name)}.${quoteIdentifier(relation.relation_name)}`;
+      let exclusion = '';
+      let parameters = [];
+      if (excludedOrganization && relation.schema_name === 'app') {
+        const columns = (await client.query(
+          `select column_name from information_schema.columns
+            where table_schema=$1 and table_name=$2 and column_name in ('id','org_id')`,
+          [relation.schema_name, relation.relation_name]
+        )).rows.map((row) => row.column_name);
+        if (relation.relation_name === 'organizations' && columns.includes('id')) {
+          exclusion = 'where t.id <> $1::uuid';
+          parameters = [excludedOrganization];
+        } else if (columns.includes('org_id')) {
+          exclusion = 'where t.org_id <> $1::uuid';
+          parameters = [excludedOrganization];
+        }
+      }
       const result = (await client.query(
         `select count(*)::bigint as count,
-                md5(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, '|' order by pg_catalog.to_jsonb(t)::text), '')) as digest
-           from ${qualified} t`
+                 md5(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, '|' order by pg_catalog.to_jsonb(t)::text), '')) as digest
+           from ${qualified} t ${exclusion}`,
+        parameters
       )).rows[0];
       tableRows.push({
         schemaName: relation.schema_name,
@@ -468,6 +494,7 @@ async function captureApplicationPlane(connectionString) {
       grantDigest: aclContract.grantDigest,
       aclObjectDigest: aclContract.objectDigest,
       tableDigest: canonicalDigest(tableRows),
+      tableRows,
       tableCount: tableRows.length,
       migration: { count: Number(migration.count), tip: String(migration.tip || '') }
     };
@@ -476,11 +503,20 @@ async function captureApplicationPlane(connectionString) {
   });
 }
 
-async function captureAuthParity(connectionString) {
+async function captureAuthParity(connectionString, { excludeNativeSmoke = false } = {}) {
   return withClient(connectionString, async (client) => {
-    const users = (await client.query('select id::text from auth.users order by id')).rows;
+    const userPredicate = excludeNativeSmoke
+      ? "where coalesce((raw_user_meta_data->>'x_np_target_native_smoke')::boolean, false) is not true"
+      : '';
+    const identityPredicate = excludeNativeSmoke
+      ? "where coalesce((u.raw_user_meta_data->>'x_np_target_native_smoke')::boolean, false) is not true"
+      : '';
+    const users = (await client.query(`select id::text from auth.users ${userPredicate} order by id`)).rows;
     const identities = (await client.query(
-      'select id::text, user_id::text from auth.identities order by id'
+      `select i.id::text, i.user_id::text
+         from auth.identities i join auth.users u on u.id = i.user_id
+         ${identityPredicate}
+        order by i.id`
     )).rows;
     const unsafe = (await client.query(
       `select
@@ -489,7 +525,7 @@ async function captureAuthParity(connectionString) {
                               or banned_until <> 'infinity'::timestamptz)::bigint as unsafe_users,
          (select count(*)::bigint from auth.sessions) as sessions,
          (select count(*)::bigint from auth.refresh_tokens) as refresh_tokens
-       from auth.users`
+       from auth.users ${userPredicate}`
     )).rows[0];
     return {
       userCount: users.length,
@@ -553,6 +589,57 @@ async function installTargetNativeSmoke(connectionString, smokeProfile) {
       }
     },
     { application_name: 'environment-sync-x-rehearsal' }
+  );
+}
+
+async function installTargetNativeSmokeOrganization(connectionString, smokeProfile) {
+  return withClient(
+    connectionString,
+    async (client) => {
+      await client.query('begin');
+      try {
+        const organizationId = (await client.query(
+          'insert into app.organizations(name) values ($1) returning id',
+          [`Native DEV certification ${crypto.randomBytes(12).toString('hex')}`]
+        )).rows[0].id;
+        await client.query(
+          `insert into app.organization_members(org_id, user_id, role, status, updated_by_actor)
+           values ($1::uuid, $2::uuid, 'owner', 'active', 'environment-sync-rehearsal')`,
+          [organizationId, smokeProfile.userId]
+        );
+        await client.query(
+          `insert into app.warehouses(org_id, code, name, box_id_prefix, created_by, updated_by)
+           values
+             ($1::uuid, 'IL1', 'Native DEV IL1', 'IL1', 'environment-sync-rehearsal', 'environment-sync-rehearsal'),
+             ($1::uuid, 'MS1', 'Native DEV MS1', 'MS1', 'environment-sync-rehearsal', 'environment-sync-rehearsal')`,
+          [organizationId]
+        );
+        await client.query(
+          `insert into app.owner_companies(org_id, code, display_name, created_by, updated_by)
+           values
+             ($1::uuid, 'MGT', 'MGT', 'environment-sync-rehearsal', 'environment-sync-rehearsal'),
+             ($1::uuid, 'EDH', 'EDH', 'environment-sync-rehearsal', 'environment-sync-rehearsal'),
+             ($1::uuid, 'KAM', 'KAM', 'environment-sync-rehearsal', 'environment-sync-rehearsal')`,
+          [organizationId]
+        );
+        await client.query(
+          `insert into app.general_feature_permissions(
+             org_id, feature_area, read_enabled, write_enabled, updated_by
+           )
+           select $1::uuid, feature_area, true, true, 'environment-sync-rehearsal'
+             from unnest(array[
+               'inventory','allocations','jobs','film_orders','activity_history','reports'
+             ]::text[]) feature_area`,
+          [organizationId]
+        );
+        await client.query('commit');
+        return { organizationId: String(organizationId) };
+      } catch (error) {
+        await client.query('rollback').catch(() => {});
+        throw error;
+      }
+    },
+    { application_name: 'environment-sync-native-smoke-organization-rehearsal' }
   );
 }
 
@@ -1064,6 +1151,234 @@ async function captureTargetCatalogProof(connectionString, manifest, managedProf
   return { ...proof, applicationReplacement };
 }
 
+async function generateCurrentDatabaseRecoveryPackage({
+  connectionString,
+  archivePath,
+  sourceComponent,
+  privateDirectory,
+  attemptId,
+  authorityKey,
+  postgresBin = '',
+  target = { environment: 'dev', projectRef: 'd'.repeat(20) }
+} = {}) {
+  if (!Buffer.isBuffer(authorityKey) || authorityKey.length !== 32) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_KEY_INVALID');
+  }
+  const tools = resolvePostgresTools(postgresBin);
+  const tocBytes = execFileSync(tools.pgRestore, ['--list', archivePath], {
+    shell: false,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'ignore'],
+    maxBuffer: 32 * 1024 * 1024
+  });
+  try {
+    const manifest = buildManagedRestoreManifest({
+      tocText: tocBytes.toString('utf8'),
+      sourceComponent
+    });
+    const shape = await captureAuthShape(connectionString);
+    const authCompatibility = assertAuthOverlayCompatibility({
+      sourceColumns: shape.columns,
+      targetColumns: shape.columns,
+      targetTriggers: shape.triggers
+    });
+    const normalizedTarget = {
+      environment: String(target?.environment || ''),
+      projectRef: String(target?.projectRef || '')
+    };
+    if (
+      normalizedTarget.environment !== 'dev' ||
+      !/^[a-z0-9]{10,40}$/.test(normalizedTarget.projectRef)
+    ) throw categoricalError('DEV_Y2_RECOVERY_TARGET_INVALID');
+    const catalogEvidence = await captureTargetCatalogEvidence(connectionString, manifest);
+    const profileCertificate = issueSyntheticManagedProfile({
+      profileId: 'dev-y2-current-managed-profile',
+      target: normalizedTarget,
+      evidence: catalogEvidence.evidence,
+      key: authorityKey
+    });
+    const targetCatalog = await captureTargetCatalogProof(connectionString, manifest, {
+      certificate: profileCertificate,
+      key: authorityKey,
+      target: normalizedTarget,
+      expectedProfileId: 'dev-y2-current-managed-profile'
+    });
+    const defaultAclCertificate = issueSyntheticApplicationDefaultAcl({
+      target: normalizedTarget,
+      targetCatalog,
+      key: authorityKey
+    });
+    const [application, authEvidence, sourceAclContract] = await Promise.all([
+      captureApplicationPlane(connectionString),
+      withClient(connectionString, captureExactAuthRecoveryEvidence),
+      withClient(connectionString, captureApplicationAclContract)
+    ]);
+    const authAuthority = buildExactAuthRecoveryAuthority({
+      attemptId,
+      target: normalizedTarget,
+      sourceComponentDigest: sourceComponent.digest,
+      migration: application.migration,
+      evidence: authEvidence
+    }, authorityKey);
+    const packageResult = generateManagedOverlayPackage({
+      pgRestorePath: tools.pgRestore,
+      pgDumpPath: tools.pgDump,
+      archivePath,
+      sourceConnectionString: connectionString,
+      privateDirectory,
+      sourceComponent,
+      authEvidence: {},
+      migration: application.migration,
+      authCompatibility,
+      targetCatalog,
+      applicationReplacement: targetCatalog.applicationReplacement,
+      sourceAclContract,
+      applicationDefaultAcl: { certificate: defaultAclCertificate, key: authorityKey },
+      authRecovery: {
+        authority: authAuthority,
+        key: authorityKey,
+        attemptId
+      }
+    });
+    return {
+      packageResult,
+      application,
+      auth: await captureAuthParity(connectionString),
+      managed: await captureManagedPlaneFingerprint(connectionString),
+      routineDefaults: await withClient(connectionString, captureApplicationRoutineDefaultProfile),
+      futureSecurity: await withClient(connectionString, captureFuturePublicFunctionDefaultSecurity),
+      targetCatalog,
+      sourceAclContract
+    };
+  } finally {
+    tocBytes.fill(0);
+  }
+}
+
+async function prepareGoldenManagedOverlayForTarget({
+  archivePath,
+  sourceComponent,
+  targetConnectionString,
+  target,
+  authorityKey,
+  privateDirectory,
+  nativeSmoke,
+  postgresBin = '',
+  temporaryParent = os.tmpdir()
+} = {}) {
+  if (!Buffer.isBuffer(authorityKey) || authorityKey.length !== 32) {
+    throw categoricalError('MANAGED_PREPARATION_AUTHORITY_KEY_INVALID');
+  }
+  const normalizedTarget = {
+    environment: String(target?.environment || ''),
+    projectRef: String(target?.projectRef || '')
+  };
+  if (
+    normalizedTarget.environment !== 'dev' ||
+    !/^[a-z0-9]{10,40}$/.test(normalizedTarget.projectRef)
+  ) throw categoricalError('MANAGED_PREPARATION_TARGET_INVALID');
+  const tools = resolvePostgresTools(postgresBin);
+  const token = crypto.randomBytes(8).toString('hex');
+  const root = path.join(temporaryParent, `environment-sync-rehearsal-managed-source-${token}`);
+  let cluster;
+  try {
+    cluster = await startDisposablePostgres({
+      rootDirectory: root,
+      postgresBin: tools.bin,
+      bootstrapUser: 'cluster_admin'
+    });
+    const admin = await bootstrapManagedRoles(cluster);
+    const sourceAdmin = await createDatabase(
+      admin,
+      `x_rehearsal_sandbox_source_${token}`,
+      'postgres'
+    );
+    const sourceConnectionString = connectionForUser(sourceAdmin, 'postgres');
+    await installExtensionPlane(sourceConnectionString, { removePublic: true });
+    await restoreSource({
+      tools,
+      archivePath,
+      connectionString: sourceConnectionString,
+      diagnosticDirectory: privateDirectory
+    });
+    const sourceTransform = await quarantineSource(sourceConnectionString);
+    const tocBytes = execFileSync(tools.pgRestore, ['--list', archivePath], {
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 32 * 1024 * 1024
+    });
+    try {
+      const manifest = buildManagedRestoreManifest({
+        tocText: tocBytes.toString('utf8'),
+        sourceComponent
+      });
+      const [sourceShape, targetShape] = await Promise.all([
+        captureAuthShape(sourceConnectionString),
+        captureAuthShape(targetConnectionString)
+      ]);
+      const authCompatibility = assertAuthOverlayCompatibility({
+        sourceColumns: sourceShape.columns,
+        targetColumns: targetShape.columns,
+        targetTriggers: targetShape.triggers
+      });
+      const targetEvidence = await captureTargetCatalogEvidence(targetConnectionString, manifest);
+      const profileCertificate = issueSyntheticManagedProfile({
+        profileId: 'dev-certified-live-managed-profile',
+        target: normalizedTarget,
+        evidence: targetEvidence.evidence,
+        key: authorityKey
+      });
+      const targetCatalog = await captureTargetCatalogProof(targetConnectionString, manifest, {
+        certificate: profileCertificate,
+        key: authorityKey,
+        target: normalizedTarget,
+        expectedProfileId: 'dev-certified-live-managed-profile'
+      });
+      const defaultAclCertificate = issueSyntheticApplicationDefaultAcl({
+        target: normalizedTarget,
+        targetCatalog,
+        key: authorityKey
+      });
+      const [sourcePlane, sourceAclContract, nativePreservation] = await Promise.all([
+        captureApplicationPlane(sourceConnectionString),
+        withClient(sourceConnectionString, captureApplicationAclContract),
+        withClient(targetConnectionString, (client) => captureNativeSmokePreservation(client, nativeSmoke))
+      ]);
+      verifyNativeSmokePreservation(nativePreservation);
+      const packageResult = generateManagedOverlayPackage({
+        pgRestorePath: tools.pgRestore,
+        pgDumpPath: tools.pgDump,
+        archivePath,
+        sourceConnectionString,
+        privateDirectory,
+        sourceComponent,
+        authEvidence: sourceTransform.evidence,
+        migration: sourcePlane.migration,
+        authCompatibility,
+        targetCatalog,
+        applicationReplacement: targetCatalog.applicationReplacement,
+        sourceAclContract,
+        applicationDefaultAcl: { certificate: defaultAclCertificate, key: authorityKey },
+        nativePreservation
+      });
+      return {
+        packageResult,
+        sourcePlane,
+        sourceAuth: await captureAuthParity(sourceConnectionString),
+        targetCatalog,
+        nativePreservation: nativePreservation.evidence,
+        authEvidence: sourceTransform.evidence,
+        sourceAclContract
+      };
+    } finally {
+      tocBytes.fill(0);
+    }
+  } finally {
+    if (cluster) await removeDisposablePostgres(cluster);
+  }
+}
+
 async function runManagedRestoreCompatibilityRehearsal({
   archivePath,
   sourceComponent,
@@ -1072,6 +1387,8 @@ async function runManagedRestoreCompatibilityRehearsal({
   routineDefaultProfiles = null,
   rehearsePre0204Recovery = false,
   rehearseCurrentDevY2Recovery = false,
+  preserveNativeSmokeRelationalState = false,
+  retainDisposableTarget = false,
   postgresBin = '',
   temporaryParent = os.tmpdir()
 } = {}) {
@@ -1107,6 +1424,7 @@ async function runManagedRestoreCompatibilityRehearsal({
   const token = crypto.randomBytes(8).toString('hex');
   const root = path.join(temporaryParent, `environment-sync-rehearsal-managed-${token}`);
   let cluster;
+  let retainCluster = false;
   const managedProfileKey = crypto.randomBytes(32);
   const applicationDefaultAclKey = crypto.randomBytes(32);
   const y2AuthRecoveryKey = crypto.randomBytes(32);
@@ -1389,6 +1707,16 @@ async function runManagedRestoreCompatibilityRehearsal({
       lifecycleTimestamp: new Date().toISOString()
     };
     await installTargetNativeSmoke(devConnection, smokeProfile);
+    const smokeOrganization = preserveNativeSmokeRelationalState
+      ? await installTargetNativeSmokeOrganization(devConnection, smokeProfile)
+      : null;
+    const nativePreservation = smokeOrganization
+      ? await withClient(devConnection, (client) => captureNativeSmokePreservation(client, {
+          userId: smokeProfile.userId,
+          organizationId: smokeOrganization.organizationId
+        }))
+      : null;
+    if (nativePreservation) verifyNativeSmokePreservation(nativePreservation);
     const devAuthBeforeReplacement = await captureAuthParity(devConnection);
     if (
       devAuthBeforeReplacement.userCount !== sourceTransform.evidence.users + 1 ||
@@ -1494,9 +1822,13 @@ async function runManagedRestoreCompatibilityRehearsal({
       targetCatalog: devRefreshCatalog,
       applicationReplacement: devRefreshCatalog.applicationReplacement,
       sourceAclContract,
-      applicationDefaultAcl: applicationDefaultAcls.dev
+      applicationDefaultAcl: applicationDefaultAcls.dev,
+      nativePreservation
     });
-    if (devRefreshPackage.script.semanticDigest !== devInitialPackage.script.semanticDigest) {
+    if (
+      !preserveNativeSmokeRelationalState &&
+      devRefreshPackage.script.semanticDigest !== devInitialPackage.script.semanticDigest
+    ) {
       throw categoricalError('MANAGED_POPULATED_DEV_PACKAGE_DRIFT');
     }
     await atRehearsalStage('mock-dev-populated-replacement', () => executeManagedOverlayPackage({
@@ -1601,10 +1933,12 @@ async function runManagedRestoreCompatibilityRehearsal({
     const expectedSourcePlane = await captureApplicationPlane(sourceDatabase);
     const [sandboxPlane, devPlane, sourceAuth, sandboxAuth, devAuthBeforePreservation] = await Promise.all([
       captureApplicationPlane(sandboxConnection),
-      captureApplicationPlane(devConnection),
+      captureApplicationPlane(devConnection, {
+        excludeOrganizationId: nativePreservation ? smokeOrganization.organizationId : ''
+      }),
       captureAuthParity(sourceDatabase),
       captureAuthParity(sandboxConnection),
-      captureAuthParity(devConnection)
+      captureAuthParity(devConnection, { excludeNativeSmoke: Boolean(nativePreservation) })
     ]);
     const applicationParity = {
       sandbox: compareApplicationPlane(expectedSourcePlane, sandboxPlane),
@@ -1626,7 +1960,29 @@ async function runManagedRestoreCompatibilityRehearsal({
       };
       throw error;
     }
-    const devPreservation = await installTargetNativeSmoke(devConnection, smokeProfile);
+    let devPreservation;
+    if (nativePreservation) {
+      const observedPreservation = await withClient(devConnection, (client) =>
+        captureNativeSmokePreservation(client, {
+          userId: smokeProfile.userId,
+          organizationId: smokeOrganization.organizationId
+        }));
+      if (
+        observedPreservation.evidence.rowsDigest !== nativePreservation.evidence.rowsDigest ||
+        observedPreservation.evidence.rowCount !== nativePreservation.evidence.rowCount
+      ) {
+        throw categoricalError('MANAGED_NATIVE_SMOKE_PRESERVATION_FAILED');
+      }
+      devPreservation = {
+        userCount: 1,
+        identityCount: 1,
+        ownerMembershipCount: 1,
+        relationalStatePreservedAtomically: true,
+        organizationCount: 1
+      };
+    } else {
+      devPreservation = await installTargetNativeSmoke(devConnection, smokeProfile);
+    }
     const devAuthAfterPreservation = await captureAuthParity(devConnection);
     if (
       devAuthAfterPreservation.userCount !== sourceAuth.userCount + 1 ||
@@ -1825,7 +2181,7 @@ async function runManagedRestoreCompatibilityRehearsal({
       fs.readdirSync(directory).filter((name) => name.startsWith('postgres-diagnostic-'))
     );
     if (residualFiles.length !== 0) throw categoricalError('MANAGED_DIAGNOSTIC_RESIDUE');
-    return {
+    const result = {
       classification: 'MANAGED_OVERLAY_REHEARSAL_PASSED',
       oldMethod: {
         failed: true,
@@ -1922,12 +2278,56 @@ async function runManagedRestoreCompatibilityRehearsal({
       diagnosticResidue: 0,
       managedPlanePreserved: managedPlaneStable && approvedRoutineDefaultDelta
     };
+    if (retainDisposableTarget) {
+      if (!nativePreservation) {
+        throw categoricalError('MANAGED_REHEARSAL_RETAINED_TARGET_CONTRACT_INVALID');
+      }
+      Object.defineProperty(result, 'disposableSession', {
+        enumerable: false,
+        value: Object.freeze({
+          root: cluster.root,
+          dataDirectory: cluster.dataDirectory,
+          logPath: cluster.logPath,
+          postgresBin: tools.bin,
+          connectionString: devConnection,
+          smokeUserId: smokeProfile.userId,
+          smokeOrganizationId: smokeOrganization.organizationId,
+          devRefreshPackage,
+          y2Package: currentDevY2?.packageResult || null,
+          y2Application: currentDevY2?.application || null,
+          y2Auth: currentDevY2?.auth || null,
+          y2Managed: currentDevY2?.managed || null,
+          y2RoutineDefaults: currentDevY2?.routineDefaults || null,
+          y2FutureSecurity: currentDevY2?.futureSecurity || null,
+          nativePreservation: nativePreservation.evidence,
+          targetCatalog: targetCatalog.dev,
+          applicationDefaultAclEntries: targetCatalog.dev.applicationDefaultAclEntries,
+          currentApplication: expectedSourcePlane,
+          sourceAuth,
+          postOverlayContractProof,
+          futureObjectProbe: futureObjectProbes.dev
+        })
+      });
+      retainCluster = true;
+    }
+    return result;
   } finally {
     managedProfileKey.fill(0);
     applicationDefaultAclKey.fill(0);
     y2AuthRecoveryKey.fill(0);
-    if (cluster) await removeDisposablePostgres(cluster);
+    if (cluster && !retainCluster) await removeDisposablePostgres(cluster);
   }
 }
 
-export { runManagedRestoreCompatibilityRehearsal };
+export {
+  applyPostOverlayMigrations,
+  capture0203Proof,
+  capture0205Proof,
+  captureApplicationPlane,
+  captureAuthParity,
+  captureManagedPlaneFingerprint,
+  generateCurrentDatabaseRecoveryPackage,
+  prepareGoldenManagedOverlayForTarget,
+  probeFutureObjectDefaults,
+  runManagedRestoreCompatibilityRehearsal
+};

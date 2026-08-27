@@ -308,12 +308,41 @@ async function removeDisposablePostgres(cluster) {
   if (fs.existsSync(path.resolve(cluster.root))) throw new Error('DISPOSABLE_POSTGRES_TEARDOWN_FAILED');
 }
 
+async function removeRetainedDisposablePostgres({ rootDirectory, postgresBin = '' } = {}) {
+  const tools = resolvePostgresTools(postgresBin);
+  const root = assertDisposableRoot(rootDirectory);
+  const dataDirectory = path.join(root, 'cluster');
+  const logPath = path.join(root, 'postgres.log');
+  assertDisposableRoot(root, logPath);
+  if (!fs.existsSync(path.join(dataDirectory, 'postmaster.pid'))) {
+    throw new Error('DISPOSABLE_POSTGRES_RETAINED_PROCESS_MISSING');
+  }
+  try {
+    run(tools.pgCtl, [
+      '--pgdata', dataDirectory,
+      '--wait',
+      '--timeout', '30',
+      'stop',
+      '--mode', 'immediate'
+    ]);
+  } catch {
+    throw new Error('DISPOSABLE_POSTGRES_STOP_FAILED');
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+  if (!removeDisposableRootFiles(root, logPath)) {
+    throw new Error('DISPOSABLE_POSTGRES_TEARDOWN_FAILED');
+  }
+  if (fs.existsSync(root)) throw new Error('DISPOSABLE_POSTGRES_TEARDOWN_FAILED');
+  return { removed: true };
+}
+
 export {
   SUPABASE_ROLES,
   assertDisposableRoot,
   prepareRestoreDatabase,
   preflightDisposablePostgres,
   removeDisposablePostgres,
+  removeRetainedDisposablePostgres,
   resolvePostgresTools,
   startDisposablePostgres,
   withClient

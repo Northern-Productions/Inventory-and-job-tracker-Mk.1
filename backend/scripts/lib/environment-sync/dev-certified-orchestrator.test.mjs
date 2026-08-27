@@ -189,13 +189,10 @@ function createOperationHarness(label, { precheckArgs = ['operation'], timeoutMs
   writePrivateBytesExclusive(envPath, Buffer.from('APP_ENV=dev\n', 'utf8'));
   let workerPath = TEST_WORKER;
   if (copiedWorker) {
-    workerPath = path.join(root, 'worker.private.mjs');
+    workerPath = path.join(path.dirname(TEST_WORKER), `.operation-test-${crypto.randomBytes(8).toString('hex')}.mjs`);
     const bytes = fs.readFileSync(TEST_WORKER);
-    try {
-      writePrivateBytesExclusive(workerPath, bytes);
-    } finally {
-      bytes.fill(0);
-    }
+    try { writePrivateBytesExclusive(workerPath, bytes); }
+    finally { bytes.fill(0); }
   }
   const attemptId = `${label}-${crypto.randomBytes(8).toString('hex')}`.replaceAll('_', '-');
   const executableDigest = fileDigest(process.execPath);
@@ -215,19 +212,22 @@ function createOperationHarness(label, { precheckArgs = ['operation'], timeoutMs
   const inventoryRecord = buildOperationInventory({
     attemptId,
     envFileDigest: fileDigest(envPath),
-    operations
+    operations,
+    testOnlyAllowSynthetic: true
   });
   const contract = createContract(attemptId, inventoryRecord.inventoryDigest);
   return {
     root,
     key,
     workerPath,
+    copiedWorker,
     executor: createOperationExecutor({
       inventory: authenticateOperationInventory(inventoryRecord, key),
       key,
       contract,
       envFilePath: envPath,
-      evidenceDirectory: path.join(root, 'evidence')
+      evidenceDirectory: path.join(root, 'evidence'),
+      testOnlyAllowSynthetic: true
     })
   };
 }
@@ -544,7 +544,8 @@ test('operation executor pins bytes, isolates environment, uses inherited privat
     const envPath = path.join(root, 'synthetic.env');
     writePrivateBytesExclusive(envPath, Buffer.from('APP_ENV=dev\n', 'utf8'));
     const executableBytes = fs.readFileSync(process.execPath);
-    const workerBytes = fs.readFileSync(TEST_WORKER);
+    const operationWorker = TEST_WORKER;
+    const workerBytes = fs.readFileSync(operationWorker);
     let executableDigest;
     let scriptDigest;
     try {
@@ -566,14 +567,19 @@ test('operation executor pins bytes, isolates environment, uses inherited privat
       runtime: 'node',
       executable: process.execPath,
       executableDigest,
-      script: TEST_WORKER,
+      script: operationWorker,
       scriptDigest,
       cwd: root,
       args: ['operation'],
       environmentNames: [],
       timeoutMs: 10_000
     }));
-    const unsignedInventory = buildOperationInventory({ attemptId, envFileDigest, operations });
+    const unsignedInventory = buildOperationInventory({
+      attemptId,
+      envFileDigest,
+      operations,
+      testOnlyAllowSynthetic: true
+    });
     const contract = createContract(attemptId, unsignedInventory.inventoryDigest);
     const inventory = authenticateOperationInventory(unsignedInventory, key);
     const operationExecutor = createOperationExecutor({
@@ -581,7 +587,8 @@ test('operation executor pins bytes, isolates environment, uses inherited privat
       key,
       contract,
       envFilePath: envPath,
-      evidenceDirectory: path.join(root, 'evidence')
+      evidenceDirectory: path.join(root, 'evidence'),
+      testOnlyAllowSynthetic: true
     });
     process.env.PROD_DATABASE_URL = 'must-not-be-inherited';
     process.env.SANDBOX_SECRET_TOKEN = 'must-not-be-inherited';
@@ -636,6 +643,7 @@ test('operation executor fails closed on child failure, timeout, and script-byte
     );
   } finally {
     drift.key.fill(0);
+    if (drift.copiedWorker) fs.rmSync(drift.workerPath, { force: true });
     remove(drift.root);
   }
 });

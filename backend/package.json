@@ -28,6 +28,7 @@
     "env:inventory": "node scripts/environment-inventory.mjs",
     "env:rehearse": "node scripts/environment-sync-rehearsal.mjs",
     "env:postgres:preflight": "node scripts/environment-sync-rehearsal.mjs --preflight-only",
+    "env:prepare-dev-refresh-certified": "node scripts/environment-prepare-dev-refresh-certified.mjs",
     "env:refresh-dev-certified": "node scripts/environment-refresh-dev-certified.mjs",
     "env:recover-dev-certified": "node scripts/environment-recover-dev-certified.mjs",
     "env:sandbox:fixture-recovery": "node scripts/environment-sync-fixture-recovery.mjs",

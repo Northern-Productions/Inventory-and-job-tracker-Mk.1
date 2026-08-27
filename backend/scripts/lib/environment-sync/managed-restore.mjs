@@ -35,6 +35,7 @@ import {
   authenticateManifest,
   verifyAuthenticatedManifest
 } from './manifest.mjs';
+import { verifyNativeSmokePreservation } from './native-smoke-preservation.mjs';
 
 const MANAGED_RESTORE_MANIFEST_FORMAT = 'supabase-managed-overlay-restore-manifest-v1';
 const MANAGED_RESTORE_CANONICALIZATION = 'supabase-managed-overlay-toc-c14n-v1';
@@ -1257,10 +1258,13 @@ function buildVerificationSql({
   authEvidence = {},
   migration = {},
   authMode = 'quarantined-overlay',
-  authRecoveryAuthority = null
+  authRecoveryAuthority = null,
+  nativePreservation = null
 } = {}) {
-  const users = safeCount(authEvidence.users || 0);
-  const identities = safeCount(authEvidence.identities || 0);
+  const nativeUsers = nativePreservation ? safeCount(nativePreservation.evidence.userCount) : 0;
+  const nativeIdentities = nativePreservation ? safeCount(nativePreservation.evidence.identityCount) : 0;
+  const users = safeCount(authEvidence.users || 0) + nativeUsers;
+  const identities = safeCount(authEvidence.identities || 0) + nativeIdentities;
   const migrationCount = safeCount(migration.count || 0);
   const migrationTip = String(migration.tip || '');
   if (!/^\d{14}$/.test(migrationTip)) throw categoricalError('MANAGED_RESTORE_MIGRATION_TIP_INVALID');
@@ -1291,18 +1295,28 @@ begin
   end if;
   if exists (
     select 1 from auth.users
-     where email !~ '^[a-z0-9-]+@users\\.invalid$'
+     where coalesce((raw_user_meta_data->>'x_np_target_native_smoke')::boolean, false) is not true
+       and (email !~ '^[a-z0-9-]+@users\\.invalid$'
         or phone is not null or phone_change <> ''
         or encrypted_password <> '!x-np-disabled-v1!'
-        or banned_until <> 'infinity'::timestamptz
+        or banned_until <> 'infinity'::timestamptz)
   ) then raise exception 'MANAGED_AUTH_QUARANTINE_MISMATCH'; end if;
+  if (select count(*) from auth.users
+       where coalesce((raw_user_meta_data->>'x_np_target_native_smoke')::boolean, false) is true) <> ${nativeUsers}
+  then raise exception 'MANAGED_NATIVE_SMOKE_USER_MISMATCH'; end if;
   if exists (
     select 1 from auth.identities i
     left join auth.users u on u.id = i.user_id
     where u.id is null or i.provider <> 'email' or i.provider_id <> u.email
        or i.identity_data->>'email' <> u.email
-       or coalesce((i.identity_data->>'x_np_quarantined')::boolean, false) is not true
+       or (
+         coalesce((i.identity_data->>'x_np_quarantined')::boolean, false) is not true
+         and coalesce((i.identity_data->>'x_np_target_native_smoke')::boolean, false) is not true
+       )
   ) then raise exception 'MANAGED_AUTH_IDENTITY_MISMATCH'; end if;
+  if (select count(*) from auth.identities
+       where coalesce((identity_data->>'x_np_target_native_smoke')::boolean, false) is true) <> ${nativeIdentities}
+  then raise exception 'MANAGED_NATIVE_SMOKE_IDENTITY_MISMATCH'; end if;
   ${ephemeraAssertions}`}
   select count(*), max(version) into v_migrations, v_tip
     from supabase_migrations.schema_migrations;
@@ -1329,11 +1343,18 @@ function buildManagedOverlaySql({
   authEvidence,
   migration,
   authMode = 'quarantined-overlay',
-  authRecoveryAuthority = null
+  authRecoveryAuthority = null,
+  nativePreservation = null
 } = {}) {
   const exactRecovery = authMode === DEV_Y2_AUTH_RECOVERY_MODE;
   if (![DEV_Y2_AUTH_RECOVERY_MODE, 'quarantined-overlay'].includes(authMode)) {
     throw categoricalError('MANAGED_AUTH_MODE_INVALID');
+  }
+  const verifiedNativePreservation = nativePreservation
+    ? verifyNativeSmokePreservation(nativePreservation)
+    : null;
+  if (exactRecovery && verifiedNativePreservation) {
+    throw categoricalError('DEV_Y2_NATIVE_SMOKE_OVERLAY_REJECTED');
   }
   const chunks = {
     applicationResetSql: assertApplicationChunk(applicationResetSql),
@@ -1364,7 +1385,8 @@ function buildManagedOverlaySql({
     authEvidence,
     migration,
     authMode,
-    authRecoveryAuthority
+    authRecoveryAuthority,
+    nativePreservation: verifiedNativePreservation
   });
   return `\\set ON_ERROR_STOP on
 BEGIN ISOLATION LEVEL SERIALIZABLE;
@@ -1386,6 +1408,8 @@ ${chunks.authUsersSql}
 ${chunks.authIdentitiesSql}`}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_DATA
 ${chunks.applicationDataSql}
+${verifiedNativePreservation ? `\\echo MANAGED_OVERLAY_STAGE_NATIVE_SMOKE_PRESERVATION
+${verifiedNativePreservation.sql}` : ''}
 \\echo MANAGED_OVERLAY_STAGE_MIGRATION_LEDGER
 ${chunks.migrationSql}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_POST_DATA
@@ -1495,7 +1519,8 @@ function generateManagedOverlayPackage({
   applicationReplacement,
   sourceAclContract,
   applicationDefaultAcl,
-  authRecovery = null
+  authRecovery = null,
+  nativePreservation = null
 } = {}) {
   verifyPrivateArtifactProtection(archivePath);
   verifyPrivateDirectoryProtection(privateDirectory);
@@ -1534,6 +1559,12 @@ function generateManagedOverlayPackage({
           migration
         })
       : null;
+    const verifiedNativePreservation = nativePreservation
+      ? verifyNativeSmokePreservation(nativePreservation)
+      : null;
+    if (verifiedAuthRecoveryAuthority && verifiedNativePreservation) {
+      throw categoricalError('DEV_Y2_NATIVE_SMOKE_OVERLAY_REJECTED');
+    }
     verifyApplicationAclContract(sourceAclContract);
     const tocText = tocBytes.toString('utf8');
     const manifest = buildManagedRestoreManifest({
@@ -1629,7 +1660,8 @@ function generateManagedOverlayPackage({
       authEvidence,
       migration,
       authMode,
-      authRecoveryAuthority: verifiedAuthRecoveryAuthority
+      authRecoveryAuthority: verifiedAuthRecoveryAuthority,
+      nativePreservation: verifiedNativePreservation
     }), 'utf8');
     writePrivateGeneratedFile(scriptPath, script);
     const scriptBytes = fs.readFileSync(scriptPath);
@@ -1685,6 +1717,7 @@ function generateManagedOverlayPackage({
       },
       authMode,
       authRecoveryArtifact,
+      nativePreservation: verifiedNativePreservation?.evidence || null,
       atomic: true,
       sessionReplicationRoleRequired: false
     };
