@@ -326,7 +326,10 @@ function compareApplicationAclContracts(source, target) {
   };
 }
 
-function assertConvergenceOperation(grant) {
+function assertConvergenceOperation(grant, action) {
+  if (!['grant', 'revoke'].includes(action)) {
+    throw categoricalError('APPLICATION_ACL_OPERATION_INVALID');
+  }
   if (
     !APPLICATION_FACING_ROLES.includes(grant.grantee) ||
     grant.ownerRole !== 'postgres' ||
@@ -334,10 +337,14 @@ function assertConvergenceOperation(grant) {
     grant.grantable !== false ||
     !OBJECT_PRIVILEGES[grant.objectClass]?.includes(grant.privilege)
   ) {
-    throw categoricalError('APPLICATION_ACL_TARGET_ONLY_GRANT_UNREVIEWED');
+    throw categoricalError(
+      action === 'grant'
+        ? 'APPLICATION_ACL_SOURCE_ONLY_GRANT_UNREVIEWED'
+        : 'APPLICATION_ACL_TARGET_ONLY_GRANT_UNREVIEWED'
+    );
   }
   return {
-    action: 'revoke',
+    action,
     ...grant
   };
 }
@@ -353,8 +360,10 @@ function buildApplicationAclConvergenceManifest({ source, target } = {}) {
   if (comparison.targetOnlyObjects.length > 0) throw categoricalError('APPLICATION_ACL_TARGET_OBJECT_UNEXPECTED');
   if (comparison.objectMismatches.length > 0) throw categoricalError('APPLICATION_ACL_OBJECT_VALUE_MISMATCH');
   if (comparison.grantMismatches.length > 0) throw categoricalError('APPLICATION_ACL_GRANT_VALUE_MISMATCH');
-  if (comparison.sourceOnlyGrants.length > 0) throw categoricalError('APPLICATION_ACL_SOURCE_GRANT_MISSING');
-  const operations = sortGrants(comparison.targetOnlyGrants.map(assertConvergenceOperation));
+  const operations = sortGrants([
+    ...comparison.sourceOnlyGrants.map((grant) => assertConvergenceOperation(grant, 'grant')),
+    ...comparison.targetOnlyGrants.map((grant) => assertConvergenceOperation(grant, 'revoke'))
+  ]);
   const manifest = {
     format: APPLICATION_ACL_CONVERGENCE_FORMAT,
     version: 1,
@@ -386,8 +395,10 @@ function verifyApplicationAclConvergenceManifest(manifest) {
     throw categoricalError('APPLICATION_ACL_CONVERGENCE_MANIFEST_INVALID');
   }
   const operations = sortGrants(manifest.operations.map((operation) => {
-    if (operation?.action !== 'revoke') throw categoricalError('APPLICATION_ACL_OPERATION_INVALID');
-    return { action: 'revoke', ...assertConvergenceOperation(normalizeGrant(operation)) };
+    if (!['grant', 'revoke'].includes(operation?.action)) {
+      throw categoricalError('APPLICATION_ACL_OPERATION_INVALID');
+    }
+    return assertConvergenceOperation(normalizeGrant(operation), operation.action);
   }));
   if (
     canonicalSerialize(operations) !== canonicalSerialize(manifest.operations) ||
@@ -414,28 +425,35 @@ function safeIdentityArguments(value) {
   return text;
 }
 
-function renderApplicationAclRevoke(operation) {
-  const grant = assertConvergenceOperation(normalizeGrant(operation));
+function renderApplicationAclOperation(operation) {
+  const grant = assertConvergenceOperation(normalizeGrant(operation), operation?.action);
+  const command = grant.action === 'grant' ? 'GRANT' : 'REVOKE';
+  const preposition = grant.action === 'grant' ? 'TO' : 'FROM';
   const grantee = grant.grantee === 'PUBLIC' ? 'PUBLIC' : quoteIdentifier(grant.grantee);
   const schema = quoteIdentifier(grant.schemaName);
   const object = quoteIdentifier(grant.objectName);
   if (grant.objectClass === 'schema') {
-    return `REVOKE ${grant.privilege} ON SCHEMA ${schema} FROM ${grantee};`;
+    return `${command} ${grant.privilege} ON SCHEMA ${schema} ${preposition} ${grantee};`;
   }
   if (['table', 'view'].includes(grant.objectClass)) {
-    return `REVOKE ${grant.privilege} ON TABLE ${schema}.${object} FROM ${grantee};`;
+    return `${command} ${grant.privilege} ON TABLE ${schema}.${object} ${preposition} ${grantee};`;
   }
   if (grant.objectClass === 'sequence') {
-    return `REVOKE ${grant.privilege} ON SEQUENCE ${schema}.${object} FROM ${grantee};`;
+    return `${command} ${grant.privilege} ON SEQUENCE ${schema}.${object} ${preposition} ${grantee};`;
   }
   const kind = grant.objectClass === 'procedure' ? 'PROCEDURE' : 'FUNCTION';
-  return `REVOKE ${grant.privilege} ON ${kind} ${schema}.${object}(${safeIdentityArguments(grant.identityArguments)}) FROM ${grantee};`;
+  return `${command} ${grant.privilege} ON ${kind} ${schema}.${object}(${safeIdentityArguments(grant.identityArguments)}) ${preposition} ${grantee};`;
+}
+
+function renderApplicationAclRevoke(operation) {
+  return renderApplicationAclOperation({ ...operation, action: 'revoke' });
 }
 
 function applicationAclAugmentationDigest(operations = []) {
   const rows = operations.map((operation) => {
     const grant = normalizeGrant(operation);
     return {
+      action: checkedText(operation.action, 'APPLICATION_ACL_OPERATION_INVALID'),
       kind: grant.objectClass,
       schemaName: grant.schemaName,
       objectName: grant.objectName,
@@ -493,8 +511,48 @@ begin
            and t->>'identityArguments' = v_item->>'identityArguments'
            and t->>'grantee' = v_item->>'grantee'
            and t->>'privilege' = v_item->>'privilege'
-      ) then raise exception 'APPLICATION_ACL_GRANT_VALUE_MISMATCH';
-      else raise exception 'APPLICATION_ACL_SOURCE_GRANT_MISSING'; end if;
+      ) then
+        raise exception 'APPLICATION_ACL_GRANT_VALUE_MISMATCH';
+      end if;
+      if (v_item->>'grantee') <> all(array['PUBLIC','anon','authenticated','authenticator','service_role'])
+         or v_item->>'ownerRole' <> 'postgres'
+         or v_item->>'grantor' <> 'postgres'
+         or (v_item->>'grantable')::boolean is not false then
+        raise exception 'APPLICATION_ACL_SOURCE_ONLY_GRANT_UNREVIEWED';
+      end if;
+      if (v_item->>'objectClass' in ('function','procedure') and v_item->>'privilege' <> 'EXECUTE')
+         or (v_item->>'objectClass' = 'schema' and v_item->>'privilege' not in ('CREATE','USAGE'))
+         or (v_item->>'objectClass' in ('table','view') and v_item->>'privilege' not in ('DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE'))
+         or (v_item->>'objectClass' = 'sequence' and v_item->>'privilege' not in ('SELECT','UPDATE','USAGE'))
+         or v_item->>'objectClass' not in ('schema','table','view','sequence','function','procedure') then
+        raise exception 'APPLICATION_ACL_SOURCE_ONLY_PRIVILEGE_UNREVIEWED';
+      end if;
+      v_grantee_sql := case when v_item->>'grantee' = 'PUBLIC' then 'PUBLIC'
+                            else format('%I', v_item->>'grantee') end;
+      if v_item->>'objectClass' = 'schema' then
+        v_statement := format('GRANT %s ON SCHEMA %I TO %s',
+          v_item->>'privilege', v_item->>'schemaName', v_grantee_sql);
+      elsif v_item->>'objectClass' in ('table','view') then
+        v_statement := format('GRANT %s ON TABLE %I.%I TO %s',
+          v_item->>'privilege', v_item->>'schemaName', v_item->>'objectName', v_grantee_sql);
+      elsif v_item->>'objectClass' = 'sequence' then
+        v_statement := format('GRANT %s ON SEQUENCE %I.%I TO %s',
+          v_item->>'privilege', v_item->>'schemaName', v_item->>'objectName', v_grantee_sql);
+      else
+        if v_item->>'identityArguments' ~ '[[:cntrl:]]'
+           or position(';' in v_item->>'identityArguments') > 0
+           or position('--' in v_item->>'identityArguments') > 0
+           or position('/*' in v_item->>'identityArguments') > 0
+           or position('*/' in v_item->>'identityArguments') > 0
+           or position(chr(39) in v_item->>'identityArguments') > 0 then
+          raise exception 'APPLICATION_ACL_SIGNATURE_INVALID';
+        end if;
+        v_statement := format('GRANT %s ON %s %I.%I(%s) TO %s',
+          v_item->>'privilege', upper(v_item->>'objectClass'),
+          v_item->>'schemaName', v_item->>'objectName',
+          v_item->>'identityArguments', v_grantee_sql);
+      end if;
+      execute v_statement;
     end if;
   end loop;
 
@@ -577,6 +635,7 @@ export {
   buildApplicationAclConvergenceSql,
   captureApplicationAclContract,
   compareApplicationAclContracts,
+  renderApplicationAclOperation,
   renderApplicationAclRevoke,
   verifyApplicationAclContract,
   verifyApplicationAclConvergenceManifest,

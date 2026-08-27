@@ -29,9 +29,11 @@ import {
   assertApplicationReplacementCompatibility,
   assertAuthOverlayCompatibility,
   assertManagedTargetCatalogCompatibility,
+  buildExactAuthRecoveryAuthority,
   buildManagedRestoreManifest,
   captureApplicationReplacementCatalog,
   captureAuthOverlaySourceEvidence,
+  captureExactAuthRecoveryEvidence,
   captureManagedTargetCatalog,
   executeManagedOverlayPackage,
   generateManagedOverlayPackage,
@@ -40,6 +42,7 @@ import {
 import {
   createPrivateDirectory,
   privateArtifactPath,
+  verifyPrivateArtifactProtection,
   verifyPrivateDirectoryProtection,
   writePrivateBytesExclusive
 } from './private-artifacts.mjs';
@@ -114,6 +117,31 @@ function privateRun(executable, args, env = {}) {
     });
   } catch {
     throw categoricalError('MANAGED_REHEARSAL_PRIVATE_CHILD_FAILED');
+  }
+}
+
+function capturePrivatePlaintextArchive({ tools, connectionString, archivePath } = {}) {
+  writePrivateBytesExclusive(archivePath, Buffer.alloc(0));
+  privateRun(
+    tools.pgDump,
+    [
+      '--format=custom', '--no-owner', '--compress=6', '--file', archivePath,
+      '--schema', 'app', '--schema', 'app_api', '--schema', 'public',
+      '--schema', 'auth', '--schema', 'supabase_migrations'
+    ],
+    postgresChildEnvironment(connectionString, { PGOPTIONS: '-c statement_timeout=0' })
+  );
+  verifyPrivateArtifactProtection(archivePath);
+  const bytes = fs.readFileSync(archivePath);
+  try {
+    if (bytes.length === 0) throw categoricalError('MANAGED_REHEARSAL_Y2_ARCHIVE_EMPTY');
+    return {
+      name: 'postgres-logical-custom-private-recovery',
+      size: bytes.length,
+      digest: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`
+    };
+  } finally {
+    bytes.fill(0);
   }
 }
 
@@ -692,6 +720,144 @@ async function capture0203Proof(connectionString) {
   });
 }
 
+async function capture0205Proof(connectionString) {
+  return withClient(connectionString, async (client) => {
+    const token = `weight-probe-${crypto.randomBytes(12).toString('hex')}`;
+    await client.query('begin');
+    try {
+      const definitions = (await client.query(`
+        select
+          pg_catalog.pg_get_functiondef(
+            'public.api_boxes_set_status(uuid, text, jsonb)'::pg_catalog.regprocedure
+          ) as set_status,
+          pg_catalog.pg_get_functiondef(
+            'public.api_acl_boxes_set_status(uuid, text, jsonb)'::pg_catalog.regprocedure
+          ) as set_status_acl,
+          pg_catalog.pg_get_functiondef(
+            'public.api_acl_boxes_receive_ordered(uuid, text, jsonb)'::pg_catalog.regprocedure
+          ) as receive_ordered
+      `)).rows[0];
+      const privileges = (await client.query(`
+        select
+          pg_catalog.has_function_privilege(
+            'public', 'app_api.resolve_box_weight_calibration(uuid, app.boxes)', 'EXECUTE'
+          ) as public_execute,
+          pg_catalog.has_function_privilege(
+            'anon', 'app_api.resolve_box_weight_calibration(uuid, app.boxes)', 'EXECUTE'
+          ) as anon_execute,
+          pg_catalog.has_function_privilege(
+            'authenticated', 'app_api.resolve_box_weight_calibration(uuid, app.boxes)', 'EXECUTE'
+          ) as authenticated_execute,
+          pg_catalog.has_function_privilege(
+            'service_role', 'app_api.resolve_box_weight_calibration(uuid, app.boxes)', 'EXECUTE'
+          ) as service_role_execute
+      `)).rows[0];
+      const orgId = (await client.query(
+        'insert into app.organizations(name) values ($1) returning id',
+        [token]
+      )).rows[0].id;
+      const ownerCompanyId = (await client.query(
+        `insert into app.owner_companies(org_id, code, display_name, created_by, updated_by)
+         values ($1::uuid, 'MGT', 'Synthetic Rollback Owner', 'rehearsal', 'rehearsal')
+         returning id`,
+        [orgId]
+      )).rows[0].id;
+      await client.query(
+        `insert into app.warehouses(org_id, code, name, box_id_prefix, created_by, updated_by)
+         values ($1::uuid, 'RB1', 'Synthetic Rollback Warehouse', 'RB1', 'rehearsal', 'rehearsal')`,
+        [orgId]
+      );
+      await client.query(
+        `insert into app.film_catalog(
+           org_id, film_key, manufacturer, film_name,
+           sq_ft_weight_lbs_per_sq_ft, default_core_type
+         ) values ($1::uuid, $2, 'Synthetic', 'Rollback Probe', 0.0015, 'Red plastic')`,
+        [orgId, token]
+      );
+      const boxes = (await client.query(
+        `insert into app.boxes(
+           org_id, box_id, warehouse, manufacturer, film_name, width_in,
+           initial_feet, feet_available, status, order_date, received_date,
+           initial_weight_lbs, last_roll_weight_lbs, film_key, core_type,
+           core_weight_lbs, lf_weight_lbs_per_ft, owner_company_id
+         ) values
+           ($1::uuid, $2, 'RB1', 'Synthetic', 'Rollback Probe', 60,
+            100, 5, 'IN_STOCK', current_date, current_date,
+            12.0965, 1.82588, $4, 'Red plastic', 1.2847, 0.108118, $5::uuid),
+           ($1::uuid, $3, 'RB1', 'Synthetic', 'Rollback Probe', 60,
+            100, 0, 'IN_STOCK', current_date, current_date,
+            12.0965, 3.44706, $4, 'Red plastic', null, null, $5::uuid)
+         returning id, box_id`,
+        [orgId, `${token}-saved`, `${token}-self-heal`, token, ownerCompanyId]
+      )).rows;
+      const byName = new Map(boxes.map((row) => [row.box_id, row.id]));
+      const saved = (await client.query(
+        `select app_api.resolve_box_weight_calibration($1::uuid, box_row) as result
+           from app.boxes box_row where box_row.id = $2::uuid`,
+        [orgId, byName.get(`${token}-saved`)]
+      )).rows[0].result;
+      const selfHeal = (await client.query(
+        `select app_api.resolve_box_weight_calibration($1::uuid, box_row) as result
+           from app.boxes box_row where box_row.id = $2::uuid`,
+        [orgId, byName.get(`${token}-self-heal`)]
+      )).rows[0].result;
+      const derived = (await client.query(
+        `select app_api.derive_feet_available_from_roll_weight(
+           $1::numeric, $2::numeric, $3::numeric, 100
+         ) as feet`,
+        [
+          Number(selfHeal.coreWeightLbs) + (Number(selfHeal.lfWeightLbsPerFt) * 20),
+          selfHeal.coreWeightLbs,
+          selfHeal.lfWeightLbsPerFt
+        ]
+      )).rows[0];
+      const setStatus = String(definitions.set_status || '');
+      const setStatusAcl = String(definitions.set_status_acl || '');
+      const receiveOrdered = String(definitions.receive_ordered || '');
+      const safe = {
+        savedCalibrationResolved:
+          saved?.resolved === true && saved?.source === 'SAVED_BOX',
+        deterministicSelfHealResolved:
+          selfHeal?.resolved === true && selfHeal?.source === 'BOX_INITIAL_BASELINE' &&
+          Number(selfHeal.coreWeightLbs) >= 0 && Number(selfHeal.lfWeightLbsPerFt) > 0,
+        returnedWeightDerivedFeet: Number(derived.feet) === 20,
+        staleFeetPayloadIgnored:
+          !setStatus.includes("p_payload->>'currentFeetOnRoll'") &&
+          setStatus.includes('app_api.resolve_box_weight_calibration(p_org_id, v_existing)') &&
+          setStatus.includes('app_api.derive_feet_available_from_roll_weight'),
+        selfHealPersistenceContract:
+          setStatus.includes('v_box.core_weight_lbs := v_resolved_core_weight') &&
+          setStatus.includes('v_box.lf_weight_lbs_per_ft := v_resolved_lf_weight'),
+        allocationReconciliationPreserved:
+          setStatus.includes('app_api.reconcile_box_checkin_allocations'),
+        atomicMaterialFlowLockPreserved:
+          setStatusAcl.includes('app_api.lock_film_material_flow()') &&
+          setStatusAcl.includes('app_api.api_acl_boxes_set_status_pre_0191'),
+        orderedReceiveCalibrationPreserved:
+          receiveOrdered.includes('app_api.resolve_box_weight_calibration(p_org_id, v_box)') &&
+          receiveOrdered.includes('v_box.lf_weight_lbs_per_ft :=') &&
+          receiveOrdered.includes('app_api.process_linked_box_receipt'),
+        helperPrivate: Object.values(privileges).every((value) => value === false)
+      };
+      if (Object.values(safe).some((value) => value !== true)) {
+        throw categoricalError('MANAGED_REHEARSAL_0205_CONTRACT_MISMATCH');
+      }
+      await client.query('rollback');
+      const residue = await client.query(
+        'select count(*)::bigint as count from app.organizations where name = $1',
+        [token]
+      );
+      if (Number(residue.rows[0].count) !== 0) {
+        throw categoricalError('MANAGED_REHEARSAL_0205_PROBE_RESIDUE');
+      }
+      return { ...safe, probeResidue: 0 };
+    } catch (error) {
+      await client.query('rollback').catch(() => {});
+      throw error;
+    }
+  });
+}
+
 function syntheticManagedSecurityPolicy(evidence) {
   const roles = new Map(evidence.roles.map((entry) => [entry.role_name, entry]));
   const capabilities = new Map(
@@ -905,6 +1071,7 @@ async function runManagedRestoreCompatibilityRehearsal({
   postOverlayMigrations = null,
   routineDefaultProfiles = null,
   rehearsePre0204Recovery = false,
+  rehearseCurrentDevY2Recovery = false,
   postgresBin = '',
   temporaryParent = os.tmpdir()
 } = {}) {
@@ -916,6 +1083,9 @@ async function runManagedRestoreCompatibilityRehearsal({
   const includes0204 = migrationSequence.some(
     (migration) => migration.version === '20260823100000'
   );
+  const includes0205 = migrationSequence.some(
+    (migration) => migration.version === '20260824100000'
+  );
   const selectedRoutineDefaultProfiles = routineDefaultProfiles ?? {
     sandbox: 'hardened',
     dev: 'hardened'
@@ -926,6 +1096,10 @@ async function runManagedRestoreCompatibilityRehearsal({
     !['hardened', 'pre0204-dev'].includes(selectedRoutineDefaultProfiles.dev) ||
     (rehearsePre0204Recovery && (
       !includes0204 || selectedRoutineDefaultProfiles.dev !== 'pre0204-dev'
+    )) ||
+    (rehearseCurrentDevY2Recovery && (
+      rehearsePre0204Recovery || !includes0204 || !includes0205 ||
+      selectedRoutineDefaultProfiles.dev !== 'hardened'
     ))
   ) {
     throw categoricalError('MANAGED_REHEARSAL_ROUTINE_DEFAULT_PROFILE_INVALID');
@@ -935,6 +1109,7 @@ async function runManagedRestoreCompatibilityRehearsal({
   let cluster;
   const managedProfileKey = crypto.randomBytes(32);
   const applicationDefaultAclKey = crypto.randomBytes(32);
+  const y2AuthRecoveryKey = crypto.randomBytes(32);
   try {
     cluster = await startDisposablePostgres({
       rootDirectory: root,
@@ -954,12 +1129,15 @@ async function runManagedRestoreCompatibilityRehearsal({
     const privateDirectory = path.join(root, 'managed-overlay-private');
     const devInitialPrivateDirectory = path.join(root, 'managed-overlay-private-dev-initial');
     const devRefreshPrivateDirectory = path.join(root, 'managed-overlay-private-dev-refresh');
+    const y2PrivateDirectory = path.join(root, 'managed-overlay-private-dev-y2');
     createPrivateDirectory(privateDirectory);
     createPrivateDirectory(devInitialPrivateDirectory);
     createPrivateDirectory(devRefreshPrivateDirectory);
+    createPrivateDirectory(y2PrivateDirectory);
     verifyPrivateDirectoryProtection(privateDirectory);
     verifyPrivateDirectoryProtection(devInitialPrivateDirectory);
     verifyPrivateDirectoryProtection(devRefreshPrivateDirectory);
+    verifyPrivateDirectoryProtection(y2PrivateDirectory);
     await installExtensionPlane(sourceDatabase, { removePublic: true });
     await restoreSource({
       tools,
@@ -1194,6 +1372,15 @@ async function runManagedRestoreCompatibilityRehearsal({
       targetGuard: { mode: 'disposable-managed-local', loopback: true },
       diagnosticDirectory: privateDirectory
     }));
+    if (rehearseCurrentDevY2Recovery) {
+      await atRehearsalStage('mock-dev-current-migrations-before-y2', () =>
+        applyPostOverlayMigrations(devConnection, migrationSequence));
+      await withClient(devConnection, (client) => client.query(
+        `insert into app.organizations(name)
+         values ($1)`,
+        [`y2-current-only-${token}`]
+      ));
+    }
     const smokeProfile = {
       userId: crypto.randomUUID(),
       identityId: crypto.randomUUID(),
@@ -1208,6 +1395,86 @@ async function runManagedRestoreCompatibilityRehearsal({
       devAuthBeforeReplacement.identityCount !== sourceTransform.evidence.identities + 1
     ) {
       throw categoricalError('MANAGED_POPULATED_DEV_SETUP_FAILED');
+    }
+    let currentDevY2 = null;
+    if (rehearseCurrentDevY2Recovery) {
+      const y2ArchivePath = privateArtifactPath(y2PrivateDirectory, 'current-dev-y2.private.pgdump');
+      const y2SourceComponent = capturePrivatePlaintextArchive({
+        tools,
+        connectionString: devConnection,
+        archivePath: y2ArchivePath
+      });
+      const y2TocBytes = execFileSync(tools.pgRestore, ['--list', y2ArchivePath], {
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 32 * 1024 * 1024
+      });
+      let y2Manifest;
+      try {
+        y2Manifest = buildManagedRestoreManifest({
+          tocText: y2TocBytes.toString('utf8'),
+          sourceComponent: y2SourceComponent
+        });
+      } finally {
+        y2TocBytes.fill(0);
+      }
+      const y2TargetCatalog = await captureTargetCatalogProof(
+        devConnection,
+        y2Manifest,
+        managedProfiles.dev
+      );
+      const y2AuthEvidence = await withClient(devConnection, captureExactAuthRecoveryEvidence);
+      const y2AclContract = await withClient(devConnection, captureApplicationAclContract);
+      const y2Application = await captureApplicationPlane(devConnection);
+      const y2Auth = await captureAuthParity(devConnection);
+      const y2Managed = await captureManagedPlaneFingerprint(devConnection);
+      const y2RoutineDefaults = await withClient(
+        devConnection,
+        captureApplicationRoutineDefaultProfile
+      );
+      const y2FutureSecurity = await withClient(
+        devConnection,
+        captureFuturePublicFunctionDefaultSecurity
+      );
+      const y2AttemptId = `dev-y2-rehearsal-${token}`;
+      const y2AuthAuthority = buildExactAuthRecoveryAuthority({
+        attemptId: y2AttemptId,
+        target: targetCatalog.dev.profileTarget,
+        sourceComponentDigest: y2SourceComponent.digest,
+        migration: y2Application.migration,
+        evidence: y2AuthEvidence
+      }, y2AuthRecoveryKey);
+      const y2Package = generateManagedOverlayPackage({
+        pgRestorePath: tools.pgRestore,
+        pgDumpPath: tools.pgDump,
+        archivePath: y2ArchivePath,
+        sourceConnectionString: devConnection,
+        privateDirectory: y2PrivateDirectory,
+        sourceComponent: y2SourceComponent,
+        authEvidence: {},
+        migration: y2Application.migration,
+        authCompatibility: authCompatibility.dev,
+        targetCatalog: y2TargetCatalog,
+        applicationReplacement: y2TargetCatalog.applicationReplacement,
+        sourceAclContract: y2AclContract,
+        applicationDefaultAcl: applicationDefaultAcls.dev,
+        authRecovery: {
+          authority: y2AuthAuthority,
+          key: y2AuthRecoveryKey,
+          attemptId: y2AttemptId
+        }
+      });
+      currentDevY2 = {
+        archivePath: y2ArchivePath,
+        sourceComponent: y2SourceComponent,
+        packageResult: y2Package,
+        application: y2Application,
+        auth: y2Auth,
+        managed: y2Managed,
+        routineDefaults: y2RoutineDefaults,
+        futureSecurity: y2FutureSecurity
+      };
     }
     const devRefreshCatalog = await captureTargetCatalogProof(
       devConnection,
@@ -1285,6 +1552,20 @@ async function runManagedRestoreCompatibilityRehearsal({
         sandboxRecordCount: profiles[1].records.length,
         devRecordCount: profiles[2].records.length
       };
+    }
+    if (includes0205) {
+      const proof0205 = await Promise.all([
+        capture0205Proof(sourceMigrationConnection),
+        capture0205Proof(sandboxConnection),
+        capture0205Proof(devConnection)
+      ]);
+      if (
+        canonicalDigest(proof0205[0]) !== canonicalDigest(proof0205[1]) ||
+        canonicalDigest(proof0205[0]) !== canonicalDigest(proof0205[2])
+      ) {
+        throw categoricalError('MANAGED_REHEARSAL_0205_CONTRACT_PARITY_FAILED');
+      }
+      postOverlayContractProof.migration0205 = proof0205[0];
     }
     const futureObjectProbes = {
       sandbox: await probeFutureObjectDefaults(
@@ -1452,10 +1733,94 @@ async function runManagedRestoreCompatibilityRehearsal({
         futureObjectProbe: recoveryFutureProbe
       };
     }
+    let currentDevRecoveryProof = null;
+    if (rehearseCurrentDevY2Recovery) {
+      if (!currentDevY2) throw categoricalError('MANAGED_REHEARSAL_CURRENT_Y2_MISSING');
+      const cutoverDrift = await withClient(devConnection, (client) => client.query(
+        'select count(*)::bigint as count from app.organizations where name = $1',
+        [`y2-current-only-${token}`]
+      ));
+      if (Number(cutoverDrift.rows[0].count) !== 0) {
+        throw categoricalError('MANAGED_REHEARSAL_CURRENT_DRIFT_SURVIVED_CUTOVER');
+      }
+      await atRehearsalStage('mock-dev-current-y2-routine-default-recovery', () =>
+        withClient(devConnection, async (client) => {
+          await client.query('begin');
+          try {
+            await client.query(buildApplicationRoutineDefaultRecoverySql(currentDevY2.routineDefaults));
+            await client.query('commit');
+          } catch (error) {
+            await client.query('rollback').catch(() => {});
+            throw error;
+          }
+        }));
+      await atRehearsalStage('mock-dev-current-y2-application-recovery', () =>
+        executeManagedOverlayPackage({
+          psqlPath: tools.psql,
+          connectionString: devConnection,
+          packageResult: currentDevY2.packageResult,
+          targetGuard: { mode: 'disposable-managed-local', loopback: true },
+          diagnosticDirectory: y2PrivateDirectory
+        }));
+      const recovered = {
+        application: await captureApplicationPlane(devConnection),
+        auth: await captureAuthParity(devConnection),
+        managed: await captureManagedPlaneFingerprint(devConnection),
+        routineDefaults: await withClient(devConnection, captureApplicationRoutineDefaultProfile)
+      };
+      const recoveryFutureProbe = await probeFutureObjectDefaults(
+        devConnection,
+        targetCatalog.dev.applicationDefaultAclEntries,
+        {
+          publicExecute: currentDevY2.futureSecurity.publicExecute,
+          anonExecute: currentDevY2.futureSecurity.anonExecute,
+          authenticatedExecute: currentDevY2.futureSecurity.authenticatedExecute,
+          serviceRoleExecute: currentDevY2.futureSecurity.serviceRoleExecute,
+          ownerExecute: currentDevY2.futureSecurity.ownerExecute
+        }
+      );
+      const restoredCurrentOnly = await withClient(devConnection, (client) => client.query(
+        'select count(*)::bigint as count from app.organizations where name = $1',
+        [`y2-current-only-${token}`]
+      ));
+      const exact = {
+        application:
+          Object.values(compareApplicationPlane(currentDevY2.application, recovered.application)).every(Boolean),
+        auth: canonicalDigest([currentDevY2.auth]) === canonicalDigest([recovered.auth]),
+        managed: canonicalDigest([currentDevY2.managed]) === canonicalDigest([recovered.managed]),
+        routineDefaults:
+          canonicalDigest(currentDevY2.routineDefaults) === canonicalDigest(recovered.routineDefaults),
+        currentOnlyState: Number(restoredCurrentOnly.rows[0].count) === 1,
+        futureObjects: recoveryFutureProbe.applicationExact && recoveryFutureProbe.functionExact,
+        migration0205:
+          recovered.application.migration.count === 188 &&
+          recovered.application.migration.tip === '20260824100000'
+      };
+      if (Object.values(exact).some((value) => value !== true)) {
+        const error = categoricalError('MANAGED_REHEARSAL_CURRENT_Y2_RECOVERY_MISMATCH');
+        error.failedComparisons = Object.entries(exact)
+          .filter(([, value]) => value !== true)
+          .map(([name]) => name);
+        throw error;
+      }
+      currentDevRecoveryProof = {
+        capturedBeforeDestructiveBoundary: true,
+        authenticatedPrivatePackage: true,
+        currentOnlyStateRemovedByCutover: true,
+        exactApplicationRestored: true,
+        exactAuthRestored: true,
+        exactManagedProfileRestored: true,
+        exactRoutineDefaultsRestored: true,
+        currentOnlyStateRestored: true,
+        migration0205Restored: true,
+        futureObjectSemanticsRestored: true
+      };
+    }
     const residualFiles = [
       privateDirectory,
       devInitialPrivateDirectory,
-      devRefreshPrivateDirectory
+      devRefreshPrivateDirectory,
+      y2PrivateDirectory
     ].flatMap((directory) =>
       fs.readdirSync(directory).filter((name) => name.startsWith('postgres-diagnostic-'))
     );
@@ -1539,7 +1904,8 @@ async function runManagedRestoreCompatibilityRehearsal({
         destructiveSecondOverlayRestoredApplicationDefaults: true,
         futureObjectSemanticsRestored: futureObjectProbes.dev.applicationExact,
         applicationDefaultAclEntryCount: applicationDefaultsAfter.dev.length,
-        pre0204: recoveryProof
+        pre0204: recoveryProof,
+        currentDevY2: currentDevRecoveryProof
       },
       postOverlayMigration: {
         requested: migrationSequence.length > 0,
@@ -1559,6 +1925,7 @@ async function runManagedRestoreCompatibilityRehearsal({
   } finally {
     managedProfileKey.fill(0);
     applicationDefaultAclKey.fill(0);
+    y2AuthRecoveryKey.fill(0);
     if (cluster) await removeDisposablePostgres(cluster);
   }
 }

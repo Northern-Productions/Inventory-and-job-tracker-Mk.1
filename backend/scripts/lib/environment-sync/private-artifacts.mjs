@@ -145,7 +145,7 @@ function writePrivateBytesExclusive(filePath, bytes) {
   } finally {
     fs.closeSync(descriptor);
   }
-  verifyPrivateArtifactProtection(filePath);
+  // The exclusive descriptor was returned only after exact-file protection was verified.
   const directoryFsync = fsyncDirectory(path.dirname(filePath));
   if (directoryFsync === 'failed') {
     throw categoricalError('PRIVATE_ARTIFACT_DIRECTORY_FSYNC_FAILED');

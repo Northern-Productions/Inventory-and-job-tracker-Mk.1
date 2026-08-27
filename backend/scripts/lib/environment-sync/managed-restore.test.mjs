@@ -31,12 +31,14 @@ import {
   authTransformEntries,
   buildApplicationPlaneResetSql,
   buildAuthOverlayPurgeSql,
+  buildExactAuthRecoveryAuthority,
   buildManagedOverlaySql,
   buildManagedRestoreManifest,
   canonicalizePsqlRestrictionTokens,
   migrationRestoreList,
   normalizeGeneratedSql,
   parsePgRestoreList,
+  verifyExactAuthRecoveryAuthority,
   verifyManagedRestoreManifest
 } from './managed-restore.mjs';
 import {
@@ -566,6 +568,82 @@ test('Auth purge omits target-native instances and Auth migration history', () =
   assert.match(sql, /delete from auth\.users;/);
   assert.doesNotMatch(sql, /delete from auth\.instances/);
   assert.doesNotMatch(sql, /delete from auth\.schema_migrations/);
+});
+
+test('exact Y2 Auth recovery is authenticated, fixed-table, target-bound, and restores preserved rows', () => {
+  const key = crypto.randomBytes(32);
+  const digest = `sha256:${crypto.createHash('sha256').update('').digest('hex')}`;
+  const evidence = {
+    format: 'dev-y2-exact-auth-evidence-v1',
+    algorithm: 'sha256',
+    serialization: 'postgres-jsonb-text-lf-ordered-v1',
+    tables: CURRENT_AUTH_TABLES.map((tableName) => ({ tableName, count: 0, digest }))
+  };
+  const binding = {
+    attemptId: 'dev-y2-attempt-synthetic',
+    target: { environment: 'dev', projectRef: 'd'.repeat(20) },
+    sourceComponentDigest: `sha256:${'1'.repeat(64)}`,
+    migration: { count: 188, tip: '20260824100000' }
+  };
+  try {
+    const authority = buildExactAuthRecoveryAuthority({ ...binding, evidence }, key);
+    assert.equal(verifyExactAuthRecoveryAuthority(authority, key, binding), authority);
+    const tampered = structuredClone(authority);
+    tampered.authEvidence.tables[0].count = 1;
+    assert.throws(
+      () => verifyExactAuthRecoveryAuthority(tampered, key, binding),
+      /Manifest authentication failed/
+    );
+    assert.throws(
+      () => verifyExactAuthRecoveryAuthority(authority, key, {
+        ...binding,
+        target: { environment: 'dev', projectRef: 'e'.repeat(20) }
+      }),
+      /DEV_Y2_AUTH_RECOVERY_AUTHORITY_MISMATCH/
+    );
+    const purge = buildAuthOverlayPurgeSql({ exactRecovery: true });
+    assert.match(purge, /delete from auth\.instances;/);
+    assert.match(purge, /delete from auth\.schema_migrations;/);
+    const sql = buildManagedOverlaySql({
+      applicationResetSql: 'DROP SCHEMA IF EXISTS app_api CASCADE;\nDROP SCHEMA IF EXISTS app CASCADE;',
+      applicationSchemaSql: 'CREATE SCHEMA app;\nCREATE SCHEMA app_api;',
+      applicationDefaultAclPreservationSql:
+        'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA app GRANT SELECT ON TABLES TO service_role;',
+      applicationPreDataSql: 'CREATE TABLE app.boxes(id bigint);',
+      applicationDataSql: 'INSERT INTO app.boxes VALUES (1);',
+      applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
+      applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
+      applicationDefaultAclVerificationSql: 'DO $$ BEGIN NULL; END $$;',
+      authRecoverySql: "INSERT INTO auth.users (email) VALUES ('synthetic@users.invalid');",
+      migrationSql: "CREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260824100000');",
+      authEvidence: {},
+      migration: binding.migration,
+      authMode: 'exact-dev-y2-recovery',
+      authRecoveryAuthority: authority
+    });
+    assert.match(sql, /MANAGED_OVERLAY_STAGE_AUTH_EXACT_RECOVERY/);
+    assert.match(sql, /DEV_Y2_AUTH_RECOVERY_POSTCHECK_MISMATCH/);
+    assert.doesNotMatch(sql, /MANAGED_AUTH_QUARANTINE_MISMATCH/);
+    assert.throws(
+      () => buildManagedOverlaySql({
+        applicationResetSql: 'DROP SCHEMA IF EXISTS app_api CASCADE;\nDROP SCHEMA IF EXISTS app CASCADE;',
+        applicationSchemaSql: 'CREATE SCHEMA app;\nCREATE SCHEMA app_api;',
+        applicationDefaultAclPreservationSql: 'DO $$ BEGIN NULL; END $$;',
+        applicationPreDataSql: 'CREATE TABLE app.boxes(id bigint);',
+        applicationDataSql: 'INSERT INTO app.boxes VALUES (1);',
+        applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
+        applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
+        applicationDefaultAclVerificationSql: 'DO $$ BEGIN NULL; END $$;',
+        authRecoverySql: 'UPDATE auth.users SET email = email;',
+        migrationSql: "CREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260824100000');",
+        authEvidence: {}, migration: binding.migration,
+        authMode: 'exact-dev-y2-recovery', authRecoveryAuthority: authority
+      }),
+      /DEV_Y2_AUTH_RECOVERY_DATA_CHUNK_REJECTED/
+    );
+  } finally {
+    key.fill(0);
+  }
 });
 
 test('managed overlay SQL orders app pre-data, quarantined Auth, data, ledger, and post-data atomically', () => {

@@ -7,7 +7,42 @@ const MANIFEST_AUTHENTICATION = 'hmac-sha256-v1';
 const CANONICALIZATION_VERSION = 'environment-sync-c14n-v1';
 const AUTH_QUARANTINE_VERSION = 'supabase-auth-quarantine-pg17-v1';
 const SIDE_EFFECT_POLICY_VERSION = 'nonprod-side-effect-policy-v1';
-const CANONICAL_APPLICATION_SOURCE_COMMIT = 'cc11d933900737d06ce4b47296226f13a51af548';
+const GOLDEN_APPLICATION_SOURCE_COMMIT = 'cc11d933900737d06ce4b47296226f13a51af548';
+const CANONICAL_APPLICATION_SOURCE_COMMIT = '955104b0df3ceadcdf80d89115edd4cac7afe90c';
+const CANONICAL_APPLICATION_SOURCE_TREE = '12c9af7884c43f9527b4d54d0b05900d24541229';
+const CERTIFIED_ENVIRONMENT_SYNC_ANCESTOR = 'a3726238a7e11021d3a12c9d2f9f4426ae14a28a';
+const GOLDEN_BASELINE_ID = 'golden-prod-baseline-x-20260821231254224';
+const GOLDEN_BASELINE_MIGRATION = Object.freeze({
+  count: 185,
+  tip: '20260814210000'
+});
+const CURRENT_APPLICATION_MIGRATION = Object.freeze({
+  count: 188,
+  tip: '20260824100000'
+});
+const POST_GOLDEN_MIGRATIONS = Object.freeze([
+  Object.freeze({
+    id: '0203',
+    version: '20260822100000',
+    backendFile: '0203_restore_default_warehouse_auth_context.sql',
+    supabaseFile: '20260822100000_restore_default_warehouse_auth_context.sql',
+    digest: 'sha256:609c08cf3c20b4ce5aaa16bcde3b43ab8f6923c6db50f6a66027022526504771'
+  }),
+  Object.freeze({
+    id: '0204',
+    version: '20260823100000',
+    backendFile: '0204_global_function_default_execute_hardening.sql',
+    supabaseFile: '20260823100000_global_function_default_execute_hardening.sql',
+    digest: 'sha256:be85bafad91a9b0f9b6b103185a54d29fb8813e31aac585a1b41296cb7445085'
+  }),
+  Object.freeze({
+    id: '0205',
+    version: '20260824100000',
+    backendFile: '0205_weight_authoritative_box_checkin.sql',
+    supabaseFile: '20260824100000_weight_authoritative_box_checkin.sql',
+    digest: 'sha256:16a681507188e970b2e9c2d3433f4fa0a971ad49ce8fcf42ec4eedcaee826419'
+  })
+]);
 const EXPECTED_PROD_EDGE = Object.freeze({
   slug: 'api',
   version: 279,
@@ -194,15 +229,22 @@ export {
   AUTH_QUARANTINE_VERSION,
   BASELINE_MANIFEST_FORMAT,
   CANONICAL_APPLICATION_SOURCE_COMMIT,
+  CANONICAL_APPLICATION_SOURCE_TREE,
   CANONICALIZATION_VERSION,
+  CERTIFIED_ENVIRONMENT_SYNC_ANCESTOR,
+  CURRENT_APPLICATION_MIGRATION,
   CURRENT_AUTH_TABLES,
   DEFAULT_ALLOWED_NONPROD_EXCEPTIONS,
   DERIVED_MANIFEST_FORMAT,
   ENVIRONMENT_INVENTORY_FORMAT,
   EXPECTED_PROD_EDGE,
   GOLDEN_WORKFLOW_CONTRACT,
+  GOLDEN_APPLICATION_SOURCE_COMMIT,
+  GOLDEN_BASELINE_ID,
+  GOLDEN_BASELINE_MIGRATION,
   MANIFEST_AUTHENTICATION,
   PRESERVATION_MANIFEST_FORMAT,
+  POST_GOLDEN_MIGRATIONS,
   RECOVERY_MANIFEST_FORMAT,
   REQUIRED_AUTH_COLUMNS,
   SANDBOX_PROJECT_REF_VARIABLE,

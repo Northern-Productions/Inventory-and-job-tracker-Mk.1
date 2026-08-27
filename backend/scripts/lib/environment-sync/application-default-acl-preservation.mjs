@@ -562,9 +562,8 @@ function routineProfileCatalogSql() {
 
 function buildApplicationRoutineDefaultRecoverySql(beforeProfile) {
   const before = normalizeRoutineDefaultProfile(beforeProfile);
-  if (before.records.some((record) => record.scope === '<global>')) {
-    throw categoricalError('APPLICATION_ROUTINE_RECOVERY_PROFILE_UNSUPPORTED');
-  }
+  const global = before.records.find((record) => record.scope === '<global>');
+  if (global) assertHardenedApplicationRoutineDefaultProfile(before);
   const schemaEntries = before.records.flatMap((record) =>
     record.entries.map((entry) => ({ ...entry, scope: record.scope }))
   );
@@ -594,6 +593,11 @@ function buildApplicationRoutineDefaultRecoverySql(beforeProfile) {
       `alter default privileges for role postgres in schema ${quoteIdentifier(record.scope)} ` +
       `grant execute on functions to ${entry.grantee === 'PUBLIC' ? 'PUBLIC' : quoteIdentifier(entry.grantee)};`
     )).join('\n');
+  const globalRecovery = global
+    ? `alter default privileges for role postgres
+revoke execute on functions from public, anon, authenticated, service_role;
+alter default privileges for role postgres grant execute on functions to postgres;`
+    : 'alter default privileges for role postgres grant execute on functions to public;';
   return `do $application_routine_recovery_precheck$
 begin
   if current_user <> 'postgres' or session_user <> 'postgres' then
@@ -619,7 +623,7 @@ begin
   end if;
 end
 $application_routine_recovery_precheck$;
-alter default privileges for role postgres grant execute on functions to public;
+${globalRecovery}
 ${reset}
 ${grants}
 do $application_routine_recovery_postcheck$

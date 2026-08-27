@@ -12,6 +12,7 @@ import {
   buildApplicationAclConvergenceSql,
   captureApplicationAclContract,
   compareApplicationAclContracts,
+  renderApplicationAclOperation,
   renderApplicationAclRevoke,
   verifyApplicationAclContract,
   verifyApplicationAclConvergenceManifest,
@@ -104,9 +105,13 @@ test('ACL convergence fails closed for missing grants, value drift, signature dr
     objects: target.objects,
     grants: target.grants.filter((entry) => entry.grantee !== 'authenticated')
   });
-  assert.throws(
-    () => buildApplicationAclConvergenceManifest({ source, target: missing }),
-    /APPLICATION_ACL_SOURCE_GRANT_MISSING/
+  const missingManifest = buildApplicationAclConvergenceManifest({ source, target: missing });
+  assert.equal(missingManifest.operationCount, 3);
+  const grantOperation = missingManifest.operations.find((operation) => operation.action === 'grant');
+  assert.ok(grantOperation);
+  assert.match(
+    renderApplicationAclOperation(grantOperation),
+    /GRANT EXECUTE ON FUNCTION "public"\."api_acl_probe"\(uuid\) TO "authenticated";/
   );
   const mismatched = buildApplicationAclContract({
     objects: target.objects,
@@ -186,9 +191,10 @@ test('managed ACL exception verifier accepts only the certified effective authen
 test('managed-overlay ACL stage embeds an immutable source contract and avoids broad/default ACL mutation', () => {
   const { source } = contracts();
   const sql = buildApplicationAclConvergenceSql(source);
-  assert.match(sql, /APPLICATION_ACL_SOURCE_GRANT_MISSING/);
+  assert.match(sql, /APPLICATION_ACL_SOURCE_ONLY_GRANT_UNREVIEWED/);
   assert.match(sql, /APPLICATION_ACL_TARGET_ONLY_GRANT_UNREVIEWED/);
   assert.match(sql, /APPLICATION_ACL_GRANT_POSTCHECK_MISMATCH/);
+  assert.match(sql, /GRANT %s ON %s %I\.%I\(%s\) TO %s/);
   assert.match(sql, /REVOKE %s ON %s %I\.%I\(%s\) FROM %s/);
   assert.doesNotMatch(sql, /REVOKE EXECUTE ON ALL FUNCTIONS/i);
   assert.doesNotMatch(sql, /ALTER DEFAULT PRIVILEGES/i);
@@ -240,6 +246,71 @@ test('native default EXECUTE expansion converges to the source contract without 
       const manifest = buildApplicationAclConvergenceManifest({ source, target });
       assert.equal(manifest.operationCount, 2);
       assert.deepEqual(manifest.operations.map((entry) => entry.grantee), ['anon', 'service_role']);
+      const defaultsBefore = (await client.query(`
+        select defaclrole::regrole::text as owner_role, defaclnamespace::regnamespace::text as schema_name,
+               defaclobjtype, defaclacl::text as acl
+          from pg_catalog.pg_default_acl order by 1,2,3,4
+      `)).rows;
+      await client.query('begin isolation level serializable');
+      await client.query(buildApplicationAclConvergenceSql(source));
+      await client.query('commit');
+      const after = await captureApplicationAclContract(client);
+      assert.equal(compareApplicationAclContracts(source, after).exact, true);
+      const defaultsAfter = (await client.query(`
+        select defaclrole::regrole::text as owner_role, defaclnamespace::regnamespace::text as schema_name,
+               defaclobjtype, defaclacl::text as acl
+          from pg_catalog.pg_default_acl order by 1,2,3,4
+      `)).rows;
+      assert.equal(canonicalDigest(defaultsAfter), canonicalDigest(defaultsBefore));
+    });
+  } finally {
+    if (cluster) await removeDisposablePostgres(cluster);
+  }
+});
+
+test('hardened target routines receive only exact frozen source grants without changing defaults', { timeout: 120_000 }, async (t) => {
+  try {
+    resolvePostgresTools();
+  } catch {
+    t.skip('PostgreSQL 18 server tooling is unavailable.');
+    return;
+  }
+  const root = path.join(
+    os.tmpdir(),
+    `environment-sync-rehearsal-managed-${crypto.randomBytes(8).toString('hex')}`
+  );
+  let cluster;
+  try {
+    cluster = await startDisposablePostgres({ rootDirectory: root });
+    await withClient(cluster.connectionString(), async (client) => {
+      await client.query(`
+        create role anon;
+        create role authenticated;
+        create role authenticator;
+        create role service_role;
+        set role postgres;
+        create schema app authorization postgres;
+        create schema app_api authorization postgres;
+        create function public.api_acl_probe(p_org_id uuid) returns integer
+          language sql security definer as 'select 1';
+        revoke execute on function public.api_acl_probe(uuid) from public;
+        grant execute on function public.api_acl_probe(uuid) to authenticated;
+        reset role;
+      `);
+      const source = await captureApplicationAclContract(client);
+      await client.query(`
+        set role postgres;
+        drop function public.api_acl_probe(uuid);
+        alter default privileges for role postgres in schema public revoke execute on functions from public;
+        create function public.api_acl_probe(p_org_id uuid) returns integer
+          language sql security definer as 'select 1';
+        reset role;
+      `);
+      const target = await captureApplicationAclContract(client);
+      const manifest = buildApplicationAclConvergenceManifest({ source, target });
+      const grantOperations = manifest.operations.filter((operation) => operation.action === 'grant');
+      assert.equal(grantOperations.length, 1);
+      assert.equal(grantOperations[0].grantee, 'authenticated');
       const defaultsBefore = (await client.query(`
         select defaclrole::regrole::text as owner_role, defaclnamespace::regnamespace::text as schema_name,
                defaclobjtype, defaclacl::text as acl

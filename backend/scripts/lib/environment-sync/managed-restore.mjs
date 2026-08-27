@@ -31,9 +31,15 @@ import {
   managedProfileEvidenceFromCatalog,
   verifyManagedProfileCertificate
 } from './managed-profile.mjs';
+import {
+  authenticateManifest,
+  verifyAuthenticatedManifest
+} from './manifest.mjs';
 
 const MANAGED_RESTORE_MANIFEST_FORMAT = 'supabase-managed-overlay-restore-manifest-v1';
 const MANAGED_RESTORE_CANONICALIZATION = 'supabase-managed-overlay-toc-c14n-v1';
+const DEV_Y2_AUTH_RECOVERY_FORMAT = 'dev-y2-exact-auth-recovery-v1';
+const DEV_Y2_AUTH_RECOVERY_MODE = 'exact-dev-y2-recovery';
 const MANAGED_RESTORE_ACTIONS = Object.freeze([
   'restore',
   'transform',
@@ -113,6 +119,126 @@ function safeCount(value, code = 'MANAGED_RESTORE_COUNT_INVALID') {
   const count = Number(value);
   if (!Number.isSafeInteger(count) || count < 0) throw categoricalError(code);
   return count;
+}
+
+function normalizeAuthRecoveryTable(entry = {}, expectedName = '') {
+  const tableName = String(entry.tableName || '');
+  const count = safeCount(entry.count, 'DEV_Y2_AUTH_RECOVERY_COUNT_INVALID');
+  const digest = String(entry.digest || '').toLowerCase();
+  if (
+    tableName !== expectedName ||
+    !CURRENT_AUTH_TABLES.includes(tableName) ||
+    !/^sha256:[a-f0-9]{64}$/.test(digest) ||
+    Object.keys(entry).sort().join(',') !== 'count,digest,tableName'
+  ) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_TABLE_INVALID');
+  }
+  return { tableName, count, digest };
+}
+
+async function captureExactAuthRecoveryEvidence(client) {
+  if (!client || typeof client.query !== 'function') {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_CLIENT_INVALID');
+  }
+  const tables = [];
+  for (const tableName of CURRENT_AUTH_TABLES) {
+    const result = await client.query(
+      `select count(*)::bigint as count,
+              'sha256:' || encode(extensions.digest(
+                convert_to(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, E'\\n'
+                  order by pg_catalog.to_jsonb(t)::text), ''), 'UTF8'),
+                'sha256'
+              ), 'hex') as digest
+         from auth."${tableName}" t`
+    );
+    tables.push(normalizeAuthRecoveryTable({
+      tableName,
+      count: result.rows[0]?.count,
+      digest: result.rows[0]?.digest
+    }, tableName));
+  }
+  return {
+    format: 'dev-y2-exact-auth-evidence-v1',
+    algorithm: 'sha256',
+    serialization: 'postgres-jsonb-text-lf-ordered-v1',
+    tables
+  };
+}
+
+function buildExactAuthRecoveryAuthority({
+  attemptId,
+  target,
+  sourceComponentDigest,
+  migration,
+  evidence
+} = {}, key) {
+  const normalizedAttemptId = String(attemptId || '');
+  const normalizedTarget = {
+    environment: String(target?.environment || ''),
+    projectRef: String(target?.projectRef || '')
+  };
+  const normalizedSourceDigest = String(sourceComponentDigest || '').toLowerCase();
+  const normalizedMigration = {
+    count: safeCount(migration?.count, 'DEV_Y2_AUTH_RECOVERY_MIGRATION_INVALID'),
+    tip: String(migration?.tip || '')
+  };
+  if (
+    !/^[a-z0-9][a-z0-9._-]{7,127}$/.test(normalizedAttemptId) ||
+    normalizedTarget.environment !== 'dev' ||
+    !/^[a-z0-9]{10,40}$/.test(normalizedTarget.projectRef) ||
+    !/^sha256:[a-f0-9]{64}$/.test(normalizedSourceDigest) ||
+    !/^20\d{12}$/.test(normalizedMigration.tip) ||
+    evidence?.format !== 'dev-y2-exact-auth-evidence-v1' ||
+    evidence?.algorithm !== 'sha256' ||
+    evidence?.serialization !== 'postgres-jsonb-text-lf-ordered-v1' ||
+    !Array.isArray(evidence?.tables) ||
+    evidence.tables.length !== CURRENT_AUTH_TABLES.length
+  ) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_AUTHORITY_INVALID');
+  }
+  const tables = CURRENT_AUTH_TABLES.map((tableName, index) =>
+    normalizeAuthRecoveryTable(evidence.tables[index], tableName));
+  return authenticateManifest({
+    format: DEV_Y2_AUTH_RECOVERY_FORMAT,
+    version: 1,
+    mode: DEV_Y2_AUTH_RECOVERY_MODE,
+    attemptId: normalizedAttemptId,
+    target: normalizedTarget,
+    sourceComponentDigest: normalizedSourceDigest,
+    migration: normalizedMigration,
+    authEvidence: {
+      format: evidence.format,
+      algorithm: evidence.algorithm,
+      serialization: evidence.serialization,
+      tables
+    }
+  }, key);
+}
+
+function verifyExactAuthRecoveryAuthority(authority, key, {
+  attemptId,
+  target,
+  sourceComponentDigest,
+  migration
+} = {}) {
+  verifyAuthenticatedManifest(authority, key);
+  const rebuilt = buildExactAuthRecoveryAuthority({
+    attemptId: authority.attemptId,
+    target: authority.target,
+    sourceComponentDigest: authority.sourceComponentDigest,
+    migration: authority.migration,
+    evidence: authority.authEvidence
+  }, key);
+  if (
+    canonicalSerialize(rebuilt) !== canonicalSerialize(authority) ||
+    authority.attemptId !== attemptId ||
+    canonicalSerialize(authority.target) !== canonicalSerialize(target) ||
+    authority.sourceComponentDigest !== sourceComponentDigest ||
+    canonicalSerialize(authority.migration) !== canonicalSerialize(migration)
+  ) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_AUTHORITY_MISMATCH');
+  }
+  return authority;
 }
 
 function parsePgRestoreList(tocText) {
@@ -998,7 +1124,7 @@ async function captureAuthOverlaySourceEvidence(client) {
   return result;
 }
 
-function buildAuthOverlayPurgeSql() {
+function buildAuthOverlayPurgeSql({ exactRecovery = false } = {}) {
   const reviewedTables = new Set([...AUTH_PURGE_ORDER, ...AUTH_OVERLAY_TABLES, ...AUTH_PRESERVED_TABLES]);
   if (
     reviewedTables.size !== CURRENT_AUTH_TABLES.length ||
@@ -1009,7 +1135,11 @@ function buildAuthOverlayPurgeSql() {
   return [
     ...AUTH_PURGE_ORDER.map((tableName) => `delete from auth."${tableName}";`),
     'delete from auth.identities;',
-    'delete from auth.users;'
+    'delete from auth.users;',
+    ...(exactRecovery ? [
+      'delete from auth.instances;',
+      'delete from auth.schema_migrations;'
+    ] : [])
   ].join('\n');
 }
 
@@ -1088,7 +1218,47 @@ function assertAuthDataChunk(sql, tableName) {
   return text;
 }
 
-function buildVerificationSql({ authEvidence = {}, migration = {} } = {}) {
+function assertExactAuthRecoveryDataChunk(sql) {
+  const text = assertChunkBoundary(sql, 'AUTH_RECOVERY_DATA_CHUNK');
+  if (
+    /session_replication_role/i.test(text) ||
+    /^(?:CREATE|ALTER|DROP|TRUNCATE|DELETE|UPDATE)\b/gim.test(text) ||
+    /^COPY\s+/gim.test(text)
+  ) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_DATA_CHUNK_REJECTED');
+  }
+  const insertTargets = [...text.matchAll(/^INSERT INTO auth\."?([a-z0-9_]+)"?\b/gim)]
+    .map((match) => match[1]);
+  if (
+    insertTargets.some((tableName) => !CURRENT_AUTH_TABLES.includes(tableName)) ||
+    [...text.matchAll(/^INSERT INTO\s+([^\s(]+)/gim)].length !== insertTargets.length
+  ) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_DATA_CHUNK_REJECTED');
+  }
+  return text;
+}
+
+function exactAuthRecoveryAssertions(authority) {
+  return authority.authEvidence.tables.map((entry) => `
+  select count(*)::bigint,
+         'sha256:' || encode(extensions.digest(
+           convert_to(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, E'\\n'
+             order by pg_catalog.to_jsonb(t)::text), ''), 'UTF8'),
+           'sha256'
+         ), 'hex')
+    into v_auth_count, v_auth_digest
+    from auth."${entry.tableName}" t;
+  if v_auth_count <> ${entry.count} or v_auth_digest <> '${entry.digest}' then
+    raise exception 'DEV_Y2_AUTH_RECOVERY_POSTCHECK_MISMATCH';
+  end if;`).join('\n');
+}
+
+function buildVerificationSql({
+  authEvidence = {},
+  migration = {},
+  authMode = 'quarantined-overlay',
+  authRecoveryAuthority = null
+} = {}) {
   const users = safeCount(authEvidence.users || 0);
   const identities = safeCount(authEvidence.identities || 0);
   const migrationCount = safeCount(migration.count || 0);
@@ -1098,17 +1268,23 @@ function buildVerificationSql({ authEvidence = {}, migration = {} } = {}) {
     (tableName) =>
       `if exists (select 1 from auth."${tableName}") then raise exception 'MANAGED_AUTH_EPHEMERA_NOT_EMPTY'; end if;`
   ).join('\n  ');
+  const exactRecovery = authMode === DEV_Y2_AUTH_RECOVERY_MODE;
+  if (exactRecovery && !authRecoveryAuthority) {
+    throw categoricalError('DEV_Y2_AUTH_RECOVERY_AUTHORITY_REQUIRED');
+  }
   return `do $managed_overlay_verify$
 declare
   v_users bigint;
   v_identities bigint;
   v_migrations bigint;
   v_tip text;
+  v_auth_count bigint;
+  v_auth_digest text;
 begin
   if to_regnamespace('app') is null or to_regnamespace('app_api') is null then
     raise exception 'MANAGED_APPLICATION_SCHEMA_MISSING';
   end if;
-  select count(*) into v_users from auth.users;
+  ${exactRecovery ? exactAuthRecoveryAssertions(authRecoveryAuthority) : `select count(*) into v_users from auth.users;
   select count(*) into v_identities from auth.identities;
   if v_users <> ${users} or v_identities <> ${identities} then
     raise exception 'MANAGED_AUTH_COUNT_MISMATCH';
@@ -1127,7 +1303,7 @@ begin
        or i.identity_data->>'email' <> u.email
        or coalesce((i.identity_data->>'x_np_quarantined')::boolean, false) is not true
   ) then raise exception 'MANAGED_AUTH_IDENTITY_MISMATCH'; end if;
-  ${ephemeraAssertions}
+  ${ephemeraAssertions}`}
   select count(*), max(version) into v_migrations, v_tip
     from supabase_migrations.schema_migrations;
   if v_migrations <> ${migrationCount} or v_tip <> '${migrationTip}' then
@@ -1148,10 +1324,17 @@ function buildManagedOverlaySql({
   applicationDefaultAclVerificationSql,
   authUsersSql,
   authIdentitiesSql,
+  authRecoverySql,
   migrationSql,
   authEvidence,
-  migration
+  migration,
+  authMode = 'quarantined-overlay',
+  authRecoveryAuthority = null
 } = {}) {
+  const exactRecovery = authMode === DEV_Y2_AUTH_RECOVERY_MODE;
+  if (![DEV_Y2_AUTH_RECOVERY_MODE, 'quarantined-overlay'].includes(authMode)) {
+    throw categoricalError('MANAGED_AUTH_MODE_INVALID');
+  }
   const chunks = {
     applicationResetSql: assertApplicationChunk(applicationResetSql),
     applicationSchemaSql: assertApplicationChunk(applicationSchemaSql),
@@ -1161,8 +1344,9 @@ function buildManagedOverlaySql({
     applicationPostDataSql: assertApplicationChunk(applicationPostDataSql),
     applicationAclConvergenceSql: assertApplicationChunk(applicationAclConvergenceSql),
     applicationDefaultAclVerificationSql: assertApplicationChunk(applicationDefaultAclVerificationSql),
-    authUsersSql: assertAuthDataChunk(authUsersSql, 'users'),
-    authIdentitiesSql: assertAuthDataChunk(authIdentitiesSql, 'identities'),
+    authUsersSql: exactRecovery ? '' : assertAuthDataChunk(authUsersSql, 'users'),
+    authIdentitiesSql: exactRecovery ? '' : assertAuthDataChunk(authIdentitiesSql, 'identities'),
+    authRecoverySql: exactRecovery ? assertExactAuthRecoveryDataChunk(authRecoverySql) : '',
     migrationSql: assertChunkBoundary(migrationSql, 'MIGRATION_CHUNK')
   };
   for (const line of chunks.migrationSql.split(/\r?\n/)) {
@@ -1176,7 +1360,12 @@ function buildManagedOverlaySql({
       throw categoricalError('MANAGED_RESTORE_MIGRATION_CHUNK_REJECTED');
     }
   }
-  const verification = buildVerificationSql({ authEvidence, migration });
+  const verification = buildVerificationSql({
+    authEvidence,
+    migration,
+    authMode,
+    authRecoveryAuthority
+  });
   return `\\set ON_ERROR_STOP on
 BEGIN ISOLATION LEVEL SERIALIZABLE;
 SET LOCAL statement_timeout = 0;
@@ -1189,11 +1378,12 @@ ${chunks.applicationDefaultAclPreservationSql}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_DEFINITION
 ${chunks.applicationPreDataSql}
 \\echo MANAGED_OVERLAY_STAGE_AUTH_PURGE
-${buildAuthOverlayPurgeSql()}
-\\echo MANAGED_OVERLAY_STAGE_AUTH_USERS
+${buildAuthOverlayPurgeSql({ exactRecovery })}
+${exactRecovery ? `\\echo MANAGED_OVERLAY_STAGE_AUTH_EXACT_RECOVERY
+${chunks.authRecoverySql}` : `\\echo MANAGED_OVERLAY_STAGE_AUTH_USERS
 ${chunks.authUsersSql}
 \\echo MANAGED_OVERLAY_STAGE_AUTH_IDENTITIES
-${chunks.authIdentitiesSql}
+${chunks.authIdentitiesSql}`}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_DATA
 ${chunks.applicationDataSql}
 \\echo MANAGED_OVERLAY_STAGE_MIGRATION_LEDGER
@@ -1277,6 +1467,20 @@ function generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName }
   );
 }
 
+function generateExactAuthRecoveryDataChunk({ pgDumpPath, sourceConnectionString }) {
+  return privateGeneratedText(
+    pgDumpPath,
+    [
+      '--data-only',
+      '--column-inserts',
+      '--no-owner',
+      '--no-privileges',
+      ...CURRENT_AUTH_TABLES.flatMap((tableName) => ['--table', `auth.${tableName}`])
+    ],
+    postgresChildEnvironment(sourceConnectionString, { PGOPTIONS: '-c statement_timeout=0' })
+  );
+}
+
 function generateManagedOverlayPackage({
   pgRestorePath,
   pgDumpPath,
@@ -1290,7 +1494,8 @@ function generateManagedOverlayPackage({
   targetCatalog,
   applicationReplacement,
   sourceAclContract,
-  applicationDefaultAcl
+  applicationDefaultAcl,
+  authRecovery = null
 } = {}) {
   verifyPrivateArtifactProtection(archivePath);
   verifyPrivateDirectoryProtection(privateDirectory);
@@ -1301,6 +1506,7 @@ function generateManagedOverlayPackage({
   let appPost;
   let users;
   let identities;
+  let recoveryAuth;
   let migrationSql;
   try {
     const verifiedApplicationDefaultAcl = verifyApplicationDefaultAclManifest({
@@ -1319,6 +1525,15 @@ function generateManagedOverlayPackage({
       applicationReplacement,
       applicationDefaultAcl: verifiedApplicationDefaultAcl
     });
+    const authMode = authRecovery ? DEV_Y2_AUTH_RECOVERY_MODE : 'quarantined-overlay';
+    const verifiedAuthRecoveryAuthority = authRecovery
+      ? verifyExactAuthRecoveryAuthority(authRecovery.authority, authRecovery.key, {
+          attemptId: authRecovery.attemptId,
+          target: targetCatalog.profileTarget,
+          sourceComponentDigest: sourceComponent.digest,
+          migration
+        })
+      : null;
     verifyApplicationAclContract(sourceAclContract);
     const tocText = tocBytes.toString('utf8');
     const manifest = buildManagedRestoreManifest({
@@ -1338,6 +1553,9 @@ function generateManagedOverlayPackage({
       'application-default-acl-preservation.json'
     );
     const scriptPath = privateArtifactPath(privateDirectory, 'managed-overlay.sql');
+    const authRecoveryAuthorityPath = authRecovery
+      ? privateArtifactPath(privateDirectory, 'dev-y2-auth-recovery-authority.json')
+      : '';
     writePrivateBytesExclusive(
       appSchemaListPath,
       Buffer.from(applicationSchemaRestoreList(tocText, manifest), 'utf8')
@@ -1350,6 +1568,9 @@ function generateManagedOverlayPackage({
     writePrivateJsonExclusive(manifestPath, manifest);
     writePrivateJsonExclusive(aclContractPath, sourceAclContract);
     writePrivateJsonExclusive(defaultAclContractPath, applicationDefaultAcl.certificate);
+    if (verifiedAuthRecoveryAuthority) {
+      writePrivateJsonExclusive(authRecoveryAuthorityPath, verifiedAuthRecoveryAuthority);
+    }
     appSchema = generatePgRestoreChunk({
       pgRestorePath,
       archivePath,
@@ -1376,8 +1597,12 @@ function generateManagedOverlayPackage({
       listPath: appListPath,
       section: 'post-data'
     });
-    users = generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName: 'users' });
-    identities = generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName: 'identities' });
+    if (verifiedAuthRecoveryAuthority) {
+      recoveryAuth = generateExactAuthRecoveryDataChunk({ pgDumpPath, sourceConnectionString });
+    } else {
+      users = generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName: 'users' });
+      identities = generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName: 'identities' });
+    }
     migrationSql = generatePgRestoreChunk({
       pgRestorePath,
       archivePath,
@@ -1397,16 +1622,20 @@ function generateManagedOverlayPackage({
         verifiedApplicationDefaultAcl,
         'APPLICATION_DEFAULT_ACL_FINAL_MISMATCH'
       ),
-      authUsersSql: normalizeGeneratedSql(users),
-      authIdentitiesSql: normalizeGeneratedSql(identities),
+      authUsersSql: users ? normalizeGeneratedSql(users) : '',
+      authIdentitiesSql: identities ? normalizeGeneratedSql(identities) : '',
+      authRecoverySql: recoveryAuth ? normalizeGeneratedSql(recoveryAuth) : '',
       migrationSql: normalizeGeneratedSql(migrationSql),
       authEvidence,
-      migration
+      migration,
+      authMode,
+      authRecoveryAuthority: verifiedAuthRecoveryAuthority
     }), 'utf8');
     writePrivateGeneratedFile(scriptPath, script);
     const scriptBytes = fs.readFileSync(scriptPath);
     let scriptDigest;
     let semanticDigest;
+    let authRecoveryArtifact = null;
     try {
       scriptDigest = sha256(scriptBytes);
       const semanticBytes = Buffer.from(
@@ -1421,6 +1650,17 @@ function generateManagedOverlayPackage({
     } finally {
       scriptBytes.fill(0);
     }
+    if (authRecoveryAuthorityPath) {
+      const authorityBytes = fs.readFileSync(authRecoveryAuthorityPath);
+      try {
+        authRecoveryArtifact = {
+          size: authorityBytes.length,
+          digest: sha256(authorityBytes)
+        };
+      } finally {
+        authorityBytes.fill(0);
+      }
+    }
     return {
       manifest,
       paths: {
@@ -1430,6 +1670,7 @@ function generateManagedOverlayPackage({
         manifestPath,
         aclContractPath,
         defaultAclContractPath,
+        ...(authRecoveryAuthorityPath ? { authRecoveryAuthorityPath } : {}),
         scriptPath
       },
       script: { size: fs.statSync(scriptPath).size, digest: scriptDigest, semanticDigest },
@@ -1442,11 +1683,15 @@ function generateManagedOverlayPackage({
         expectedAfterDigest: verifiedApplicationDefaultAcl.expectedAfterDigest,
         planDigest: verifiedApplicationDefaultAcl.planDigest
       },
+      authMode,
+      authRecoveryArtifact,
       atomic: true,
       sessionReplicationRoleRequired: false
     };
   } finally {
-    for (const bytes of [tocBytes, appSchema, appPre, appData, appPost, users, identities, migrationSql]) {
+    for (const bytes of [
+      tocBytes, appSchema, appPre, appData, appPost, users, identities, recoveryAuth, migrationSql
+    ]) {
       if (Buffer.isBuffer(bytes)) bytes.fill(0);
     }
   }
@@ -1541,8 +1786,25 @@ async function executeManagedOverlayPackage({
   }
   const scriptPath = packageResult?.paths?.scriptPath;
   const aclContractPath = packageResult?.paths?.aclContractPath;
+  const authRecoveryAuthorityPath = packageResult?.paths?.authRecoveryAuthorityPath;
   verifyPrivateArtifactProtection(aclContractPath);
   verifyPrivateArtifactProtection(scriptPath);
+  if (packageResult?.authMode === DEV_Y2_AUTH_RECOVERY_MODE) {
+    verifyPrivateArtifactProtection(authRecoveryAuthorityPath);
+    const authorityBytes = fs.readFileSync(authRecoveryAuthorityPath);
+    try {
+      if (
+        authorityBytes.length !== packageResult?.authRecoveryArtifact?.size ||
+        sha256(authorityBytes) !== packageResult?.authRecoveryArtifact?.digest
+      ) {
+        throw categoricalError('DEV_Y2_AUTH_RECOVERY_ARTIFACT_MISMATCH');
+      }
+    } finally {
+      authorityBytes.fill(0);
+    }
+  } else if (packageResult?.authMode !== 'quarantined-overlay') {
+    throw categoricalError('MANAGED_AUTH_MODE_INVALID');
+  }
   const contractBytes = fs.readFileSync(aclContractPath);
   try {
     const storedContract = JSON.parse(normalizeGeneratedSql(contractBytes));
@@ -1593,6 +1855,8 @@ export {
   AUTH_OVERLAY_TABLES,
   AUTH_PRESERVED_TABLES,
   AUTH_USERS_COPY_COLUMNS,
+  DEV_Y2_AUTH_RECOVERY_FORMAT,
+  DEV_Y2_AUTH_RECOVERY_MODE,
   MANAGED_RESTORE_ACTIONS,
   MANAGED_RESTORE_CANONICALIZATION,
   MANAGED_RESTORE_CATEGORIES,
@@ -1609,10 +1873,12 @@ export {
   assertOverlayExecutionGuard,
   authTransformEntries,
   buildAuthOverlayPurgeSql,
+  buildExactAuthRecoveryAuthority,
   buildApplicationPlaneResetSql,
   buildManagedOverlaySql,
   buildManagedRestoreManifest,
   captureAuthOverlaySourceEvidence,
+  captureExactAuthRecoveryEvidence,
   captureApplicationReplacementCatalog,
   captureManagedTargetCatalog,
   canonicalizePsqlRestrictionTokens,
@@ -1623,5 +1889,6 @@ export {
   normalizeGeneratedSql,
   normalizeAuthShape,
   parsePgRestoreList,
+  verifyExactAuthRecoveryAuthority,
   verifyManagedRestoreManifest
 };

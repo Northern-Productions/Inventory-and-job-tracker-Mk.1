@@ -316,18 +316,18 @@ test('pre-0204 recovery is exact-profile only and restores defaults before objec
   assert.match(sql, /in schema "public" grant execute on functions to "anon";/i);
   assert.match(sql, /APPLICATION_ROUTINE_RECOVERY_POSTCHECK_MISMATCH/);
   assert.doesNotMatch(sql, /create\s+(?:or\s+replace\s+)?function/i);
-  assert.throws(
-    () => buildApplicationRoutineDefaultRecoverySql({
-      ...pre0204,
-      records: [{
-        scope: '<global>',
-        entries: [{
-          grantorRole: 'postgres', grantee: 'postgres', privilege: 'EXECUTE', grantOption: false
-        }]
+  const hardened = normalizeRoutineDefaultProfile({
+    ...pre0204,
+    records: [{
+      scope: '<global>',
+      entries: [{
+        grantorRole: 'postgres', grantee: 'postgres', privilege: 'EXECUTE', grantOption: false
       }]
-    }),
-    /APPLICATION_ROUTINE_RECOVERY_PROFILE_UNSUPPORTED/
-  );
+    }]
+  });
+  const hardenedSql = buildApplicationRoutineDefaultRecoverySql(hardened);
+  assert.match(hardenedSql, /revoke execute on functions from public, anon, authenticated, service_role/i);
+  assert.match(hardenedSql, /grant execute on functions to postgres/i);
 });
 
 test('disposable PostgreSQL reproduces schema-drop loss and proves corrected future-object inheritance', { timeout: 120_000 }, async (t) => {
