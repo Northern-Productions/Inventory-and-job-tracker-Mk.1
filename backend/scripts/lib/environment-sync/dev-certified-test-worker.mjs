@@ -8,6 +8,8 @@ import {
   buildCertifiedRefreshContract
 } from './dev-certified-contract.mjs';
 import { runCertifiedDevRefresh } from './dev-certified-orchestrator.mjs';
+import { buildOperationFailure } from './dev-certified-operation-failure.mjs';
+import { signPayload } from './dev-certified-state.mjs';
 import { GOLDEN_WORKFLOW_CONTRACT, POST_GOLDEN_MIGRATIONS } from './constants.mjs';
 
 function digest(value) {
@@ -135,6 +137,46 @@ function runOperationWorker() {
   );
   if (refreshContract.contractDigest !== process.env.DEV_REFRESH_CONTRACT_DIGEST) process.exit(94);
   const stage = process.env.DEV_REFRESH_STAGE;
+  if (process.argv[3] === 'authenticated-fail') {
+    const key = fs.readFileSync(Number(process.env.DEV_REFRESH_AUTHORITY_KEY_FD));
+    try {
+      const failureError = new Error('MANAGED_OVERLAY_EXECUTION_FAILED');
+      failureError.code = 'MANAGED_OVERLAY_EXECUTION_FAILED';
+      failureError.failureSubstep = 'MANAGED_OVERLAY_EXECUTION';
+      failureError.safeDiagnostic = {
+        classification: 'POSTGRES_MANAGED_OWNERSHIP_REJECTED',
+        sqlState: '42501',
+        statementCategory: 'DDL',
+        exitCode: 3,
+        signal: '',
+        overflow: false,
+        excerpt: 'ERROR: must be owner of table users'
+      };
+      const failure = buildOperationFailure({
+        stage,
+        attemptId: process.env.DEV_REFRESH_ATTEMPT_ID,
+        target: 'dev',
+        projectRef: DEV_PROJECT_REF,
+        contractDigest: process.env.DEV_REFRESH_CONTRACT_DIGEST,
+        error: failureError
+      });
+      const bytes = Buffer.from(JSON.stringify({
+        format: 'dev-certified-operation-result-v1',
+        failure,
+        authentication: { algorithm: 'hmac-sha256-v1', digest: signPayload(failure, key) }
+      }), 'utf8');
+      try {
+        fs.writeSync(Number(process.env.DEV_REFRESH_RESULT_FD), bytes);
+        fs.fsyncSync(Number(process.env.DEV_REFRESH_RESULT_FD));
+      } finally {
+        bytes.fill(0);
+      }
+    } finally {
+      key.fill(0);
+    }
+    process.exitCode = 96;
+    return;
+  }
   const record = {
     format: 'dev-certified-operation-result-v1',
     evidence: evidence(refreshContract, stage)

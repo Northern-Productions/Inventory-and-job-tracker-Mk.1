@@ -648,6 +648,41 @@ test('operation executor fails closed on child failure, timeout, and script-byte
   }
 });
 
+test('operation executor preserves an authenticated redacted lower-level failure cause', async () => {
+  const harness = createOperationHarness('operation-authenticated-failure', {
+    precheckArgs: ['operation', 'authenticated-fail']
+  });
+  try {
+    await assert.rejects(harness.executor.run('PRECHECK'), (error) => {
+      assert.equal(error.code, 'DEV_REFRESH_REAL_STAGE_MANAGED_OVERLAY_EXECUTION_FAILED');
+      assert.deepEqual(error.operationFailure, {
+        format: 'dev-certified-operation-cause-v1',
+        category: 'MANAGED_OVERLAY_EXECUTION_FAILED',
+        substep: 'MANAGED_OVERLAY_EXECUTION',
+        diagnostic: {
+          classification: 'POSTGRES_MANAGED_OWNERSHIP_REJECTED',
+          sqlState: '42501',
+          statementCategory: 'DDL',
+          exitCode: 3,
+          signal: '',
+          overflow: false,
+          excerpt: 'ERROR: must be owner of table users'
+        }
+      });
+      assert.doesNotMatch(JSON.stringify(error), /owner of table|operationFailure/);
+      return true;
+    });
+    const rawPath = path.join(harness.root, 'evidence', 'precheck-1.raw.private.json');
+    verifyPrivateArtifactProtection(rawPath);
+    const raw = fs.readFileSync(rawPath, 'utf8');
+    assert.match(raw, /MANAGED_OVERLAY_EXECUTION_FAILED/);
+    assert.doesNotMatch(raw, /password|token|secret|postgresql:\/\//i);
+  } finally {
+    harness.key.fill(0);
+    remove(harness.root);
+  }
+});
+
 test('malformed workflow, migration, cleanup, and final parity evidence fail closed after mutation', async () => {
   for (const stage of ['DATABASE_CUTOVER', 'WORKFLOW_CERTIFICATION', 'FIXTURE_CLEANUP', 'FINAL_PARITY']) {
     const root = tempRoot(`bad-evidence-${stage.toLowerCase()}`);

@@ -65,10 +65,10 @@ import {
 } from './dev-certified-stage-state.mjs';
 import { CURRENT_APPLICATION_MIGRATION, POST_GOLDEN_MIGRATIONS } from './constants.mjs';
 import { signPayload } from './dev-certified-state.mjs';
+import { buildOperationFailure } from './dev-certified-operation-failure.mjs';
 
 const { Client } = pg;
 const RESULT_FORMAT = 'dev-certified-operation-result-v1';
-const FAILURE_FORMAT = 'dev-certified-operation-failure-v1';
 
 function categoricalError(code) {
   const error = new Error(code);
@@ -592,19 +592,39 @@ async function runFinalParity(context) {
 }
 
 async function runRecoveryDatabase(context) {
-  const y2 = readStageState(stateOptions(context, context.key, 'Y2_VALIDATED'));
-  const tools = resolvePostgresTools(context.preparation.targetBefore.session.postgresBin || '');
+  const runSubstep = async (substep, action) => {
+    try {
+      return await action();
+    } catch (error) {
+      try {
+        if (!error.failureSubstep) error.failureSubstep = substep;
+      } catch {}
+      throw error;
+    }
+  };
+  const y2 = await runSubstep('Y2_STAGE_STATE_READ', () =>
+    readStageState(stateOptions(context, context.key, 'Y2_VALIDATED'))
+  );
+  const tools = await runSubstep('POSTGRES_TOOL_RESOLUTION', () =>
+    resolvePostgresTools(context.preparation.targetBefore.session.postgresBin || '')
+  );
   const diagnostics = path.join(context.rootDirectory, 'diagnostics-private');
-  if (!fs.existsSync(diagnostics)) createPrivateDirectory(diagnostics);
-  await executeManagedOverlayPackage({
+  await runSubstep('DIAGNOSTIC_DIRECTORY_PREPARATION', () => {
+    if (!fs.existsSync(diagnostics)) createPrivateDirectory(diagnostics);
+  });
+  await runSubstep('MANAGED_OVERLAY_EXECUTION', () => executeManagedOverlayPackage({
     psqlPath: tools.psql,
     connectionString: context.connectionString,
     packageResult: y2.recoveryPackage,
     targetGuard: targetGuard(context.preparation, y2.recoveryPackage),
     diagnosticDirectory: diagnostics
-  });
-  const current = await captureCoreState(context.preparation);
-  writeStageState({ ...stateOptions(context, context.key, 'RECOVERY_DATABASE'), value: current });
+  }));
+  const current = await runSubstep('POST_RESTORE_FINGERPRINT', () =>
+    captureCoreState(context.preparation)
+  );
+  await runSubstep('STAGE_STATE_WRITE', () =>
+    writeStageState({ ...stateOptions(context, context.key, 'RECOVERY_DATABASE'), value: current })
+  );
   return { applicationRestored: true, migrationRestored: true, aclRestored: true, relationalAuthRestored: true };
 }
 
@@ -682,19 +702,14 @@ function writeResult(evidence) {
 }
 
 function writeFailure(error, key) {
-  const raw = String(error?.code || error?.message || '');
-  const category = /^DEV_REFRESH_[A-Z0-9_]{1,180}$/.test(raw)
-    ? raw
-    : 'DEV_REFRESH_REAL_STAGE_FAILED';
-  const payload = {
-    format: FAILURE_FORMAT,
+  const payload = buildOperationFailure({
     stage: String(process.env.DEV_REFRESH_STAGE || ''),
     attemptId: String(process.env.DEV_REFRESH_ATTEMPT_ID || ''),
     target: 'dev',
     projectRef: DEV_PROJECT_REF,
     contractDigest: String(process.env.DEV_REFRESH_CONTRACT_DIGEST || ''),
-    category
-  };
+    error
+  });
   writeResultRecord({
     format: RESULT_FORMAT,
     failure: payload,

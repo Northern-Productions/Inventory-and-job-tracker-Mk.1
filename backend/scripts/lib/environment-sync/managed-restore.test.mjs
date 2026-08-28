@@ -993,12 +993,18 @@ test('private diagnostic command retains raw bytes only during failure classific
           callbackObserved = true;
           assert.equal(verifyPrivateArtifactProtection(artifactPath).ownerOnly, true);
           assert.equal(safeDiagnostic.classification, 'POSTGRES_MANAGED_OWNERSHIP_REJECTED');
+          assert.equal(safeDiagnostic.exitCode, 3);
+          assert.equal(safeDiagnostic.signal, '');
+          assert.equal(safeDiagnostic.overflow, false);
           assert.doesNotMatch(safeDiagnostic.excerpt, /private/);
         }
       }),
       (error) => {
         assert.equal(error.code, 'SYNTHETIC_RESTORE_FAILED');
         assert.equal(error.safeDiagnostic.classification, 'POSTGRES_MANAGED_OWNERSHIP_REJECTED');
+        assert.equal(error.safeDiagnostic.exitCode, 3);
+        assert.equal(error.safeDiagnostic.signal, '');
+        assert.equal(error.safeDiagnostic.overflow, false);
         return true;
       }
     );

@@ -67,6 +67,15 @@ function sanitizePostgresDiagnostic(value) {
   };
 }
 
+function attachExecutionMetadata(safeDiagnostic, { exitCode = null, signal = '', overflow = false } = {}) {
+  return {
+    ...safeDiagnostic,
+    exitCode: Number.isSafeInteger(exitCode) && exitCode >= 0 && exitCode <= 255 ? exitCode : null,
+    signal: /^(?:SIG)?[A-Z0-9]{1,24}$/.test(String(signal || '')) ? String(signal) : '',
+    overflow: overflow === true
+  };
+}
+
 function writeDiagnosticChunk(descriptor, label, chunk, state) {
   if (state.overflow) return;
   const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -142,7 +151,10 @@ async function runPrivateDiagnosticCommand({
     fs.closeSync(descriptor);
     verifyPrivateArtifactProtection(artifactPath);
     raw = fs.readFileSync(artifactPath);
-    const safeDiagnostic = sanitizePostgresDiagnostic(raw.toString('utf8'));
+    const safeDiagnostic = attachExecutionMetadata(
+      sanitizePostgresDiagnostic(raw.toString('utf8')),
+      { exitCode: code, signal, overflow: state.overflow }
+    );
     if (code !== 0 || signal || state.overflow) {
       if (typeof onFailureDiagnostic === 'function') {
         await onFailureDiagnostic({ safeDiagnostic, artifactPath, overflow: state.overflow });
@@ -153,7 +165,10 @@ async function runPrivateDiagnosticCommand({
   } catch (error) {
     if (child && child.exitCode === null && child.signalCode === null) child.kill();
     if (error?.code === failureCode) throw error;
-    throw categoricalError(failureCode, sanitizePostgresDiagnostic(error?.message));
+    throw categoricalError(failureCode, attachExecutionMetadata(
+      sanitizePostgresDiagnostic(error?.message),
+      { overflow: state.overflow }
+    ));
   } finally {
     inputStream?.destroy();
     try { fs.closeSync(descriptor); } catch {}

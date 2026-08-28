@@ -23,10 +23,10 @@ import {
   writePrivateJsonExclusive
 } from './private-artifacts.mjs';
 import { signPayload } from './dev-certified-state.mjs';
+import { verifyOperationFailure } from './dev-certified-operation-failure.mjs';
 
 const OPERATION_INVENTORY_FORMAT = 'dev-certified-operation-inventory-v1';
 const OPERATION_RESULT_FORMAT = 'dev-certified-operation-result-v1';
-const OPERATION_FAILURE_FORMAT = 'dev-certified-operation-failure-v1';
 const REQUIRED_OPERATION_STAGES = Object.freeze([
   'PRECHECK',
   'QUIET_WINDOW',
@@ -52,9 +52,17 @@ const syntheticWorkerBytes = fs.readFileSync(SYNTHETIC_WORKER_PATH);
 const SYNTHETIC_WORKER_DIGEST = sha256Bytes(syntheticWorkerBytes);
 syntheticWorkerBytes.fill(0);
 
-function categoricalError(code) {
+function categoricalError(code, operationFailure = null) {
   const error = new Error(code);
   error.code = code;
+  if (operationFailure) {
+    Object.defineProperty(error, 'operationFailure', {
+      value: operationFailure,
+      enumerable: false,
+      configurable: false,
+      writable: false
+    });
+  }
   return error;
 }
 
@@ -230,31 +238,28 @@ function readOperationFailure(resultPath, key, contract, stage) {
   verifyPrivateArtifactProtection(resultPath);
   const bytes = fs.readFileSync(resultPath);
   try {
-    if (bytes.length === 0) return '';
+    if (bytes.length === 0) return null;
     const record = JSON.parse(bytes.toString('utf8'));
-    const failure = record?.failure;
-    if (
-      record?.format !== OPERATION_RESULT_FORMAT ||
-      failure?.format !== OPERATION_FAILURE_FORMAT ||
-      failure.stage !== stage ||
-      failure.attemptId !== contract.attemptId ||
-      failure.target !== 'dev' ||
-      failure.projectRef !== DEV_PROJECT_REF ||
-      failure.contractDigest !== contract.contractDigest ||
-      !/^DEV_REFRESH_[A-Z0-9_]{1,180}$/.test(String(failure.category || '')) ||
-      record?.authentication?.algorithm !== 'hmac-sha256-v1'
-    ) return '';
+    const failure = verifyOperationFailure(record?.failure, {
+      stage,
+      attemptId: contract.attemptId,
+      target: 'dev',
+      projectRef: DEV_PROJECT_REF,
+      contractDigest: contract.contractDigest
+    });
+    if (record?.format !== OPERATION_RESULT_FORMAT || !failure ||
+        record?.authentication?.algorithm !== 'hmac-sha256-v1') return null;
     const expected = Buffer.from(signPayload(failure, key), 'utf8');
     const observed = Buffer.from(String(record.authentication.digest || ''), 'utf8');
     try {
-      if (expected.length !== observed.length || !crypto.timingSafeEqual(expected, observed)) return '';
+      if (expected.length !== observed.length || !crypto.timingSafeEqual(expected, observed)) return null;
     } finally {
       expected.fill(0);
       observed.fill(0);
     }
-    return failure.category;
+    return failure;
   } catch {
-    return '';
+    return null;
   } finally {
     bytes.fill(0);
   }
@@ -371,8 +376,11 @@ function createOperationExecutor({
         throw categoricalError('DEV_REFRESH_OPERATION_DIRECTORY_FSYNC_FAILED');
       }
       if (operationFailed) {
-        const category = readOperationFailure(resultPath, key, contract, stage);
-        throw categoricalError(category || `DEV_REFRESH_${stage}_OPERATION_FAILED`);
+        const failure = readOperationFailure(resultPath, key, contract, stage);
+        throw categoricalError(
+          failure?.category || `DEV_REFRESH_${stage}_OPERATION_FAILED`,
+          failure?.cause || null
+        );
       }
       const evidence = readOperationResult(resultPath, contract, stage);
       writePrivateJsonExclusive(acceptedPath, {
