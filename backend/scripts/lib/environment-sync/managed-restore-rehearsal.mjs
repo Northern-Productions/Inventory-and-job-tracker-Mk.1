@@ -539,7 +539,35 @@ async function captureAuthParity(connectionString, { excludeNativeSmoke = false 
   });
 }
 
+async function assertSourceRestoreAuthority(connectionString) {
+  const connection = parseDatabaseConnection(connectionString);
+  if (
+    connection.host !== '127.0.0.1' ||
+    connection.user !== 'cluster_admin' ||
+    connection.sslmode !== 'disable'
+  ) {
+    throw categoricalError('MANAGED_REHEARSAL_SOURCE_RESTORE_AUTHORITY_INVALID');
+  }
+  const proof = await withClient(connectionString, async (client) => {
+    const result = await client.query(
+      `select current_user, session_user, rol.rolsuper
+         from pg_catalog.pg_roles rol
+        where rol.rolname = current_user`
+    );
+    return result.rows[0];
+  });
+  if (
+    proof?.current_user !== 'cluster_admin' ||
+    proof?.session_user !== 'cluster_admin' ||
+    proof?.rolsuper !== true
+  ) {
+    throw categoricalError('MANAGED_REHEARSAL_SOURCE_RESTORE_AUTHORITY_INVALID');
+  }
+  return { role: 'cluster_admin', superuser: true, loopbackOnly: true };
+}
+
 async function restoreSource({ tools, archivePath, connectionString, diagnosticDirectory }) {
+  await assertSourceRestoreAuthority(connectionString);
   await runPrivateDiagnosticCommand({
     executable: tools.pgRestore,
     args: [
@@ -1293,7 +1321,7 @@ async function prepareGoldenManagedOverlayForTarget({
       `x_rehearsal_sandbox_source_${token}`,
       'postgres'
     );
-    const sourceConnectionString = connectionForUser(sourceAdmin, 'postgres');
+    const sourceConnectionString = sourceAdmin;
     await installExtensionPlane(sourceConnectionString, { removePublic: true });
     await restoreSource({
       tools,
@@ -2321,6 +2349,7 @@ async function runManagedRestoreCompatibilityRehearsal({
 
 export {
   applyPostOverlayMigrations,
+  assertSourceRestoreAuthority,
   capture0203Proof,
   capture0205Proof,
   captureApplicationPlane,
@@ -2329,5 +2358,6 @@ export {
   generateCurrentDatabaseRecoveryPackage,
   prepareGoldenManagedOverlayForTarget,
   probeFutureObjectDefaults,
+  restoreSource,
   runManagedRestoreCompatibilityRehearsal
 };

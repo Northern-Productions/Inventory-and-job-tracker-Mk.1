@@ -56,7 +56,10 @@ import {
   runPrivateDiagnosticCommand,
   sanitizePostgresDiagnostic
 } from './private-diagnostics.mjs';
-import { runManagedRestoreCompatibilityRehearsal } from './managed-restore-rehearsal.mjs';
+import {
+  restoreSource,
+  runManagedRestoreCompatibilityRehearsal
+} from './managed-restore-rehearsal.mjs';
 import {
   APPLICATION_FACING_ROLES,
   MANAGED_PROFILE_SECURITY_POLICY_FORMAT,
@@ -854,6 +857,96 @@ test('managed-like PostgreSQL proves 0203/0204 cutover and exact pre-0204 Y2 rec
   } finally {
     archiveBytes?.fill(0);
     if (sourceCluster) await removeDisposablePostgres(sourceCluster);
+  }
+});
+
+test('source materialization restores owner-bearing archives with disposable bootstrap authority', { timeout: 120_000 }, async (t) => {
+  let tools;
+  try {
+    tools = resolvePostgresTools();
+  } catch {
+    t.skip('PostgreSQL 18 server tooling is unavailable.');
+    return;
+  }
+  const token = crypto.randomBytes(8).toString('hex');
+  const root = path.join(os.tmpdir(), `environment-sync-rehearsal-managed-source-${token}`);
+  let cluster;
+  let archiveBytes;
+  try {
+    cluster = await startDisposablePostgres({
+      rootDirectory: root,
+      postgresBin: tools.bin,
+      bootstrapUser: 'cluster_admin'
+    });
+    const base = new URL(cluster.connectionString());
+    const password = decodeURIComponent(base.password);
+    assert.match(password, /^[0-9a-f]{64}$/);
+    await withClient(cluster.connectionString(), async (client) => {
+      await client.query(
+        `create role postgres login nosuperuser createrole createdb replication bypassrls password '${password}'`
+      );
+      await client.query('create role supabase_admin nologin superuser');
+      await client.query(`create database "x_rehearsal_dev_source_${token}" owner postgres`);
+      await client.query(`create database "x_rehearsal_dev_restored_${token}" owner postgres`);
+      await client.query(`create database "x_rehearsal_dev_rejected_${token}" owner postgres`);
+    });
+    const source = new URL(cluster.connectionString());
+    source.pathname = `/x_rehearsal_dev_source_${token}`;
+    await withClient(source.toString(), async (client) => {
+      await client.query('create schema auth authorization supabase_admin');
+      await client.query('create table auth.restore_authority_probe(id bigint)');
+      await client.query('alter table auth.restore_authority_probe owner to supabase_admin');
+    });
+    archiveBytes = execFileSync(
+      tools.pgDump,
+      ['--format=custom', '--schema=auth', '--dbname', `x_rehearsal_dev_source_${token}`],
+      {
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: postgresChildEnvironment(source.toString()),
+        maxBuffer: 16 * 1024 * 1024
+      }
+    );
+    const archivePath = path.join(root, 'owner-bearing-source.private.pgdump');
+    const diagnosticDirectory = path.join(root, 'source-restore-diagnostics');
+    writePrivateBytesExclusive(archivePath, archiveBytes);
+    createPrivateDirectory(diagnosticDirectory);
+
+    const restored = new URL(cluster.connectionString());
+    restored.pathname = `/x_rehearsal_dev_restored_${token}`;
+    await restoreSource({
+      tools,
+      archivePath,
+      connectionString: restored.toString(),
+      diagnosticDirectory
+    });
+    const restoredOwner = await withClient(restored.toString(), async (client) => {
+      const result = await client.query(
+        `select pg_catalog.pg_get_userbyid(c.relowner) as owner
+           from pg_catalog.pg_class c
+           join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+          where n.nspname = 'auth' and c.relname = 'restore_authority_probe'`
+      );
+      return result.rows[0]?.owner;
+    });
+    assert.equal(restoredOwner, 'supabase_admin');
+
+    const rejected = new URL(cluster.connectionString());
+    rejected.pathname = `/x_rehearsal_dev_rejected_${token}`;
+    rejected.username = 'postgres';
+    await assert.rejects(
+      restoreSource({
+        tools,
+        archivePath,
+        connectionString: rejected.toString(),
+        diagnosticDirectory
+      }),
+      /MANAGED_REHEARSAL_SOURCE_RESTORE_AUTHORITY_INVALID/
+    );
+  } finally {
+    archiveBytes?.fill(0);
+    if (cluster) await removeDisposablePostgres(cluster);
   }
 });
 
