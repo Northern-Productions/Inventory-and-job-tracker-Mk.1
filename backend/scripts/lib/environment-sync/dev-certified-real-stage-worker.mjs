@@ -35,8 +35,11 @@ import {
   capture0203Proof,
   capture0205Proof,
   captureApplicationPlane,
+  captureApplicationPlaneFromClient,
   captureAuthParity,
+  captureAuthParityFromClient,
   captureManagedPlaneFingerprint,
+  captureManagedPlaneFingerprintFromClient,
   generateCurrentDatabaseRecoveryPackage,
   probeFutureObjectDefaults
 } from './managed-restore-rehearsal.mjs';
@@ -153,8 +156,25 @@ function migrationExact(application) {
     application?.migration?.tip === CURRENT_APPLICATION_MIGRATION.tip;
 }
 
-async function captureCoreState(preparation) {
+async function captureCoreState(preparation, { client = null } = {}) {
   const connectionString = preparation.targetBefore.session.connectionString;
+  if (client) {
+    const application = await captureApplicationPlaneFromClient(client);
+    const auth = await captureAuthParityFromClient(client, { excludeNativeSmoke: true });
+    const managed = await captureManagedPlaneFingerprintFromClient(client);
+    const nativeSmoke = await captureNativeSmokePreservation(client, {
+      userId: preparation.fixtureAuthority.smokeActorId,
+      organizationId: preparation.fixtureAuthority.primaryOrganizationId
+    });
+    verifyNativeSmokePreservation(nativeSmoke);
+    return {
+      application,
+      auth,
+      managed,
+      nativeSmoke: nativeSmoke.evidence,
+      digest: canonicalDigest({ application, auth, managed, nativeSmoke: nativeSmoke.evidence })
+    };
+  }
   const [application, auth, managed, nativeSmoke] = await Promise.all([
     captureApplicationPlane(connectionString),
     captureAuthParity(connectionString, { excludeNativeSmoke: true }),
@@ -255,9 +275,9 @@ async function runY2Capture(context) {
       wrappingKey: context.key,
       artifactPath: keyPath
     });
+    const before = await captureCoreState(context.preparation, { client });
     await client.query('rollback');
     began = false;
-    const before = await captureCoreState(context.preparation);
     const value = {
       recoveryId: `y2-${context.attemptId}`,
       artifactPath,

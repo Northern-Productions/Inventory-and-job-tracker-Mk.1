@@ -44,6 +44,10 @@ import {
 } from './encrypted-baseline.mjs';
 import { captureEnvironmentInventory } from './inventory.mjs';
 import {
+  captureApplicationPlane,
+  captureApplicationPlaneFromClient
+} from './managed-restore-rehearsal.mjs';
+import {
   createPrivateDirectory,
   verifyPrivateDirectoryProtection,
   writePrivateBytesExclusive
@@ -425,6 +429,109 @@ test('native PostgreSQL preflight proves loopback startup, query, credential iso
     (name) => /^environment-sync-rehearsal-[a-f0-9]{16}$/.test(name) && !before.has(name)
   );
   assert.deepEqual(after, []);
+});
+
+test('Y2 application fingerprints round-trip non-ASCII rows and PostgreSQL 18 not-null catalogs', {
+  timeout: 180_000
+}, async (t) => {
+  try {
+    resolvePostgresTools();
+  } catch {
+    t.skip('Complete PostgreSQL 18 server tooling is unavailable.');
+    return;
+  }
+  const token = crypto.randomBytes(8).toString('hex');
+  const root = path.join(os.tmpdir(), `environment-sync-rehearsal-${token}`);
+  const sourceName = `x_rehearsal_dev_icu_${token}`;
+  const targetName = `x_rehearsal_dev_target_${token}`;
+  const artifactPath = path.join(root, 'y2-locale-roundtrip.private.pgdump.enc');
+  let cluster;
+  let dataKey;
+  try {
+    cluster = await startDisposablePostgres({ rootDirectory: root });
+    const targetConnection = await prepareRestoreDatabase(cluster, targetName);
+    await withClient(cluster.connectionString(), (client) => client.query(
+      `create database "${sourceName}" template template0 locale_provider icu icu_locale 'en-US'`
+    ));
+    const sourceConnection = cluster.connectionString(sourceName);
+    await withClient(sourceConnection, async (client) => {
+      await client.query(`
+        create schema app;
+        create schema app_api;
+        create schema supabase_migrations;
+        create table app.film_name_aliases (
+          alias text primary key,
+          canonical_name text not null
+        );
+        create table supabase_migrations.schema_migrations (version text primary key);
+        insert into supabase_migrations.schema_migrations(version) values ('20260824100000');
+        insert into app.film_name_aliases(alias, canonical_name)
+        values ('zeta', 'Zeta'), ('éclair', 'Eclair');
+      `);
+    });
+
+    const sourceCapture = await withClient(sourceConnection, async (client) => {
+      let rolledBack = false;
+      try {
+        await client.query('begin isolation level repeatable read read only');
+        const snapshot = (await client.query('select pg_export_snapshot() as id')).rows[0].id;
+        const captured = await captureEncryptedPgDump({
+          pgDumpPath: cluster.tools.pgDump,
+          connectionString: sourceConnection,
+          snapshotId: snapshot,
+          artifactPath,
+          schemas: ['app', 'app_api', 'public', 'supabase_migrations']
+        });
+        dataKey = captured.key;
+        await withClient(sourceConnection, (writer) => writer.query(
+          `update app.film_name_aliases set canonical_name='Changed after exported snapshot' where alias='zeta'`
+        ));
+        const application = await captureApplicationPlaneFromClient(client);
+        const legacyDigest = (await client.query(`select md5(coalesce(string_agg(
+          pg_catalog.to_jsonb(t)::text, '|' order by pg_catalog.to_jsonb(t)::text
+        ), '')) as digest from app.film_name_aliases t`)).rows[0].digest;
+        await client.query('rollback');
+        rolledBack = true;
+        return { application, legacyDigest };
+      } finally {
+        if (!rolledBack) await client.query('rollback').catch(() => {});
+      }
+    });
+    await restoreEncryptedPgDump({
+      pgRestorePath: cluster.tools.pgRestore,
+      connectionString: targetConnection,
+      artifactPath,
+      key: dataKey,
+      restoreMode: 'blank-target'
+    });
+    const restoredCapture = await captureApplicationPlane(targetConnection);
+
+    const legacyDigestSql = `select md5(coalesce(string_agg(
+      pg_catalog.to_jsonb(t)::text, '|' order by pg_catalog.to_jsonb(t)::text
+    ), '')) as digest from app.film_name_aliases t`;
+    const restoredLegacyDigest = await withClient(targetConnection, async (client) => (
+      await client.query(legacyDigestSql)
+    ).rows[0].digest);
+    assert.notEqual(sourceCapture.legacyDigest, restoredLegacyDigest);
+
+    const restoredNotNullCount = await withClient(targetConnection, async (client) => Number((
+      await client.query(`select count(*)::integer as count
+        from pg_catalog.pg_constraint con
+        join pg_catalog.pg_class c on c.oid=con.conrelid
+        join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+        where n.nspname=any(array['app','app_api','public']) and con.contype='n'`)
+    ).rows[0].count));
+    assert.ok(restoredNotNullCount > 0);
+    assert.equal(sourceCapture.application.columnDigest, restoredCapture.columnDigest);
+    assert.equal(sourceCapture.application.constraintDigest, restoredCapture.constraintDigest);
+    assert.equal(sourceCapture.application.tableDigest, restoredCapture.tableDigest);
+    assert.deepEqual(sourceCapture.application.tableRows, restoredCapture.tableRows);
+    assert.equal(sourceCapture.application.migration.count, 1);
+    assert.deepEqual(sourceCapture.application.migration, restoredCapture.migration);
+  } finally {
+    dataKey?.fill(0);
+    if (cluster) await removeDisposablePostgres(cluster);
+  }
 });
 
 async function seedSyntheticSupabaseShape(connectionOrClient) {

@@ -675,6 +675,10 @@ test('real stage source exposes all required operations and contains no Edge or 
   assert.doesNotMatch(source, /supabase\s+functions\s+deploy|projects\/[^\s]+\/config|updateAuthConfig|vercel\s+(?:deploy|--prod)/i);
   assert.match(source, /configurationMutations:\s*0/);
   assert.match(source, /deployments:\s*0/);
+  const snapshotCapture = source.indexOf('const before = await captureCoreState(context.preparation, { client });');
+  const snapshotRollback = source.indexOf("await client.query('rollback');", snapshotCapture);
+  assert.ok(snapshotCapture > 0);
+  assert.ok(snapshotRollback > snapshotCapture);
 });
 
 test('real disposable preparation, cutover, workflow cleanup, and Y2 recovery', {

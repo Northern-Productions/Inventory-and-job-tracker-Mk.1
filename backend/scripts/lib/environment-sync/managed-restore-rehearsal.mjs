@@ -86,7 +86,7 @@ function categoricalError(code) {
 
 function compareApplicationPlane(source, target) {
   const comparableKeys = [
-    'relationDigest', 'routineDigest', 'constraintDigest', 'grantDigest', 'aclObjectDigest',
+    'relationDigest', 'columnDigest', 'routineDigest', 'constraintDigest', 'grantDigest', 'aclObjectDigest',
     'tableDigest', 'tableCount', 'migration'
   ];
   return Object.fromEntries(
@@ -339,8 +339,7 @@ async function captureAuthShape(connectionString) {
   });
 }
 
-async function captureManagedPlaneFingerprint(connectionString) {
-  return withClient(connectionString, async (client) => {
+async function captureManagedPlaneFingerprintFromClient(client) {
     const publicSchema = (await client.query(
       `select owner.rolname as owner_role
          from pg_catalog.pg_namespace namespace
@@ -405,32 +404,44 @@ async function captureManagedPlaneFingerprint(connectionString) {
         where namespace.nspname = any(array['auth','storage','realtime','vault','graphql','graphql_public','extensions','public'])
         order by schema_name, grantee, privilege_type, is_grantable`
     )).rows;
-    return {
-      publicOwner: publicSchema.owner_role,
-      catalogDigest: canonicalDigest(catalog),
-      routineDigest: canonicalDigest(routines),
-      defaultAclDigest: canonicalDigest(defaultAcls),
-      roleMembershipDigest: canonicalDigest(memberships),
-      schemaAclDigest: canonicalDigest(schemaAcls),
-      instances: Number(preservedData.instances),
-      authMigrationRows: Number(preservedData.schema_migrations)
-    };
-  });
+  return {
+    publicOwner: publicSchema.owner_role,
+    catalogDigest: canonicalDigest(catalog),
+    routineDigest: canonicalDigest(routines),
+    defaultAclDigest: canonicalDigest(defaultAcls),
+    roleMembershipDigest: canonicalDigest(memberships),
+    schemaAclDigest: canonicalDigest(schemaAcls),
+    instances: Number(preservedData.instances),
+    authMigrationRows: Number(preservedData.schema_migrations)
+  };
 }
 
-async function captureApplicationPlane(connectionString, { excludeOrganizationId = '' } = {}) {
+async function captureManagedPlaneFingerprint(connectionString) {
+  return withClient(connectionString, captureManagedPlaneFingerprintFromClient);
+}
+
+async function captureApplicationPlaneFromClient(client, { excludeOrganizationId = '' } = {}) {
   const excludedOrganization = String(excludeOrganizationId || '').toLowerCase();
   if (
     excludedOrganization &&
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(excludedOrganization)
   ) throw categoricalError('MANAGED_APPLICATION_EXCLUSION_INVALID');
-  return withClient(connectionString, async (client) => {
     const relations = (await client.query(
       `select n.nspname as schema_name, c.relname as relation_name, c.relkind
          from pg_catalog.pg_class c
          join pg_catalog.pg_namespace n on n.oid = c.relnamespace
         where n.nspname = any(array['app','app_api']) and c.relkind in ('r','p','v','m','S')
         order by n.nspname, c.relname, c.relkind`
+    )).rows;
+    const columns = (await client.query(
+      `select table_schema as schema_name, table_name, ordinal_position, column_name,
+              data_type, udt_schema, udt_name, is_nullable,
+              coalesce(column_default, '') as column_default,
+              is_identity, coalesce(identity_generation, '') as identity_generation,
+              is_generated, coalesce(generation_expression, '') as generation_expression
+         from information_schema.columns
+        where table_schema = any(array['app','app_api','public'])
+        order by table_schema, table_name, ordinal_position`
     )).rows;
     const routines = (await client.query(
       `select n.nspname as schema_name, p.proname,
@@ -448,6 +459,7 @@ async function captureApplicationPlane(connectionString, { excludeOrganizationId
          join pg_catalog.pg_class c on c.oid = con.conrelid
          join pg_catalog.pg_namespace n on n.oid = c.relnamespace
         where n.nspname = any(array['app','app_api','public'])
+          and con.contype <> 'n'
         order by n.nspname, c.relname, con.conname`
     )).rows;
     const aclContract = await captureApplicationAclContract(client);
@@ -472,7 +484,10 @@ async function captureApplicationPlane(connectionString, { excludeOrganizationId
       }
       const result = (await client.query(
         `select count(*)::bigint as count,
-                 md5(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, '|' order by pg_catalog.to_jsonb(t)::text), '')) as digest
+                 md5(coalesce(string_agg(
+                   pg_catalog.to_jsonb(t)::text,
+                   '|' order by pg_catalog.convert_to(pg_catalog.to_jsonb(t)::text, 'UTF8')
+                 ), '')) as digest
            from ${qualified} t ${exclusion}`,
         parameters
       )).rows[0];
@@ -489,6 +504,7 @@ async function captureApplicationPlane(connectionString, { excludeOrganizationId
     )).rows[0];
     const result = {
       relationDigest: canonicalDigest(relations),
+      columnDigest: canonicalDigest(columns),
       routineDigest: canonicalDigest(routines),
       constraintDigest: canonicalDigest(constraints),
       grantDigest: aclContract.grantDigest,
@@ -500,11 +516,13 @@ async function captureApplicationPlane(connectionString, { excludeOrganizationId
     };
     Object.defineProperty(result, 'routineRows', { value: routines, enumerable: false });
     return result;
-  });
 }
 
-async function captureAuthParity(connectionString, { excludeNativeSmoke = false } = {}) {
-  return withClient(connectionString, async (client) => {
+async function captureApplicationPlane(connectionString, options = {}) {
+  return withClient(connectionString, (client) => captureApplicationPlaneFromClient(client, options));
+}
+
+async function captureAuthParityFromClient(client, { excludeNativeSmoke = false } = {}) {
     const userPredicate = excludeNativeSmoke
       ? "where coalesce((raw_user_meta_data->>'x_np_target_native_smoke')::boolean, false) is not true"
       : '';
@@ -527,16 +545,19 @@ async function captureAuthParity(connectionString, { excludeNativeSmoke = false 
          (select count(*)::bigint from auth.refresh_tokens) as refresh_tokens
        from auth.users ${userPredicate}`
     )).rows[0];
-    return {
-      userCount: users.length,
-      identityCount: identities.length,
-      userDigest: canonicalDigest(users),
-      identityDigest: canonicalDigest(identities),
-      unsafeUsers: Number(unsafe.unsafe_users),
-      sessions: Number(unsafe.sessions),
-      refreshTokens: Number(unsafe.refresh_tokens)
-    };
-  });
+  return {
+    userCount: users.length,
+    identityCount: identities.length,
+    userDigest: canonicalDigest(users),
+    identityDigest: canonicalDigest(identities),
+    unsafeUsers: Number(unsafe.unsafe_users),
+    sessions: Number(unsafe.sessions),
+    refreshTokens: Number(unsafe.refresh_tokens)
+  };
+}
+
+async function captureAuthParity(connectionString, options = {}) {
+  return withClient(connectionString, (client) => captureAuthParityFromClient(client, options));
 }
 
 async function assertSourceRestoreAuthority(connectionString) {
@@ -2353,8 +2374,11 @@ export {
   capture0203Proof,
   capture0205Proof,
   captureApplicationPlane,
+  captureApplicationPlaneFromClient,
   captureAuthParity,
+  captureAuthParityFromClient,
   captureManagedPlaneFingerprint,
+  captureManagedPlaneFingerprintFromClient,
   generateCurrentDatabaseRecoveryPackage,
   prepareGoldenManagedOverlayForTarget,
   probeFutureObjectDefaults,
