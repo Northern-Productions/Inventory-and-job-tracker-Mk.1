@@ -85,7 +85,15 @@ function assertCliGuards(options, envFilePath) {
   return report;
 }
 
-async function runDevCertifiedCli(mode, argv, repoRoot) {
+async function runDevCertifiedCli(mode, argv, repoRoot, testOnlyRuntime = {}) {
+  const {
+    createOperationExecutorFn = createOperationExecutor,
+    readAuthorityKeyFn = readAuthorityKey,
+    runRecoveryFn = runCertifiedDevRecovery,
+    runRefreshFn = runCertifiedDevRefresh,
+    verifyMigrationBytesFn = verifyPostGoldenMigrationBytes,
+    verifyRepositoryLineageFn = verifyRepositoryLineage
+  } = testOnlyRuntime;
   const options = parseArgs(argv);
   if (options.help || options.h) return { help: true };
   const allowed = new Set([
@@ -104,16 +112,16 @@ async function runDevCertifiedCli(mode, argv, repoRoot) {
   const stateDirectory = requiredPath(options, 'state-dir');
   const evidenceDirectory = requiredPath(options, 'evidence-dir');
   assertCliGuards(options, envFilePath);
-  const key = readAuthorityKey(keyPath);
+  const key = readAuthorityKeyFn(keyPath);
   try {
     const contract = verifyAuthenticatedCertifiedRefreshContract(readPrivateJson(contractPath), key);
-    const lineage = verifyRepositoryLineage({ repoRoot: root });
+    const lineage = verifyRepositoryLineageFn({ repoRoot: root });
     if (
       contract.candidate.toolingCommit !== lineage.toolingCommit ||
       contract.candidate.toolingTree !== lineage.toolingTree
     ) throw categoricalError('DEV_REFRESH_TOOLING_CANDIDATE_MISMATCH');
-    verifyPostGoldenMigrationBytes({ repoRoot: root });
-    const executor = createOperationExecutor({
+    verifyMigrationBytesFn({ repoRoot: root });
+    const executor = createOperationExecutorFn({
       inventory: readPrivateJson(inventoryPath),
       key,
       contract,
@@ -122,14 +130,14 @@ async function runDevCertifiedCli(mode, argv, repoRoot) {
     });
     if (mode === 'refresh') {
       if (fs.existsSync(stateDirectory)) throw categoricalError('DEV_REFRESH_STATE_DIRECTORY_COLLISION');
-      return runCertifiedDevRefresh({ rootDirectory: stateDirectory, key, contract, executor });
+      return await runRefreshFn({ rootDirectory: stateDirectory, key, contract, executor });
     }
     if (mode === 'recover') {
       if (options['recovery-authorized'] !== true) {
         throw categoricalError('DEV_REFRESH_RECOVERY_AUTHORIZATION_FLAG_REQUIRED');
       }
       if (!fs.existsSync(stateDirectory)) throw categoricalError('DEV_REFRESH_STATE_DIRECTORY_MISSING');
-      return runCertifiedDevRecovery({ rootDirectory: stateDirectory, key, contract, executor });
+      return await runRecoveryFn({ rootDirectory: stateDirectory, key, contract, executor });
     }
     throw categoricalError('DEV_REFRESH_MODE_INVALID');
   } finally {
