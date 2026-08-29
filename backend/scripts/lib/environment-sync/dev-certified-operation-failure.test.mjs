@@ -18,6 +18,7 @@ test('operation failure preserves only authenticated-safe causal metadata', () =
   const error = new Error('MANAGED_OVERLAY_EXECUTION_FAILED');
   error.code = 'MANAGED_OVERLAY_EXECUTION_FAILED';
   error.failureSubstep = 'MANAGED_OVERLAY_EXECUTION';
+  error.transactionOutcome = 'ambiguous';
   error.safeDiagnostic = {
     classification: 'POSTGRES_MANAGED_OWNERSHIP_REJECTED',
     sqlState: '42501',
@@ -30,6 +31,8 @@ test('operation failure preserves only authenticated-safe causal metadata', () =
   const failure = buildOperationFailure({ ...expected, error });
   assert.equal(failure.category, 'DEV_REFRESH_REAL_STAGE_MANAGED_OVERLAY_EXECUTION_FAILED');
   assert.equal(failure.cause.substep, 'MANAGED_OVERLAY_EXECUTION');
+  assert.equal(failure.cause.format, 'dev-certified-operation-cause-v2');
+  assert.equal(failure.cause.transactionOutcome, 'ambiguous');
   assert.equal(failure.cause.diagnostic.exitCode, 3);
   assert.equal(failure.cause.diagnostic.sqlState, '42501');
   assert.equal(verifyOperationFailure(failure, expected), failure);
@@ -43,6 +46,19 @@ test('operation failure verification rejects cause tampering and accepts legacy 
     category: 'DEV_REFRESH_REAL_STAGE_FAILED'
   };
   assert.equal(verifyOperationFailure(legacy, expected), legacy);
+
+  const legacyCause = {
+    format: 'dev-certified-operation-failure-v1',
+    ...expected,
+    category: 'DEV_REFRESH_REAL_STAGE_MANAGED_OVERLAY_EXECUTION_FAILED',
+    cause: {
+      format: 'dev-certified-operation-cause-v1',
+      category: 'MANAGED_OVERLAY_EXECUTION_FAILED',
+      substep: 'MANAGED_OVERLAY_EXECUTION',
+      diagnostic: null
+    }
+  };
+  assert.equal(verifyOperationFailure(legacyCause, expected), legacyCause);
 
   const error = new Error('MANAGED_OVERLAY_EXECUTION_FAILED');
   error.code = 'MANAGED_OVERLAY_EXECUTION_FAILED';

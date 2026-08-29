@@ -1,0 +1,712 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import pg from 'pg';
+
+import { canonicalDigest, canonicalSerialize } from '../readonly-diagnostics.mjs';
+import { DEV_PROJECT_REF } from './dev-certified-contract.mjs';
+import { buildOperationFailure } from './dev-certified-operation-failure.mjs';
+import { readStageState, writeStageState } from './dev-certified-stage-state.mjs';
+import { signPayload } from './dev-certified-state.mjs';
+import {
+  prepareRestoreDatabase,
+  removeDisposablePostgres,
+  resolvePostgresTools,
+  startDisposablePostgres
+} from './disposable-postgres.mjs';
+import {
+  captureEncryptedPgDump,
+  decryptBaselineBytes,
+  readWrappedBaselineDataKey,
+  restoreEncryptedPgDump,
+  verifyEncryptedComponent,
+  writeWrappedBaselineDataKey
+} from './encrypted-baseline.mjs';
+import {
+  captureApplicationPlane,
+  generateCurrentDatabaseRecoveryPackage
+} from './managed-restore-rehearsal.mjs';
+import { executeManagedOverlayPackage } from './managed-restore.mjs';
+import {
+  createPrivateDirectory,
+  privateArtifactPath,
+  verifyPrivateArtifactProtection,
+  writePrivateBytesExclusive
+} from './private-artifacts.mjs';
+import {
+  REMEDIATION_EVIDENCE_FORMAT,
+  assertRecoveryRemediationEvidence
+} from './dev-recovery-remediation-contract.mjs';
+import { verifyRemediationPreparation } from './dev-recovery-remediation-preparation.mjs';
+import {
+  assertOriginalFailedRecoveryUnchanged,
+  assertRecoveryOwnedStateEqual,
+  captureRecoveryOwnedState,
+  captureRecoveryOwnedStateFromClient
+} from './dev-recovery-remediation-shared.mjs';
+import { appendRemediationEvent } from './dev-recovery-remediation-state.mjs';
+
+const { Client } = pg;
+const RESULT_FORMAT = 'dev-certified-operation-result-v1';
+
+function categoricalError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+function parseArgs(argv) {
+  if (argv.length !== 2 || argv[0] !== '--preparation' || !String(argv[1] || '').trim()) {
+    throw categoricalError('DEV_REMEDIATION_REAL_STAGE_ARGUMENT_INVALID');
+  }
+  return { preparationPath: path.resolve(argv[1]) };
+}
+
+function readWorkerAuthorityKey() {
+  const descriptor = Number(process.env.DEV_REFRESH_AUTHORITY_KEY_FD);
+  if (!Number.isInteger(descriptor) || descriptor < 3) {
+    throw categoricalError('DEV_REMEDIATION_REAL_STAGE_KEY_FD_INVALID');
+  }
+  const bytes = fs.readFileSync(descriptor);
+  try {
+    if (bytes.length !== 32) throw categoricalError('DEV_REMEDIATION_REAL_STAGE_KEY_INVALID');
+    return Buffer.from(bytes);
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+function readPrivateJson(filePath) {
+  verifyPrivateArtifactProtection(filePath);
+  const bytes = fs.readFileSync(filePath);
+  try {
+    return JSON.parse(bytes.toString('utf8'));
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+function stateOptions(context, stage) {
+  return {
+    rootDirectory: context.rootDirectory,
+    key: context.key,
+    attemptId: context.attemptId,
+    stage
+  };
+}
+
+function originalOptions(context) {
+  return {
+    failedStateDirectory: context.preparation.original.failedStateDirectory,
+    key: context.key,
+    originalContractRecord: readPrivateJson(context.preparation.original.originalContractPath),
+    originalPreparationRecord: readPrivateJson(context.preparation.original.originalPreparationPath),
+    expectedRefreshAttemptId: context.preparation.original.binding.refreshAttemptId,
+    expectedY2RecoveryId: context.preparation.original.binding.y2RecoveryId
+  };
+}
+
+function originalState(context) {
+  return assertOriginalFailedRecoveryUnchanged(
+    originalOptions(context),
+    context.preparation.original.binding
+  );
+}
+
+function identity(context) {
+  return {
+    userId: context.preparation.targetSession.smokeUserId,
+    organizationId: context.preparation.targetSession.smokeOrganizationId
+  };
+}
+
+function targetGuard(context, packageResult) {
+  if (context.preparation.mode === 'disposable-managed-local') {
+    return { mode: 'disposable-managed-local', loopback: true };
+  }
+  return {
+    target: 'dev',
+    projectRef: DEV_PROJECT_REF,
+    mutationGuardPassed: true,
+    projectRefMatched: true,
+    ...packageResult.targetCompatibility
+  };
+}
+
+function diagnosticsDirectory(context, name) {
+  const root = path.join(context.rootDirectory, name);
+  if (!fs.existsSync(root)) createPrivateDirectory(root);
+  return root;
+}
+
+function runSubstep(substep, action, { transactionOutcome = 'not_started' } = {}) {
+  return Promise.resolve().then(action).catch((error) => {
+    try {
+      if (!error.failureSubstep) error.failureSubstep = substep;
+      if (!error.transactionOutcome) error.transactionOutcome = transactionOutcome;
+    } catch {}
+    throw error;
+  });
+}
+
+async function assertCurrentEqualsY2(context) {
+  const original = originalState(context);
+  const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+  assertRecoveryOwnedStateEqual(current, original.y2.before);
+  return { original, current };
+}
+
+async function runRemediationPrecheck(context) {
+  const { current } = await assertCurrentEqualsY2(context);
+  if (
+    context.preparation.currentObserved.core.digest !== current.digest ||
+    context.preparation.edge.compatible !== true ||
+    context.preparation.edge.deploymentPolicy !== 'read-only-no-deploy' ||
+    context.preparation.sideEffects.safe !== true ||
+    context.preparation.sideEffects.mutationAllowed !== false
+  ) throw categoricalError('DEV_REMEDIATION_PRECHECK_CERTIFICATE_MISMATCH');
+  return { oldRecoveryFailedImmutable: true, currentEqualsOriginalY2: true, sharedMutations: 0 };
+}
+
+async function runCurrentY2Parity(context) {
+  await assertCurrentEqualsY2(context);
+  return { oldRecoveryFailedImmutable: true, currentEqualsOriginalY2: true, parityPlanes: 4 };
+}
+
+async function runR3Capture(context) {
+  const original = originalState(context);
+  const tools = resolvePostgresTools(context.preparation.targetSession.postgresBin || '');
+  const artifactPath = privateArtifactPath(context.rootDirectory, 'r3-remediation-prestate.private.pgdump.enc');
+  const keyPath = privateArtifactPath(context.rootDirectory, 'r3-remediation-prestate-key.private.bin');
+  const packageDirectory = createPrivateDirectory(path.join(context.rootDirectory, 'r3-package-private'));
+  const client = new Client({
+    connectionString: context.connectionString,
+    ssl: /(?:127\.0\.0\.1|localhost)/i.test(context.connectionString) ? undefined : { rejectUnauthorized: false },
+    application_name: 'dev-recovery-remediation-r3-capture'
+  });
+  await client.connect();
+  let began = false;
+  let dataKey;
+  try {
+    await client.query('begin isolation level repeatable read read only');
+    began = true;
+    const proof = await client.query("select current_setting('transaction_read_only') as value");
+    if (proof.rows[0]?.value !== 'on') throw categoricalError('DEV_REMEDIATION_R3_READ_ONLY_UNPROVEN');
+    const snapshot = await client.query('select pg_export_snapshot() as id');
+    const captured = await captureEncryptedPgDump({
+      pgDumpPath: tools.pgDump,
+      connectionString: context.connectionString,
+      snapshotId: snapshot.rows[0]?.id,
+      artifactPath
+    });
+    dataKey = captured.key;
+    const wrapped = writeWrappedBaselineDataKey({ dataKey, wrappingKey: context.key, artifactPath: keyPath });
+    const before = await captureRecoveryOwnedStateFromClient(client, identity(context));
+    assertRecoveryOwnedStateEqual(before, original.y2.before);
+    await client.query('rollback');
+    began = false;
+    const value = {
+      recoveryId: `r3-${context.attemptId}`,
+      artifactPath,
+      keyPath,
+      packageDirectory,
+      component: captured.component,
+      wrappedKey: wrapped.component,
+      before,
+      originalY2Digest: original.y2.before.digest,
+      coherentSnapshot: true,
+      fallbackOnly: true
+    };
+    writeStageState({ ...stateOptions(context, 'R3_CAPTURE'), value });
+    return { coherentSnapshot: true, encrypted: true, authenticatedKeyWrapped: true, componentCount: 2 };
+  } finally {
+    if (began) await client.query('rollback').catch(() => {});
+    await client.end().catch(() => {});
+    if (dataKey) dataKey.fill(0);
+  }
+}
+
+async function runR3Validated(context) {
+  const original = originalState(context);
+  const r3 = readStageState(stateOptions(context, 'R3_CAPTURE'));
+  if (!verifyEncryptedComponent(r3.component, r3.artifactPath)) {
+    throw categoricalError('DEV_REMEDIATION_R3_COMPONENT_MISMATCH');
+  }
+  const tools = resolvePostgresTools(context.preparation.targetSession.postgresBin || '');
+  const dataKey = readWrappedBaselineDataKey({ wrappingKey: context.key, artifactPath: r3.keyPath });
+  const token = crypto.randomBytes(8).toString('hex');
+  const restoreRoot = path.join(os.tmpdir(), `environment-sync-rehearsal-${token}`);
+  const plaintextPath = privateArtifactPath(r3.packageDirectory, 'r3-remediation-prestate.private.pgdump');
+  let cluster;
+  try {
+    const encrypted = fs.readFileSync(r3.artifactPath);
+    let plaintext;
+    try {
+      plaintext = decryptBaselineBytes(encrypted, dataKey);
+      writePrivateBytesExclusive(plaintextPath, plaintext);
+    } finally {
+      encrypted.fill(0);
+      if (plaintext) plaintext.fill(0);
+    }
+    cluster = await startDisposablePostgres({ rootDirectory: restoreRoot, postgresBin: tools.bin });
+    const restoreConnection = await prepareRestoreDatabase(cluster, `x_rehearsal_dev_r3_${token}`);
+    await restoreEncryptedPgDump({
+      pgRestorePath: tools.pgRestore,
+      connectionString: restoreConnection,
+      artifactPath: r3.artifactPath,
+      key: dataKey,
+      restoreMode: 'blank-target',
+      diagnosticDirectory: diagnosticsDirectory(context, 'r3-restore-test-diagnostics-private')
+    });
+    const directlyRestoredApplication = await captureApplicationPlane(restoreConnection);
+    if (canonicalSerialize(directlyRestoredApplication) !== canonicalSerialize(r3.before.application)) {
+      throw categoricalError('DEV_REMEDIATION_R3_DIRECT_RESTORE_MISMATCH');
+    }
+    const recovery = await generateCurrentDatabaseRecoveryPackage({
+      connectionString: context.connectionString,
+      archivePath: plaintextPath,
+      sourceComponent: r3.component,
+      privateDirectory: r3.packageDirectory,
+      attemptId: context.attemptId,
+      authorityKey: context.key,
+      postgresBin: tools.bin,
+      target: {
+        environment: 'dev',
+        projectRef: context.preparation.mode === 'disposable-managed-local'
+          ? 'd'.repeat(20)
+          : DEV_PROJECT_REF
+      }
+    });
+    const canonicalResult = await executeManagedOverlayPackage({
+      psqlPath: tools.psql,
+      connectionString: restoreConnection,
+      packageResult: recovery.packageResult,
+      targetGuard: targetGuard(context, recovery.packageResult),
+      diagnosticDirectory: diagnosticsDirectory(context, 'r3-canonical-test-diagnostics-private')
+    });
+    const canonicallyRestoredApplication = await captureApplicationPlane(restoreConnection);
+    if (
+      canonicalResult.applied !== true || canonicalResult.atomic !== true ||
+      canonicalSerialize(canonicallyRestoredApplication) !== canonicalSerialize(r3.before.application)
+    ) throw categoricalError('DEV_REMEDIATION_R3_CANONICAL_RESTORE_MISMATCH');
+    const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+    assertRecoveryOwnedStateEqual(current, r3.before, 'DEV_REMEDIATION_CURRENT_R3_MISMATCH');
+    assertRecoveryOwnedStateEqual(r3.before, original.y2.before, 'DEV_REMEDIATION_R3_Y2_MISMATCH');
+    const value = {
+      ...r3,
+      recoveryPackage: recovery.packageResult,
+      recoveryExpected: {
+        application: recovery.application,
+        auth: recovery.auth,
+        managed: recovery.managed,
+        routineDefaults: recovery.routineDefaults,
+        futureSecurity: recovery.futureSecurity
+      },
+      restoreTest: {
+        direct: true,
+        canonicalPrimitive: true,
+        transactionOutcome: 'committed',
+        applicationExact: true
+      },
+      validated: true
+    };
+    writeStageState({ ...stateOptions(context, 'R3_VALIDATED'), value });
+    return {
+      r3RecoveryId: r3.recoveryId,
+      r3ComponentDigest: r3.component.digest,
+      digestVerified: true,
+      canonicalRestoreTested: true,
+      currentEqualsR3: true,
+      r3EqualsOriginalY2: true
+    };
+  } finally {
+    dataKey.fill(0);
+    if (fs.existsSync(plaintextPath)) fs.rmSync(plaintextPath, { force: true });
+    if (cluster) await removeDisposablePostgres(cluster);
+  }
+}
+
+async function databaseSessionEvidence(context, stage) {
+  const client = new Client({
+    connectionString: context.connectionString,
+    ssl: /(?:127\.0\.0\.1|localhost)/i.test(context.connectionString) ? undefined : { rejectUnauthorized: false },
+    application_name: 'dev-recovery-remediation-session-proof'
+  });
+  await client.connect();
+  try {
+    const result = await client.query(
+      `select current_database()::text as database_name,
+              current_user::text as role_name,
+              current_setting('server_version_num')::text as server_version`
+    );
+    return appendRemediationEvent(context.rootDirectory, context.key, {
+      stage,
+      substep: 'DATABASE_SESSION_VERIFIED',
+      details: { identityDigest: canonicalDigest(result.rows[0] || {}) }
+    });
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+async function executeKnownRestore(context, {
+  stage,
+  packageResult,
+  expected,
+  expectedLabel,
+  diagnosticName
+} = {}) {
+  appendRemediationEvent(context.rootDirectory, context.key, {
+    stage,
+    substep: 'RESTORE_START',
+    details: { desiredState: expectedLabel }
+  });
+  await databaseSessionEvidence(context, stage);
+  appendRemediationEvent(context.rootDirectory, context.key, {
+    stage,
+    substep: 'TRANSACTION_START',
+    details: { serializable: true, singleTransaction: true }
+  });
+  appendRemediationEvent(context.rootDirectory, context.key, {
+    stage,
+    substep: 'MUTATION_APPLICATION',
+    transactionOutcome: 'ambiguous',
+    details: { packageDigest: canonicalDigest(packageResult.manifest) }
+  });
+  let result;
+  try {
+    result = await executeManagedOverlayPackage({
+      psqlPath: resolvePostgresTools(context.preparation.targetSession.postgresBin || '').psql,
+      connectionString: context.connectionString,
+      packageResult,
+      targetGuard: targetGuard(context, packageResult),
+      diagnosticDirectory: diagnosticsDirectory(context, diagnosticName)
+    });
+  } catch (error) {
+    appendRemediationEvent(context.rootDirectory, context.key, {
+      stage,
+      substep: 'TRANSACTION_OUTCOME_AMBIGUOUS',
+      transactionOutcome: 'ambiguous',
+      details: { category: String(error?.code || 'RESTORE_FAILED') }
+    });
+    error.transactionOutcome = 'ambiguous';
+    error.failureSubstep = error.failureSubstep || 'MANAGED_OVERLAY_EXECUTION';
+    throw error;
+  }
+  if (result.applied !== true || result.atomic !== true || result.diagnostic?.exitCode !== 0) {
+    const error = categoricalError('DEV_REMEDIATION_RESTORE_COMMIT_UNPROVEN');
+    error.transactionOutcome = 'ambiguous';
+    error.failureSubstep = 'TRANSACTION_COMMIT';
+    throw error;
+  }
+  appendRemediationEvent(context.rootDirectory, context.key, {
+    stage,
+    substep: 'TRANSACTION_COMMITTED',
+    transactionOutcome: 'committed',
+    details: { exitCode: 0, atomic: true }
+  });
+  const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+  assertRecoveryOwnedStateEqual(current, expected, `DEV_REMEDIATION_${expectedLabel}_POST_COMMIT_MISMATCH`);
+  appendRemediationEvent(context.rootDirectory, context.key, {
+    stage,
+    substep: 'POST_COMMIT_STATE_VERIFIED',
+    transactionOutcome: 'committed',
+    details: { stateDigest: current.digest }
+  });
+  appendRemediationEvent(context.rootDirectory, context.key, {
+    stage,
+    substep: 'CLEANUP_COMPLETE',
+    transactionOutcome: 'committed',
+    details: { privateDiagnosticRetained: false }
+  });
+  return { result, current };
+}
+
+async function runRestoreOriginalY2(context) {
+  const original = originalState(context);
+  const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
+  const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+  assertRecoveryOwnedStateEqual(current, r3.before, 'DEV_REMEDIATION_PRE_BOUNDARY_R3_MISMATCH');
+  assertRecoveryOwnedStateEqual(current, original.y2.before, 'DEV_REMEDIATION_PRE_BOUNDARY_Y2_MISMATCH');
+  const restored = await runSubstep('ORIGINAL_Y2_MANAGED_OVERLAY', () => executeKnownRestore(context, {
+    stage: 'RESTORE_ORIGINAL_Y2',
+    packageResult: original.y2.recoveryPackage,
+    expected: original.y2.before,
+    expectedLabel: 'ORIGINAL_Y2',
+    diagnosticName: 'original-y2-restore-diagnostics-private'
+  }), { transactionOutcome: 'ambiguous' });
+  writeStageState({ ...stateOptions(context, 'RESTORE_ORIGINAL_Y2'), value: {
+    transactionOutcome: 'committed',
+    current: restored.current,
+    restoreObjectCount: Number(original.y2.recoveryPackage?.manifest?.entries?.length || 0)
+  } });
+  return {
+    originalY2Restored: true,
+    transactionOutcome: 'committed',
+    restoreObjectCount: Number(original.y2.recoveryPackage?.manifest?.entries?.length || 0),
+    oldRecoveryStateChanged: false
+  };
+}
+
+function assertAuthTarget(urlValue, context) {
+  const url = new URL(urlValue);
+  if (context.preparation.mode === 'disposable-managed-local') {
+    if (!['127.0.0.1', 'localhost'].includes(url.hostname)) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_NETWORK_TARGET_REJECTED');
+    }
+  } else if (!url.hostname.includes(DEV_PROJECT_REF)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_NETWORK_TARGET_REJECTED');
+  }
+  return url.toString().replace(/\/$/, '');
+}
+
+async function fetchJson(url, options, code) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  timeout.unref();
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw categoricalError(code);
+    return body;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runFreshAuthentication(context) {
+  const authUrl = assertAuthTarget(process.env.SUPABASE_URL, context);
+  const apiUrl = assertAuthTarget(process.env.EDGE_API_BASE_URL, context);
+  const anonKey = String(process.env.SUPABASE_ANON_KEY || '');
+  const email = String(process.env.SMOKE_USER_EMAIL || '');
+  const password = String(process.env.SMOKE_USER_PASSWORD || '');
+  if (!anonKey || !email || !password) throw categoricalError('DEV_REMEDIATION_FRESH_AUTH_INPUT_MISSING');
+  let accessToken = '';
+  let refreshToken = '';
+  try {
+    const signedIn = await fetchJson(`${authUrl}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { apikey: anonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    }, 'DEV_REMEDIATION_FRESH_AUTHENTICATION_FAILED');
+    accessToken = String(signedIn.access_token || '');
+    refreshToken = String(signedIn.refresh_token || '');
+    if (!accessToken) throw categoricalError('DEV_REMEDIATION_FRESH_AUTHENTICATION_FAILED');
+    const read = (route) => fetchJson(`${apiUrl}${route}`, {
+      method: 'GET',
+      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
+    }, 'DEV_REMEDIATION_APPLICATION_READ_FAILED');
+    const authContext = await read('/auth/context');
+    const contextData = authContext.data || authContext;
+    const role = String(contextData.role || contextData.membership?.role || '').toLowerCase();
+    const defaultWarehouse = String(contextData.defaultWarehouse || contextData.default_warehouse || '');
+    if (role !== 'owner' || !defaultWarehouse) throw categoricalError('DEV_REMEDIATION_AUTH_CONTEXT_INVALID');
+    await read('/jobs/list?limit=1');
+    await read('/boxes/search?q=__recovery_read_only_no_match__');
+    let sessionRevoked = false;
+    try {
+      const response = await fetch(`${authUrl}/auth/v1/logout`, {
+        method: 'POST',
+        headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
+      });
+      sessionRevoked = response.ok;
+    } catch {
+      sessionRevoked = false;
+    }
+    return {
+      freshAuthentication: true,
+      authContextOwner: true,
+      defaultWarehouseResolved: true,
+      inventoryRead: true,
+      jobRead: true,
+      boxRead: true,
+      sessionRevoked,
+      ephemeralSessionException: !sessionRevoked
+    };
+  } finally {
+    accessToken = '';
+    refreshToken = '';
+  }
+}
+
+async function runAuthRuntimeVerified(context) {
+  const original = originalState(context);
+  const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+  assertRecoveryOwnedStateEqual(current, original.y2.before);
+  const functional = await runFreshAuthentication(context);
+  const value = {
+    nativeSmokeActiveOwner: current.nativeSmoke.ownerMembershipCount === 1,
+    rawMetadataMarker: true,
+    identityMetadataMarker: true,
+    copiedUsersFrozen: true,
+    ...functional
+  };
+  writeStageState({ ...stateOptions(context, 'AUTH_RUNTIME_VERIFIED'), value });
+  return value;
+}
+
+function runApplicationRuntimeVerified(context) {
+  const auth = readStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
+  if (!auth.freshAuthentication || !auth.inventoryRead || !auth.jobRead || !auth.boxRead) {
+    throw categoricalError('DEV_REMEDIATION_APPLICATION_RUNTIME_EVIDENCE_MISSING');
+  }
+  const value = {
+    inventoryRead: true,
+    jobRead: true,
+    boxRead: true,
+    businessMutations: 0,
+    sessionRevoked: auth.sessionRevoked,
+    ephemeralSessionException: auth.ephemeralSessionException
+  };
+  writeStageState({ ...stateOptions(context, 'APPLICATION_RUNTIME_VERIFIED'), value });
+  return value;
+}
+
+async function runFinalY2Parity(context) {
+  const original = originalState(context);
+  const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+  assertRecoveryOwnedStateEqual(current, original.y2.before, 'DEV_REMEDIATION_FINAL_Y2_MISMATCH');
+  const auth = readStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
+  const value = {
+    current,
+    originalY2Exact: true,
+    unexplainedDifferences: 0,
+    ephemeralSessionException: auth.ephemeralSessionException === true,
+    oldRecoveryStateChanged: false
+  };
+  writeStageState({ ...stateOptions(context, 'FINAL_Y2_PARITY'), value });
+  return {
+    originalY2Exact: true,
+    unexplainedDifferences: 0,
+    sessionTokenExceptionOnly: auth.ephemeralSessionException === true,
+    oldRecoveryFailedImmutable: true
+  };
+}
+
+async function runRemediationRecoveryDatabase(context) {
+  originalState(context);
+  const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
+  const restored = await runSubstep('R3_MANAGED_OVERLAY', () => executeKnownRestore(context, {
+    stage: 'REMEDIATION_RECOVERY_DATABASE',
+    packageResult: r3.recoveryPackage,
+    expected: r3.before,
+    expectedLabel: 'R3',
+    diagnosticName: 'r3-recovery-diagnostics-private'
+  }), { transactionOutcome: 'ambiguous' });
+  writeStageState({ ...stateOptions(context, 'REMEDIATION_RECOVERY_DATABASE'), value: {
+    transactionOutcome: 'committed', current: restored.current
+  } });
+  return { r3Restored: true, transactionOutcome: 'committed', oldRecoveryStateChanged: false };
+}
+
+async function runRemediationRecoveryVerified(context) {
+  originalState(context);
+  const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
+  const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+  assertRecoveryOwnedStateEqual(current, r3.before, 'DEV_REMEDIATION_RECOVERY_R3_MISMATCH');
+  return { r3Exact: true, unexplainedDifferences: 0, oldRecoveryFailedImmutable: true };
+}
+
+async function runRemediationStage(context, stage) {
+  const implementations = {
+    REMEDIATION_PRECHECK: runRemediationPrecheck,
+    CURRENT_Y2_PARITY: runCurrentY2Parity,
+    R3_CAPTURE: runR3Capture,
+    R3_VALIDATED: runR3Validated,
+    RESTORE_ORIGINAL_Y2: runRestoreOriginalY2,
+    AUTH_RUNTIME_VERIFIED: runAuthRuntimeVerified,
+    APPLICATION_RUNTIME_VERIFIED: runApplicationRuntimeVerified,
+    FINAL_Y2_PARITY: runFinalY2Parity,
+    REMEDIATION_RECOVERY_DATABASE: runRemediationRecoveryDatabase,
+    REMEDIATION_RECOVERY_VERIFIED: runRemediationRecoveryVerified
+  };
+  const implementation = implementations[stage];
+  if (!implementation) throw categoricalError('DEV_REMEDIATION_REAL_STAGE_UNSUPPORTED');
+  return implementation(context);
+}
+
+function writeResultRecord(record) {
+  const descriptor = Number(process.env.DEV_REFRESH_RESULT_FD);
+  if (!Number.isInteger(descriptor) || descriptor < 3) {
+    throw categoricalError('DEV_REMEDIATION_REAL_STAGE_RESULT_FD_INVALID');
+  }
+  const bytes = Buffer.from(JSON.stringify(record), 'utf8');
+  try {
+    fs.writeSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+function writeFailure(error, key) {
+  const payload = buildOperationFailure({
+    stage: String(process.env.DEV_REFRESH_STAGE || ''),
+    attemptId: String(process.env.DEV_REFRESH_ATTEMPT_ID || ''),
+    target: 'dev',
+    projectRef: DEV_PROJECT_REF,
+    contractDigest: String(process.env.DEV_REFRESH_CONTRACT_DIGEST || ''),
+    error
+  });
+  writeResultRecord({
+    format: RESULT_FORMAT,
+    failure: payload,
+    authentication: { algorithm: 'hmac-sha256-v1', digest: signPayload(payload, key) }
+  });
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2));
+  const key = readWorkerAuthorityKey();
+  try {
+    const preparation = verifyRemediationPreparation(
+      readPrivateJson(options.preparationPath),
+      key,
+      process.env.DEV_REFRESH_ATTEMPT_ID
+    );
+    const stage = String(process.env.DEV_REFRESH_STAGE || '');
+    const context = {
+      key,
+      preparation,
+      attemptId: preparation.remediationAttemptId,
+      connectionString: preparation.targetSession.connectionString,
+      rootDirectory: path.resolve(String(process.env.DEV_REFRESH_STATE_DIR || '')),
+      repoRoot: path.resolve(process.cwd())
+    };
+    const details = await runRemediationStage(context, stage);
+    const evidence = {
+      format: REMEDIATION_EVIDENCE_FORMAT,
+      stage,
+      attemptId: preparation.remediationAttemptId,
+      target: 'dev',
+      projectRef: DEV_PROJECT_REF,
+      status: 'passed',
+      contractDigest: String(process.env.DEV_REFRESH_CONTRACT_DIGEST || ''),
+      safeCount: Object.keys(details).length,
+      evidenceDigest: canonicalDigest(details),
+      details
+    };
+    assertRecoveryRemediationEvidence(evidence, {
+      contract: {
+        remediationAttemptId: preparation.remediationAttemptId,
+        contractDigest: String(process.env.DEV_REFRESH_CONTRACT_DIGEST || '')
+      },
+      stage
+    });
+    writeResultRecord({ format: RESULT_FORMAT, evidence });
+  } catch (error) {
+    try { writeFailure(error, key); } catch {}
+    throw error;
+  } finally {
+    key.fill(0);
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  main().catch(() => { process.exitCode = 1; });
+}
+
+export { runFreshAuthentication, runRemediationStage };

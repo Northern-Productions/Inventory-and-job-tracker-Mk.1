@@ -45,7 +45,7 @@ const REQUIRED_OPERATION_STAGES = Object.freeze([
   'RECOVERY_VERIFIED'
 ]);
 
-const ENV_NAME_PATTERN = /^(?:APP_ENV|BACKEND_MODE|CORS_ALLOWED_ORIGINS|DEV_[A-Z0-9_]+|SUPABASE_[A-Z0-9_]+|VITE_[A-Z0-9_]+|SMOKE_[A-Z0-9_]+|PG[A-Z0-9_]+)$/;
+const ENV_NAME_PATTERN = /^(?:APP_ENV|BACKEND_MODE|CORS_ALLOWED_ORIGINS|EDGE_API_BASE_URL|DEV_[A-Z0-9_]+|SUPABASE_[A-Z0-9_]+|VITE_[A-Z0-9_]+|SMOKE_[A-Z0-9_]+|PG[A-Z0-9_]+)$/;
 const FORBIDDEN_ENV_NAME = /(?:PROD|SANDBOX|VERCEL|DEPLOY|RELEASE)/i;
 const SYNTHETIC_WORKER_PATH = fileURLToPath(new URL('./dev-certified-test-worker.mjs', import.meta.url));
 const syntheticWorkerBytes = fs.readFileSync(SYNTHETIC_WORKER_PATH);
@@ -70,9 +70,22 @@ function assertPrivateKey(key) {
   if (!Buffer.isBuffer(key) || key.length < 32) throw categoricalError('DEV_REFRESH_OPERATION_KEY_INVALID');
 }
 
-function normalizeOperation(operation = {}, { testOnlyAllowSynthetic = false } = {}) {
+function normalizeStageList(requiredStages = REQUIRED_OPERATION_STAGES) {
+  const normalized = [...requiredStages].map((stage) => String(stage || ''));
+  if (
+    normalized.length === 0 || new Set(normalized).size !== normalized.length ||
+    normalized.some((stage) => !/^[A-Z][A-Z0-9_]{1,63}$/.test(stage))
+  ) throw categoricalError('DEV_REFRESH_OPERATION_STAGE_SET_INVALID');
+  return normalized;
+}
+
+function normalizeOperation(operation = {}, {
+  testOnlyAllowSynthetic = false,
+  requiredStages = REQUIRED_OPERATION_STAGES
+} = {}) {
+  const stages = normalizeStageList(requiredStages);
   const stage = String(operation.stage || '');
-  if (!REQUIRED_OPERATION_STAGES.includes(stage)) throw categoricalError('DEV_REFRESH_OPERATION_STAGE_INVALID');
+  if (!stages.includes(stage)) throw categoricalError('DEV_REFRESH_OPERATION_STAGE_INVALID');
   const runtime = String(operation.runtime || '');
   if (!['node', 'native'].includes(runtime)) throw categoricalError('DEV_REFRESH_OPERATION_RUNTIME_INVALID');
   const executable = path.resolve(String(operation.executable || ''));
@@ -120,16 +133,24 @@ function normalizeOperation(operation = {}, { testOnlyAllowSynthetic = false } =
   };
 }
 
-function buildOperationInventory({ attemptId, envFileDigest, operations, testOnlyAllowSynthetic = false } = {}) {
+function buildOperationInventory({
+  attemptId,
+  envFileDigest,
+  operations,
+  testOnlyAllowSynthetic = false,
+  requiredStages = REQUIRED_OPERATION_STAGES
+} = {}) {
+  const stages = normalizeStageList(requiredStages);
   assertSha256(envFileDigest, 'DEV_REFRESH_OPERATION_ENV_DIGEST_INVALID');
   const normalized = (operations || []).map((operation) => normalizeOperation(operation, {
-    testOnlyAllowSynthetic
+    testOnlyAllowSynthetic,
+    requiredStages: stages
   })).sort(
-    (a, b) => REQUIRED_OPERATION_STAGES.indexOf(a.stage) - REQUIRED_OPERATION_STAGES.indexOf(b.stage)
+    (a, b) => stages.indexOf(a.stage) - stages.indexOf(b.stage)
   );
   if (
-    normalized.length !== REQUIRED_OPERATION_STAGES.length ||
-    normalized.some((entry, index) => entry.stage !== REQUIRED_OPERATION_STAGES[index])
+    normalized.length !== stages.length ||
+    normalized.some((entry, index) => entry.stage !== stages[index])
   ) throw categoricalError('DEV_REFRESH_OPERATION_INVENTORY_INCOMPLETE');
   const payload = {
     format: OPERATION_INVENTORY_FORMAT,
@@ -154,7 +175,10 @@ function authenticateOperationInventory(inventory, key) {
   };
 }
 
-function verifyOperationInventory(record, key, contract, envFilePath, { testOnlyAllowSynthetic = false } = {}) {
+function verifyOperationInventory(record, key, contract, envFilePath, {
+  testOnlyAllowSynthetic = false,
+  requiredStages = REQUIRED_OPERATION_STAGES
+} = {}) {
   assertPrivateKey(key);
   if (
     record?.authentication?.algorithm !== 'hmac-sha256-v1' ||
@@ -164,7 +188,8 @@ function verifyOperationInventory(record, key, contract, envFilePath, { testOnly
     attemptId: record.inventory?.attemptId,
     envFileDigest: record.inventory?.envFileDigest,
     operations: record.inventory?.operations,
-    testOnlyAllowSynthetic
+    testOnlyAllowSynthetic,
+    requiredStages
   });
   if (
     canonicalSerialize(rebuilt) !== canonicalSerialize(record.inventory) ||
@@ -219,7 +244,7 @@ function minimalEnvironment(envValues, names, safeValues) {
   return env;
 }
 
-function readOperationResult(resultPath, contract, stage) {
+function readOperationResult(resultPath, contract, stage, assertStageEvidenceFn = assertStageEvidence) {
   verifyPrivateArtifactProtection(resultPath);
   const bytes = fs.readFileSync(resultPath);
   try {
@@ -227,7 +252,7 @@ function readOperationResult(resultPath, contract, stage) {
     if (record?.format !== OPERATION_RESULT_FORMAT) {
       throw categoricalError('DEV_REFRESH_OPERATION_RESULT_FORMAT_INVALID');
     }
-    assertStageEvidence(record.evidence, { contract, stage });
+    assertStageEvidenceFn(record.evidence, { contract, stage });
     return record.evidence;
   } finally {
     bytes.fill(0);
@@ -315,14 +340,16 @@ function createOperationExecutor({
   contract,
   envFilePath,
   evidenceDirectory,
-  testOnlyAllowSynthetic = false
+  testOnlyAllowSynthetic = false,
+  requiredStages = REQUIRED_OPERATION_STAGES,
+  assertStageEvidenceFn = assertStageEvidence
 } = {}) {
   const verified = verifyOperationInventory(
     inventory,
     key,
     contract,
     envFilePath,
-    { testOnlyAllowSynthetic }
+    { testOnlyAllowSynthetic, requiredStages }
   );
   const loaded = loadEnvFile(envFilePath);
   let evidenceRoot = '';
@@ -382,7 +409,7 @@ function createOperationExecutor({
           failure?.cause || null
         );
       }
-      const evidence = readOperationResult(resultPath, contract, stage);
+      const evidence = readOperationResult(resultPath, contract, stage, assertStageEvidenceFn);
       writePrivateJsonExclusive(acceptedPath, {
         format: OPERATION_RESULT_FORMAT,
         evidence,

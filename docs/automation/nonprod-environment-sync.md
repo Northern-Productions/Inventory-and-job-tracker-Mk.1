@@ -125,6 +125,46 @@ npm --prefix backend run env:refresh-dev-certified -- --apply --quiet-window-act
 npm --prefix backend run env:recover-dev-certified -- --apply --quiet-window-active --recovery-authorized --env <guarded-dev-env> --authority-key <private-key> --contract <same-signed-contract> --operation-inventory <same-signed-operation-inventory> --state-dir <existing-private-state-dir> --evidence-dir <new-private-recovery-evidence-dir>
 ```
 
+## Failed-Recovery Remediation
+
+A certified refresh recovery that reaches `RECOVERY_FAILED` remains permanently closed. Its journal,
+marker, invocation evidence, and `retryAllowed=false` value are immutable and cannot be reset merely
+because the target later appears equal to Y2. When separately approved, the repository can prepare a
+new recovery-remediation lineage whose purpose is to deliberately restore the original Y2 and establish
+a new known outcome without reinterpreting or completing the failed recovery.
+
+Preparation is read-only against DEV. It binds the exact failed attempt, original Y2, failed recovery
+marker and invocation, current tooling commit/tree, canonical application commit, and a fresh observed
+DEV certificate. It requires current DEV to equal original Y2 across every recoverable plane and does
+not capture the remediation fallback. The future destructive command captures a fresh coherent,
+encrypted, authenticated, component-digested R3 immediately before its own one-shot marker and
+destructive boundary. R3 must restore-test through the canonical recovery primitive and equal both
+current DEV and original Y2 before mutation is permitted.
+
+The canonical commands are:
+
+```text
+npm --prefix backend run env:prepare-dev-recovery-remediation-certified -- --env <guarded-dev-env> --authority-key <private-key> --original-contract <failed-refresh-contract> --original-preparation <failed-refresh-preparation> --failed-state-dir <failed-refresh-state-dir> --expected-original-attempt <failed-refresh-attempt-id> --expected-original-y2 <original-y2-id> --output-dir <new-private-preparation-dir> --side-effect-certificate <private-read-only-certificate> --edge-certificate <private-read-only-certificate> --postgres-bin <postgres-18-bin>
+
+npm --prefix backend run env:remediate-dev-recovery-certified -- --apply --quiet-window-active --remediation-authorized --env <guarded-dev-env> --authority-key <private-key> --preparation <signed-remediation-preparation> --contract <signed-remediation-contract> --operation-inventory <signed-remediation-inventory> --state-dir <new-private-remediation-state-dir> --evidence-dir <new-private-remediation-evidence-dir>
+
+npm --prefix backend run env:recover-dev-recovery-remediation-certified -- --apply --quiet-window-active --remediation-recovery-authorized --env <guarded-dev-env> --authority-key <private-key> --preparation <same-signed-remediation-preparation> --contract <same-signed-remediation-contract> --operation-inventory <same-signed-remediation-inventory> --state-dir <existing-private-remediation-state-dir> --evidence-dir <new-private-remediation-recovery-evidence-dir>
+```
+
+The remediation uses an independent append-only authenticated journal and permanent marker. Its real
+stages are `REMEDIATION_PRECHECK`, `CURRENT_Y2_PARITY`, `R3_CAPTURE`, `R3_VALIDATED`,
+`RESTORE_ORIGINAL_Y2`, `AUTH_RUNTIME_VERIFIED`, `APPLICATION_RUNTIME_VERIFIED`, and
+`FINAL_Y2_PARITY`; R3 recovery uses `REMEDIATION_RECOVERY_DATABASE` and
+`REMEDIATION_RECOVERY_VERIFIED`. Synthetic workers are rejected. A pre-boundary failure is terminal.
+A post-boundary failure becomes `REMEDIATION_RECOVERY_REQUIRED` and cannot resume or retry the
+remediation; only the separately authorized one-shot R3 recovery command may run.
+
+Restore execution retains authenticated categorical evidence for restore start, database/session
+identity, transaction start, mutation application, commit/rollback/ambiguity, post-commit state,
+cleanup, and result publication. Failure-cause v2 adds an explicit transaction outcome while readers
+remain compatible with retained v1 failure evidence. Successful remediation preserves the old
+`RECOVERY_FAILED` record and concludes only the new remediation lineage.
+
 The signed operation inventory pins every stage's absolute executable and script bytes, arguments, bounded timeout, working directory, and permitted environment variable names. The orchestrator executes the complete stage chain itself; operators do not manually stitch stage commands. Child output is suppressed. A child can return only categorical/count evidence through an inherited owner-protected file descriptor, after which the orchestrator validates and signs accepted evidence.
 
 Preparation enumerates exactly `PRECHECK`, `QUIET_WINDOW`, `Y2_CAPTURE`, `Y2_VALIDATED`, `SIDE_EFFECTS_QUARANTINED`, `DATABASE_CUTOVER`, `DATABASE_VERIFIED`, `AUTH_RUNTIME`, `EDGE_RUNTIME`, `WORKFLOW_CERTIFICATION`, `FIXTURE_CLEANUP`, `FINAL_PARITY`, `RECOVERY_DATABASE`, `RECOVERY_AUTH_RUNTIME`, and `RECOVERY_VERIFIED`. Every entry resolves to the production stage worker and its exact digest. `dev-certified-test-worker.mjs` is test-only; preparation, inventory verification, refresh, and recovery all reject its path or digest even when an inventory is otherwise correctly authenticated.

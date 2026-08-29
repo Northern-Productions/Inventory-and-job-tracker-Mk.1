@@ -656,9 +656,10 @@ test('operation executor preserves an authenticated redacted lower-level failure
     await assert.rejects(harness.executor.run('PRECHECK'), (error) => {
       assert.equal(error.code, 'DEV_REFRESH_REAL_STAGE_MANAGED_OVERLAY_EXECUTION_FAILED');
       assert.deepEqual(error.operationFailure, {
-        format: 'dev-certified-operation-cause-v1',
+        format: 'dev-certified-operation-cause-v2',
         category: 'MANAGED_OVERLAY_EXECUTION_FAILED',
         substep: 'MANAGED_OVERLAY_EXECUTION',
+        transactionOutcome: 'not_started',
         diagnostic: {
           classification: 'POSTGRES_MANAGED_OWNERSHIP_REJECTED',
           sqlState: '42501',
