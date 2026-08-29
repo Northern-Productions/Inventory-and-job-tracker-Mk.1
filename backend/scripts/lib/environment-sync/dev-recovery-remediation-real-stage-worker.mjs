@@ -102,8 +102,11 @@ function originalOptions(context) {
   return {
     failedStateDirectory: context.preparation.original.failedStateDirectory,
     key: context.key,
+    repoRoot: context.repoRoot,
+    currentToolingCommit: context.preparation.candidate.toolingCommit,
     originalContractRecord: readPrivateJson(context.preparation.original.originalContractPath),
     originalPreparationRecord: readPrivateJson(context.preparation.original.originalPreparationPath),
+    originalInventoryRecord: readPrivateJson(context.preparation.original.originalInventoryPath),
     expectedRefreshAttemptId: context.preparation.original.binding.refreshAttemptId,
     expectedY2RecoveryId: context.preparation.original.binding.y2RecoveryId
   };

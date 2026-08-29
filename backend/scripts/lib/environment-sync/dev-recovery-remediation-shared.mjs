@@ -1,8 +1,7 @@
 import pg from 'pg';
 
 import { canonicalDigest, canonicalSerialize } from '../readonly-diagnostics.mjs';
-import { verifyAuthenticatedCertifiedRefreshContract } from './dev-certified-contract.mjs';
-import { verifyPreparation } from './dev-certified-preparation.mjs';
+import { verifyHistoricalPreparation } from './dev-certified-preparation.mjs';
 import { readStageState } from './dev-certified-stage-state.mjs';
 import { readJournal } from './dev-certified-state.mjs';
 import {
@@ -71,13 +70,24 @@ function assertRecoveryOwnedStateEqual(observed, expected, code = 'DEV_REMEDIATI
 function readOriginalFailedRecovery({
   failedStateDirectory,
   key,
+  repoRoot,
+  currentToolingCommit,
   originalContractRecord,
   originalPreparationRecord,
+  originalInventoryRecord,
   expectedRefreshAttemptId,
   expectedY2RecoveryId
 } = {}) {
-  const contract = verifyAuthenticatedCertifiedRefreshContract(originalContractRecord, key);
-  const preparation = verifyPreparation(originalPreparationRecord, key, expectedRefreshAttemptId);
+  const historical = verifyHistoricalPreparation({
+    preparationRecord: originalPreparationRecord,
+    contractRecord: originalContractRecord,
+    inventoryRecord: originalInventoryRecord,
+    key,
+    repoRoot,
+    currentToolingCommit,
+    expectedAttemptId: expectedRefreshAttemptId
+  });
+  const { contract, preparation, provenance } = historical;
   if (
     contract.attemptId !== expectedRefreshAttemptId ||
     preparation.attemptId !== expectedRefreshAttemptId ||
@@ -108,6 +118,8 @@ function readOriginalFailedRecovery({
     y2RecoveryId: expectedY2RecoveryId,
     refreshContractDigest: contract.contractDigest,
     originalPreparationDigest: canonicalDigest(originalPreparationRecord),
+    originalOperationInventoryDigest: provenance.operationInventoryDigest,
+    historicalProvenanceDigest: provenance.provenanceDigest,
     failedJournalDigest: canonicalDigest(journal.records),
     failedStateRecordDigest: canonicalDigest(journal.current),
     failedRecoveryMarkerDigest: canonicalDigest(journal.recovery),
@@ -115,7 +127,7 @@ function readOriginalFailedRecovery({
     recoveryState: journal.current.state,
     retryAllowed: journal.recovery.retryAllowed
   };
-  return { binding, contract, preparation, journal, y2 };
+  return { binding, contract, preparation, provenance, journal, y2 };
 }
 
 function assertOriginalFailedRecoveryUnchanged(options, expectedBinding) {

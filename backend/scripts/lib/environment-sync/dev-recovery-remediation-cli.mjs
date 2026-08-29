@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { canonicalSerialize } from '../readonly-diagnostics.mjs';
 import { buildMutationTargetReport, loadEnvFile } from '../target-env-guards.mjs';
 import { DEV_PROJECT_REF, verifyRepositoryLineage } from './dev-certified-contract.mjs';
 import { createOperationExecutor } from './dev-certified-operation-executor.mjs';
@@ -115,7 +116,13 @@ async function runDevRecoveryRemediationCli(mode, argv, repoRoot, testOnlyRuntim
     );
     if (
       preparation.currentObserved.certificateDigest !== contract.observedDevCertificateDigest ||
-      preparation.original.binding.failedJournalDigest !== contract.original.failedJournalDigest
+      preparation.original.binding.failedJournalDigest !== contract.original.failedJournalDigest ||
+      (contract.version === 2 && (
+        preparation.contractDigest !== contract.contractDigest ||
+        preparation.operationInventoryDigest !== contract.operationInventoryDigest ||
+        canonicalSerialize(preparation.original.binding) !== canonicalSerialize(contract.original) ||
+        canonicalSerialize(preparation.provenanceBridge) !== canonicalSerialize(contract.provenanceBridge)
+      ))
     ) throw categoricalError('DEV_REMEDIATION_PREPARATION_CONTRACT_MISMATCH');
     const lineage = verifyRepositoryLineageFn({ repoRoot: root });
     if (

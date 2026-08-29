@@ -4,24 +4,39 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { canonicalDigest } from '../readonly-diagnostics.mjs';
+import { canonicalDigest, canonicalSerialize } from '../readonly-diagnostics.mjs';
 import {
   DEV_PROJECT_REF,
   PROD_PROJECT_REF,
   SANDBOX_PROJECT_REF,
+  authenticateCertifiedRefreshContract,
+  buildCertifiedRefreshContract,
   sha256Bytes
 } from './dev-certified-contract.mjs';
 import { buildOperationFailure, verifyOperationFailure } from './dev-certified-operation-failure.mjs';
-import { buildOperationInventory } from './dev-certified-operation-executor.mjs';
 import {
+  REQUIRED_OPERATION_STAGES,
+  authenticateOperationInventory,
+  buildOperationInventory
+} from './dev-certified-operation-executor.mjs';
+import {
+  REAL_STAGE_WORKER,
+  authenticatePreparation,
+  verifyHistoricalPreparation,
+  verifyPreparation
+} from './dev-certified-preparation.mjs';
+import {
+  CURRENT_REMEDIATION_WORKER_REPO_PATH,
   REMEDIATION_EVIDENCE_FORMAT,
   REMEDIATION_OPERATION_STAGES,
+  REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
   assertRecoveryRemediationEvidence,
   authenticateRecoveryRemediationContract,
+  buildRemediationProvenanceBridge,
   buildRecoveryRemediationContract,
   normalizeOriginalBinding,
   verifyAuthenticatedRecoveryRemediationContract,
@@ -32,6 +47,11 @@ import {
   runDevRecoveryRemediationRecovery
 } from './dev-recovery-remediation-orchestrator.mjs';
 import { runFreshAuthentication } from './dev-recovery-remediation-real-stage-worker.mjs';
+import {
+  REMEDIATION_REAL_STAGE_WORKER,
+  authenticateRemediationPreparation,
+  verifyRemediationPreparation
+} from './dev-recovery-remediation-preparation.mjs';
 import { assertRecoveryOwnedStateEqual } from './dev-recovery-remediation-shared.mjs';
 import {
   appendRemediationEvent,
@@ -45,6 +65,10 @@ const REMEDIATE_ENTRY = fileURLToPath(new URL('../../environment-remediate-dev-r
 const RECOVER_ENTRY = fileURLToPath(new URL('../../environment-recover-dev-recovery-remediation-certified.mjs', import.meta.url));
 const RUNBOOK = fileURLToPath(new URL('../../../../docs/automation/nonprod-environment-sync.md', import.meta.url));
 const TEST_WORKER = fileURLToPath(new URL('./dev-certified-test-worker.mjs', import.meta.url));
+const REPO_ROOT = path.resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
+const HISTORICAL_TOOLING_COMMIT = 'ecdde2894b28300f8cb90ac8cb44e46509c09577';
+const REFRESH_WORKER_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-certified-real-stage-worker.mjs';
+const REFRESH_SYNTHETIC_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-certified-test-worker.mjs';
 
 function digest(value) {
   return `sha256:${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
@@ -161,6 +185,95 @@ function spawnIsolated(entry, args, root) {
   });
 }
 
+function gitBytes(commit, repoPath) {
+  return execFileSync('git', ['show', `${commit}:${repoPath}`], {
+    cwd: REPO_ROOT,
+    encoding: null,
+    shell: false,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'ignore']
+  });
+}
+
+function gitIdentity(commit, suffix = 'commit') {
+  return execFileSync('git', ['rev-parse', `${commit}^{${suffix}}`], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    shell: false,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'ignore']
+  }).trim();
+}
+
+function historicalRefreshArtifacts(key, {
+  historicalCommit = HISTORICAL_TOOLING_COMMIT,
+  historicalTree = gitIdentity(historicalCommit, 'tree'),
+  workerDigestOverride = ''
+} = {}) {
+  const attemptId = 'dev-refresh-20260828181151989-synthetic';
+  const workerBytes = gitBytes(historicalCommit, REFRESH_WORKER_REPO_PATH);
+  const syntheticBytes = gitBytes(historicalCommit, REFRESH_SYNTHETIC_REPO_PATH);
+  const executableBytes = fs.readFileSync(process.execPath);
+  try {
+    const workerDigest = workerDigestOverride || sha256Bytes(workerBytes);
+    const operations = REQUIRED_OPERATION_STAGES.map((stage) => ({
+      stage,
+      runtime: 'node',
+      executable: process.execPath,
+      executableDigest: sha256Bytes(executableBytes),
+      script: path.resolve(REAL_STAGE_WORKER),
+      scriptDigest: workerDigest,
+      cwd: REPO_ROOT,
+      args: ['--preparation', path.join(REPO_ROOT, 'historical-preparation.private.json')],
+      environmentNames: [],
+      timeoutMs: 30 * 60 * 1000
+    }));
+    const inventory = buildOperationInventory({
+      attemptId,
+      envFileDigest: digest('historical-env'),
+      operations
+    });
+    const contractValue = buildCertifiedRefreshContract({
+      attemptId,
+      toolingCommit: historicalCommit,
+      toolingTree: historicalTree,
+      goldenManifestDigest: digest('golden'),
+      currentDevProfileDigest: digest('profile'),
+      operationInventoryDigest: inventory.inventoryDigest
+    });
+    const preparation = {
+      format: 'dev-certified-preparation-v1',
+      version: 1,
+      attemptId,
+      mode: 'managed-dev',
+      target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
+      candidate: contractValue.candidate,
+      sideEffects: { mutationAllowed: false },
+      edge: { deploymentPolicy: 'read-only-no-deploy' },
+      fixtureAuthority: { cleanupAuthority: 'exact-authenticated-ledger-only' },
+      stageWorker: {
+        path: path.resolve(REAL_STAGE_WORKER),
+        digest: workerDigest,
+        syntheticWorkerDigest: sha256Bytes(syntheticBytes),
+        syntheticWorkerAllowed: false
+      }
+    };
+    return {
+      attemptId,
+      preparation,
+      preparationRecord: authenticatePreparation(preparation, key),
+      contract: contractValue,
+      contractRecord: authenticateCertifiedRefreshContract(contractValue, key),
+      inventory,
+      inventoryRecord: authenticateOperationInventory(inventory, key)
+    };
+  } finally {
+    workerBytes.fill(0);
+    syntheticBytes.fill(0);
+    executableBytes.fill(0);
+  }
+}
+
 test('remediation contract is independently authenticated and binds the permanently failed recovery', () => {
   const key = crypto.randomBytes(32);
   try {
@@ -181,6 +294,211 @@ test('remediation contract is independently authenticated and binds the permanen
   } finally {
     key.fill(0);
   }
+});
+
+test('historical refresh provenance remains exact while a signed successor bridge binds current execution', () => {
+  const key = crypto.randomBytes(32);
+  const currentWorkerBytes = fs.readFileSync(REMEDIATION_REAL_STAGE_WORKER);
+  const syntheticWorkerBytes = fs.readFileSync(TEST_WORKER);
+  try {
+    const currentToolingCommit = gitIdentity('HEAD');
+    const historical = historicalRefreshArtifacts(key);
+    assert.throws(() => verifyPreparation(
+      historical.preparationRecord, key, historical.attemptId
+    ), { code: 'DEV_REFRESH_PREPARATION_INVALID' });
+    const verified = verifyHistoricalPreparation({
+      preparationRecord: historical.preparationRecord,
+      contractRecord: historical.contractRecord,
+      inventoryRecord: historical.inventoryRecord,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit,
+      expectedAttemptId: historical.attemptId
+    });
+    assert.equal(verified.provenance.toolingCommit, HISTORICAL_TOOLING_COMMIT);
+    assert.equal(verified.provenance.workerDigest, historical.preparation.stageWorker.digest);
+    assert.equal(verified.provenance.operationInventoryDigest, historical.inventory.inventoryDigest);
+
+    const currentInventoryDigest = digest('current-remediation-inventory');
+    const currentToolingTree = gitIdentity(currentToolingCommit, 'tree');
+    const bridge = buildRemediationProvenanceBridge({
+      historical: verified.provenance,
+      currentExecution: {
+        format: 'dev-recovery-current-execution-provenance-v1',
+        digestScope: 'exact-committed-file-sha256-v1',
+        compatibilityBaseCommit: REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
+        toolingCommit: currentToolingCommit,
+        toolingTree: currentToolingTree,
+        workerRepoPath: CURRENT_REMEDIATION_WORKER_REPO_PATH,
+        workerDigest: sha256Bytes(currentWorkerBytes),
+        rejectedSyntheticWorkerDigest: sha256Bytes(syntheticWorkerBytes),
+        operationInventoryDigest: currentInventoryDigest
+      }
+    });
+    const binding = {
+      ...originalBinding(),
+      refreshAttemptId: historical.attemptId,
+      refreshContractDigest: verified.provenance.refreshContractDigest,
+      originalPreparationDigest: verified.provenance.originalPreparationDigest,
+      originalOperationInventoryDigest: verified.provenance.operationInventoryDigest,
+      historicalProvenanceDigest: verified.provenance.provenanceDigest
+    };
+    const preparedAt = new Date(Date.now() - 1_000).toISOString();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const bridged = buildRecoveryRemediationContract({
+      remediationAttemptId: 'dev-recovery-remediation-successor',
+      toolingCommit: currentToolingCommit,
+      toolingTree: currentToolingTree,
+      originalBinding: binding,
+      provenanceBridge: bridge,
+      observedDevCertificateDigest: digest('observed'),
+      operationInventoryDigest: currentInventoryDigest,
+      preparedAt,
+      expiresAt
+    });
+    assert.equal(bridged.version, 2);
+    assert.equal(verifyRecoveryRemediationContract(bridged), bridged);
+    assert.notEqual(
+      bridged.provenanceBridge.historical.workerDigest,
+      bridged.provenanceBridge.currentExecution.workerDigest
+    );
+
+    const preparationPayload = {
+      format: 'dev-recovery-remediation-preparation-v1',
+      version: 2,
+      remediationAttemptId: bridged.remediationAttemptId,
+      target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
+      candidate: bridged.candidate,
+      original: {
+        binding,
+        provenance: verified.provenance,
+        originalInventoryPath: 'private-inventory'
+      },
+      provenanceBridge: bridge,
+      contractDigest: bridged.contractDigest,
+      operationInventoryDigest: currentInventoryDigest,
+      currentObserved: { value: true },
+      stageWorker: {
+        path: path.resolve(REMEDIATION_REAL_STAGE_WORKER),
+        digest: sha256Bytes(currentWorkerBytes),
+        rejectedSyntheticWorkerDigest: sha256Bytes(syntheticWorkerBytes),
+        syntheticWorkerAllowed: false
+      },
+      expiresAt
+    };
+    preparationPayload.currentObserved.certificateDigest = canonicalDigest({ value: true });
+    const preparationRecord = authenticateRemediationPreparation(preparationPayload, key);
+    assert.equal(
+      verifyRemediationPreparation(preparationRecord, key, bridged.remediationAttemptId),
+      preparationPayload
+    );
+
+    for (const mutate of [
+      (value) => { value.provenanceBridge.currentExecution.workerDigest = digest('wrong-worker'); },
+      (value) => { value.provenanceBridge.currentExecution.toolingCommit = 'c'.repeat(40); },
+      (value) => { value.provenanceBridge.currentExecution.operationInventoryDigest = verified.provenance.operationInventoryDigest; },
+      (value) => { value.provenanceBridge.historical.provenanceDigest = digest('rewritten-history'); }
+    ]) {
+      const tampered = structuredClone(bridged);
+      mutate(tampered);
+      assert.throws(() => verifyRecoveryRemediationContract(tampered));
+    }
+
+    const invalidSignature = structuredClone(historical.preparationRecord);
+    invalidSignature.preparation.stageWorker.digest = digest('tampered');
+    assert.throws(() => verifyHistoricalPreparation({
+      preparationRecord: invalidSignature,
+      contractRecord: historical.contractRecord,
+      inventoryRecord: historical.inventoryRecord,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit,
+      expectedAttemptId: historical.attemptId
+    }), { code: 'DEV_REFRESH_PREPARATION_INVALID' });
+
+    const wrongWorker = historicalRefreshArtifacts(key, { workerDigestOverride: digest('wrong-worker') });
+    assert.throws(() => verifyHistoricalPreparation({
+      preparationRecord: wrongWorker.preparationRecord,
+      contractRecord: wrongWorker.contractRecord,
+      inventoryRecord: wrongWorker.inventoryRecord,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit,
+      expectedAttemptId: wrongWorker.attemptId
+    }), { code: 'DEV_REFRESH_HISTORICAL_WORKER_INVALID' });
+
+    const historicalSyntheticBytes = gitBytes(HISTORICAL_TOOLING_COMMIT, REFRESH_SYNTHETIC_REPO_PATH);
+    try {
+      const syntheticHistorical = historicalRefreshArtifacts(key, {
+        workerDigestOverride: sha256Bytes(historicalSyntheticBytes)
+      });
+      assert.throws(() => verifyHistoricalPreparation({
+        preparationRecord: syntheticHistorical.preparationRecord,
+        contractRecord: syntheticHistorical.contractRecord,
+        inventoryRecord: syntheticHistorical.inventoryRecord,
+        key,
+        repoRoot: REPO_ROOT,
+        currentToolingCommit,
+        expectedAttemptId: syntheticHistorical.attemptId
+      }), { code: 'DEV_REFRESH_HISTORICAL_WORKER_INVALID' });
+    } finally {
+      historicalSyntheticBytes.fill(0);
+    }
+
+    const wrongTree = historicalRefreshArtifacts(key, { historicalTree: 'd'.repeat(40) });
+    assert.throws(() => verifyHistoricalPreparation({
+      preparationRecord: wrongTree.preparationRecord,
+      contractRecord: wrongTree.contractRecord,
+      inventoryRecord: wrongTree.inventoryRecord,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit,
+      expectedAttemptId: wrongTree.attemptId
+    }), { code: 'DEV_REFRESH_HISTORICAL_LINEAGE_INVALID' });
+
+    const substitutedInventory = structuredClone(historical.inventoryRecord);
+    substitutedInventory.inventory.envFileDigest = digest('substituted');
+    assert.throws(() => verifyHistoricalPreparation({
+      preparationRecord: historical.preparationRecord,
+      contractRecord: historical.contractRecord,
+      inventoryRecord: substitutedInventory,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit,
+      expectedAttemptId: historical.attemptId
+    }), { code: 'DEV_REFRESH_HISTORICAL_WORKER_INVALID' });
+
+    assert.throws(() => verifyHistoricalPreparation({
+      preparationRecord: historical.preparationRecord,
+      contractRecord: historical.contractRecord,
+      inventoryRecord: historical.inventoryRecord,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit,
+      expectedAttemptId: 'dev-refresh-20260828181151989-wrong'
+    }), { code: 'DEV_REFRESH_PREPARATION_INVALID' });
+
+    assert.throws(() => verifyHistoricalPreparation({
+      preparationRecord: historical.preparationRecord,
+      contractRecord: historical.contractRecord,
+      inventoryRecord: historical.inventoryRecord,
+      key,
+      repoRoot: REPO_ROOT,
+      currentToolingCommit: historical.contract.candidate.canonicalMainCommit,
+      expectedAttemptId: historical.attemptId
+    }), { code: 'DEV_REFRESH_HISTORICAL_SUCCESSOR_INVALID' });
+  } finally {
+    key.fill(0);
+    currentWorkerBytes.fill(0);
+    syntheticWorkerBytes.fill(0);
+  }
+});
+
+test('v1 remediation contract normalization remains byte-identical', () => {
+  const value = contract('dev-recovery-remediation-v1-compatible');
+  assert.equal(value.version, 1);
+  assert.equal(canonicalSerialize(verifyRecoveryRemediationContract(value)), canonicalSerialize(value));
+  assert.equal(Object.hasOwn(value, 'provenanceBridge'), false);
 });
 
 test('remediation target, failed-recovery, current-Y2, and R3 guards fail closed', () => {

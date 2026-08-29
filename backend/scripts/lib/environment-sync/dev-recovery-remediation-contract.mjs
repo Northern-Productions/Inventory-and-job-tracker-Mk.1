@@ -15,6 +15,9 @@ import {
 const REMEDIATION_CONTRACT_FORMAT = 'dev-recovery-remediation-contract-v1';
 const REMEDIATION_EVIDENCE_FORMAT = 'dev-recovery-remediation-stage-evidence-v1';
 const REQUIRED_DIAGNOSTIC_TOOLING_COMMIT = '84a6b7391e72646fc81289942ec3d615e6e8fe98';
+const REMEDIATION_PROVENANCE_BRIDGE_FORMAT = 'dev-recovery-remediation-provenance-bridge-v1';
+const REMEDIATION_PROVENANCE_FIX_BASE_COMMIT = 'a9be5a74917ab05494ca722d8e0f10397f508095';
+const CURRENT_REMEDIATION_WORKER_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-recovery-remediation-real-stage-worker.mjs';
 
 const REMEDIATION_OPERATION_STAGES = Object.freeze([
   'REMEDIATION_PRECHECK',
@@ -76,11 +79,125 @@ function normalizeOriginalBinding(value = {}) {
   return normalized;
 }
 
+function normalizeOriginalBindingV2(value = {}) {
+  const normalized = {
+    ...normalizeOriginalBinding(value),
+    originalOperationInventoryDigest: String(value.originalOperationInventoryDigest || ''),
+    historicalProvenanceDigest: String(value.historicalProvenanceDigest || '')
+  };
+  assertSha256(normalized.originalOperationInventoryDigest, 'DEV_REMEDIATION_ORIGINAL_INVENTORY_DIGEST_INVALID');
+  assertSha256(normalized.historicalProvenanceDigest, 'DEV_REMEDIATION_HISTORICAL_PROVENANCE_DIGEST_INVALID');
+  return normalized;
+}
+
+function normalizeHistoricalProvenance(value = {}) {
+  const normalized = {
+    format: String(value.format || ''),
+    digestScope: String(value.digestScope || ''),
+    toolingCommit: String(value.toolingCommit || ''),
+    toolingTree: String(value.toolingTree || ''),
+    canonicalMainCommit: String(value.canonicalMainCommit || ''),
+    canonicalMainTree: String(value.canonicalMainTree || ''),
+    certifiedToolingAncestor: String(value.certifiedToolingAncestor || ''),
+    workerRepoPath: String(value.workerRepoPath || ''),
+    workerDigest: String(value.workerDigest || ''),
+    syntheticWorkerDigest: String(value.syntheticWorkerDigest || ''),
+    operationInventoryDigest: String(value.operationInventoryDigest || ''),
+    refreshContractDigest: String(value.refreshContractDigest || ''),
+    originalPreparationDigest: String(value.originalPreparationDigest || ''),
+    provenanceDigest: String(value.provenanceDigest || '')
+  };
+  if (
+    normalized.format !== 'dev-refresh-historical-provenance-v1' ||
+    normalized.digestScope !== 'exact-git-blob-sha256-v1' ||
+    normalized.workerRepoPath !== 'backend/scripts/lib/environment-sync/dev-certified-real-stage-worker.mjs'
+  ) throw categoricalError('DEV_REMEDIATION_HISTORICAL_PROVENANCE_INVALID');
+  for (const identity of [
+    normalized.toolingCommit,
+    normalized.toolingTree,
+    normalized.canonicalMainCommit,
+    normalized.canonicalMainTree,
+    normalized.certifiedToolingAncestor
+  ]) assertGitIdentity(identity, 'DEV_REMEDIATION_HISTORICAL_GIT_IDENTITY_INVALID');
+  for (const digest of [
+    normalized.workerDigest,
+    normalized.syntheticWorkerDigest,
+    normalized.operationInventoryDigest,
+    normalized.refreshContractDigest,
+    normalized.originalPreparationDigest,
+    normalized.provenanceDigest
+  ]) assertSha256(digest, 'DEV_REMEDIATION_HISTORICAL_DIGEST_INVALID');
+  const payload = Object.fromEntries(Object.entries(normalized).filter(([name]) => name !== 'provenanceDigest'));
+  if (normalized.provenanceDigest !== canonicalDigest(payload)) {
+    throw categoricalError('DEV_REMEDIATION_HISTORICAL_PROVENANCE_DIGEST_MISMATCH');
+  }
+  return normalized;
+}
+
+function normalizeCurrentExecutionProvenance(value = {}) {
+  const normalized = {
+    format: String(value.format || ''),
+    digestScope: String(value.digestScope || ''),
+    compatibilityBaseCommit: String(value.compatibilityBaseCommit || ''),
+    toolingCommit: String(value.toolingCommit || ''),
+    toolingTree: String(value.toolingTree || ''),
+    workerRepoPath: String(value.workerRepoPath || ''),
+    workerDigest: String(value.workerDigest || ''),
+    rejectedSyntheticWorkerDigest: String(value.rejectedSyntheticWorkerDigest || ''),
+    operationInventoryDigest: String(value.operationInventoryDigest || '')
+  };
+  if (
+    normalized.format !== 'dev-recovery-current-execution-provenance-v1' ||
+    normalized.digestScope !== 'exact-committed-file-sha256-v1' ||
+    normalized.compatibilityBaseCommit !== REMEDIATION_PROVENANCE_FIX_BASE_COMMIT ||
+    normalized.workerRepoPath !== CURRENT_REMEDIATION_WORKER_REPO_PATH
+  ) throw categoricalError('DEV_REMEDIATION_CURRENT_PROVENANCE_INVALID');
+  for (const identity of [normalized.compatibilityBaseCommit, normalized.toolingCommit, normalized.toolingTree]) {
+    assertGitIdentity(identity, 'DEV_REMEDIATION_CURRENT_GIT_IDENTITY_INVALID');
+  }
+  for (const digest of [
+    normalized.workerDigest,
+    normalized.rejectedSyntheticWorkerDigest,
+    normalized.operationInventoryDigest
+  ]) assertSha256(digest, 'DEV_REMEDIATION_CURRENT_DIGEST_INVALID');
+  if (normalized.workerDigest === normalized.rejectedSyntheticWorkerDigest) {
+    throw categoricalError('DEV_REMEDIATION_CURRENT_WORKER_SYNTHETIC');
+  }
+  return normalized;
+}
+
+function buildRemediationProvenanceBridge({ historical, currentExecution } = {}) {
+  const normalizedHistorical = normalizeHistoricalProvenance(historical);
+  const normalizedCurrent = normalizeCurrentExecutionProvenance(currentExecution);
+  const bridge = {
+    format: REMEDIATION_PROVENANCE_BRIDGE_FORMAT,
+    relationship: 'explicit-certified-successor',
+    historical: normalizedHistorical,
+    currentExecution: normalizedCurrent
+  };
+  return { ...bridge, bridgeDigest: canonicalDigest(bridge) };
+}
+
+function normalizeRemediationProvenanceBridge(value = {}) {
+  const rebuilt = buildRemediationProvenanceBridge({
+    historical: value.historical,
+    currentExecution: value.currentExecution
+  });
+  if (value.format !== REMEDIATION_PROVENANCE_BRIDGE_FORMAT ||
+      value.relationship !== 'explicit-certified-successor' ||
+      value.bridgeDigest !== rebuilt.bridgeDigest ||
+      canonicalSerialize(value) !== canonicalSerialize(rebuilt)) {
+    throw categoricalError('DEV_REMEDIATION_PROVENANCE_BRIDGE_INVALID');
+  }
+  return rebuilt;
+}
+
 function buildRecoveryRemediationContract({
   remediationAttemptId,
   toolingCommit,
   toolingTree,
   originalBinding,
+  provenanceBridge,
   observedDevCertificateDigest,
   operationInventoryDigest,
   preparedAt,
@@ -96,14 +213,29 @@ function buildRecoveryRemediationContract({
   if (!Number.isFinite(preparedTime) || !Number.isFinite(expiryTime) || expiryTime <= preparedTime) {
     throw categoricalError('DEV_REMEDIATION_PREPARATION_WINDOW_INVALID');
   }
+  const normalizedBridge = provenanceBridge
+    ? normalizeRemediationProvenanceBridge(provenanceBridge)
+    : null;
+  const original = normalizedBridge
+    ? normalizeOriginalBindingV2(originalBinding)
+    : normalizeOriginalBinding(originalBinding);
+  if (normalizedBridge && (
+    normalizedBridge.historical.provenanceDigest !== original.historicalProvenanceDigest ||
+    normalizedBridge.historical.operationInventoryDigest !== original.originalOperationInventoryDigest ||
+    normalizedBridge.historical.refreshContractDigest !== original.refreshContractDigest ||
+    normalizedBridge.historical.originalPreparationDigest !== original.originalPreparationDigest ||
+    normalizedBridge.currentExecution.toolingCommit !== toolingCommit ||
+    normalizedBridge.currentExecution.toolingTree !== toolingTree ||
+    normalizedBridge.currentExecution.operationInventoryDigest !== operationInventoryDigest
+  )) throw categoricalError('DEV_REMEDIATION_PROVENANCE_BINDING_MISMATCH');
   const contract = {
     format: REMEDIATION_CONTRACT_FORMAT,
-    version: 1,
+    version: normalizedBridge ? 2 : 1,
     attemptId: remediationAttemptId,
     remediationAttemptId,
     target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
     rejectedProjectRefs: [PROD_PROJECT_REF, SANDBOX_PROJECT_REF],
-    original: normalizeOriginalBinding(originalBinding),
+    original,
     candidate: {
       canonicalMainCommit: CANONICAL_APPLICATION_SOURCE_COMMIT,
       canonicalMainTree: CANONICAL_APPLICATION_SOURCE_TREE,
@@ -113,6 +245,7 @@ function buildRecoveryRemediationContract({
     },
     observedDevCertificateDigest,
     operationInventoryDigest,
+    ...(normalizedBridge ? { provenanceBridge: normalizedBridge } : {}),
     preparedAt,
     expiresAt,
     r3Policy: {
@@ -166,7 +299,7 @@ function authenticateRecoveryRemediationContract(contract, key) {
 }
 
 function verifyRecoveryRemediationContract(contract = {}) {
-  if (contract.format !== REMEDIATION_CONTRACT_FORMAT || contract.version !== 1) {
+  if (contract.format !== REMEDIATION_CONTRACT_FORMAT || ![1, 2].includes(contract.version)) {
     throw categoricalError('DEV_REMEDIATION_CONTRACT_FORMAT_INVALID');
   }
   const rebuilt = buildRecoveryRemediationContract({
@@ -174,6 +307,7 @@ function verifyRecoveryRemediationContract(contract = {}) {
     toolingCommit: contract.candidate?.toolingCommit,
     toolingTree: contract.candidate?.toolingTree,
     originalBinding: contract.original,
+    provenanceBridge: contract.version === 2 ? contract.provenanceBridge : undefined,
     observedDevCertificateDigest: contract.observedDevCertificateDigest,
     operationInventoryDigest: contract.operationInventoryDigest,
     preparedAt: contract.preparedAt,
@@ -246,13 +380,18 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
 }
 
 export {
+  CURRENT_REMEDIATION_WORKER_REPO_PATH,
   REMEDIATION_CONTRACT_FORMAT,
   REMEDIATION_EVIDENCE_FORMAT,
   REMEDIATION_OPERATION_STAGES,
+  REMEDIATION_PROVENANCE_BRIDGE_FORMAT,
+  REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
   REQUIRED_DIAGNOSTIC_TOOLING_COMMIT,
   assertRecoveryRemediationEvidence,
   authenticateRecoveryRemediationContract,
+  buildRemediationProvenanceBridge,
   buildRecoveryRemediationContract,
+  normalizeRemediationProvenanceBridge,
   normalizeOriginalBinding,
   verifyAuthenticatedRecoveryRemediationContract,
   verifyRecoveryRemediationContract

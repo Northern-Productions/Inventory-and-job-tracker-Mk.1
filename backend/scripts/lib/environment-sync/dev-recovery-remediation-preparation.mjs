@@ -18,10 +18,14 @@ import {
 } from './dev-certified-operation-executor.mjs';
 import { edgeSourceCertificate, readAuthorityKey } from './dev-certified-preparation.mjs';
 import {
+  CURRENT_REMEDIATION_WORKER_REPO_PATH,
   REMEDIATION_OPERATION_STAGES,
+  REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
   REQUIRED_DIAGNOSTIC_TOOLING_COMMIT,
   authenticateRecoveryRemediationContract,
+  buildRemediationProvenanceBridge,
   buildRecoveryRemediationContract,
+  normalizeRemediationProvenanceBridge,
   verifyAuthenticatedRecoveryRemediationContract
 } from './dev-recovery-remediation-contract.mjs';
 import {
@@ -43,6 +47,7 @@ const REMEDIATION_REAL_STAGE_WORKER = fileURLToPath(
   new URL('./dev-recovery-remediation-real-stage-worker.mjs', import.meta.url)
 );
 const REFRESH_SYNTHETIC_WORKER = fileURLToPath(new URL('./dev-certified-test-worker.mjs', import.meta.url));
+const REFRESH_SYNTHETIC_WORKER_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-certified-test-worker.mjs';
 const PREPARATION_TTL_MS = 2 * 60 * 60 * 1000;
 
 function categoricalError(code) {
@@ -57,6 +62,24 @@ function digestFile(filePath) {
     return sha256Bytes(bytes);
   } finally {
     bytes.fill(0);
+  }
+}
+
+function digestGitFile(repoRoot, commit, repoPath) {
+  let bytes;
+  try {
+    bytes = execFileSync('git', ['show', `${commit}:${repoPath}`], {
+      cwd: repoRoot,
+      encoding: null,
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
+    return sha256Bytes(bytes);
+  } catch {
+    throw categoricalError('DEV_REMEDIATION_CURRENT_WORKER_SOURCE_MISSING');
+  } finally {
+    if (bytes) bytes.fill(0);
   }
 }
 
@@ -108,6 +131,19 @@ function assertDiagnosticAncestor(repoRoot, toolingCommit) {
   }
 }
 
+function assertCompatibilityBase(repoRoot, toolingCommit) {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', REMEDIATION_PROVENANCE_FIX_BASE_COMMIT, toolingCommit], {
+      cwd: repoRoot,
+      shell: false,
+      windowsHide: true,
+      stdio: 'ignore'
+    });
+  } catch {
+    throw categoricalError('DEV_REMEDIATION_COMPATIBILITY_BASE_MISSING');
+  }
+}
+
 function authenticateRemediationPreparation(preparation, key) {
   return {
     preparation,
@@ -117,10 +153,11 @@ function authenticateRemediationPreparation(preparation, key) {
 
 function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
   const preparation = record?.preparation;
+  const version = preparation?.version;
   if (
     record?.authentication?.algorithm !== 'hmac-sha256-v1' ||
     record.authentication.digest !== signPayload(preparation, key) ||
-    preparation?.format !== REMEDIATION_PREPARATION_FORMAT || preparation?.version !== 1 ||
+    preparation?.format !== REMEDIATION_PREPARATION_FORMAT || ![1, 2].includes(version) ||
     preparation?.target?.environment !== 'dev' || preparation?.target?.projectRef !== DEV_PROJECT_REF ||
     (expectedAttemptId && preparation.remediationAttemptId !== expectedAttemptId) ||
     preparation?.stageWorker?.path !== path.resolve(REMEDIATION_REAL_STAGE_WORKER) ||
@@ -133,6 +170,23 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
     ) ||
     Date.now() > Date.parse(preparation.expiresAt)
   ) throw categoricalError('DEV_REMEDIATION_PREPARATION_INVALID');
+  if (version === 2) {
+    const bridge = normalizeRemediationProvenanceBridge(preparation.provenanceBridge);
+    if (
+      canonicalSerialize(bridge.historical) !== canonicalSerialize(preparation.original?.provenance) ||
+      bridge.historical.provenanceDigest !== preparation.original?.binding?.historicalProvenanceDigest ||
+      bridge.historical.operationInventoryDigest !== preparation.original?.binding?.originalOperationInventoryDigest ||
+      bridge.currentExecution.compatibilityBaseCommit !== REMEDIATION_PROVENANCE_FIX_BASE_COMMIT ||
+      bridge.currentExecution.toolingCommit !== preparation.candidate?.toolingCommit ||
+      bridge.currentExecution.toolingTree !== preparation.candidate?.toolingTree ||
+      bridge.currentExecution.workerRepoPath !== CURRENT_REMEDIATION_WORKER_REPO_PATH ||
+      bridge.currentExecution.workerDigest !== preparation.stageWorker.digest ||
+      bridge.currentExecution.rejectedSyntheticWorkerDigest !== preparation.stageWorker.rejectedSyntheticWorkerDigest ||
+      bridge.currentExecution.operationInventoryDigest !== preparation.operationInventoryDigest ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(preparation.contractDigest || '')) ||
+      !String(preparation.original?.originalInventoryPath || '').trim()
+    ) throw categoricalError('DEV_REMEDIATION_PREPARATION_PROVENANCE_INVALID');
+  }
   return preparation;
 }
 
@@ -157,6 +211,7 @@ async function prepareDevRecoveryRemediation({
   try {
     const lineage = verifyRepositoryLineage({ repoRoot: root });
     assertDiagnosticAncestor(root, lineage.toolingCommit);
+    assertCompatibilityBase(root, lineage.toolingCommit);
     const envBytes = fs.readFileSync(envFilePath);
     let envFileDigest;
     try {
@@ -181,11 +236,19 @@ async function prepareDevRecoveryRemediation({
     assertFreshAuthConfiguration(loaded.values, { disposable });
     const originalContractRecord = readPrivateJson(path.resolve(originalContractPath));
     const originalPreparationRecord = readPrivateJson(path.resolve(originalPreparationPath));
+    const originalInventoryPath = path.resolve(
+      path.dirname(path.resolve(originalPreparationPath)),
+      'operation-inventory.private.json'
+    );
+    const originalInventoryRecord = readPrivateJson(originalInventoryPath);
     const original = readOriginalFailedRecovery({
       failedStateDirectory: path.resolve(failedStateDirectory),
       key,
+      repoRoot: root,
+      currentToolingCommit: lineage.toolingCommit,
       originalContractRecord,
       originalPreparationRecord,
+      originalInventoryRecord,
       expectedRefreshAttemptId,
       expectedY2RecoveryId
     });
@@ -216,51 +279,28 @@ async function prepareDevRecoveryRemediation({
     const remediationAttemptId = `dev-recovery-remediation-${new Date().toISOString().replace(/\D/g, '').slice(0, 17)}-${crypto.randomBytes(8).toString('hex')}`;
     const preparedAt = new Date().toISOString();
     const expiresAt = new Date(Date.parse(preparedAt) + PREPARATION_TTL_MS).toISOString();
-    const preparation = {
-      format: REMEDIATION_PREPARATION_FORMAT,
-      version: 1,
-      remediationAttemptId,
-      mode: disposable ? 'disposable-managed-local' : 'managed-dev',
-      target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
-      candidate: lineage,
-      original: {
-        binding: original.binding,
-        failedStateDirectory: path.resolve(failedStateDirectory),
-        originalContractPath: path.resolve(originalContractPath),
-        originalPreparationPath: path.resolve(originalPreparationPath)
-      },
-      currentObserved,
-      targetSession: {
-        connectionString,
-        postgresBin: postgresBin || original.preparation.targetBefore.session.postgresBin || '',
-        smokeUserId: identity.userId,
-        smokeOrganizationId: identity.organizationId
-      },
-      edge,
-      sideEffects,
-      stageWorker: {
-        path: path.resolve(REMEDIATION_REAL_STAGE_WORKER),
-        digest: digestFile(REMEDIATION_REAL_STAGE_WORKER),
-        rejectedSyntheticWorkerDigest: digestFile(REFRESH_SYNTHETIC_WORKER),
-        syntheticWorkerAllowed: false
-      },
-      r3Policy: { captureAtExecution: true, fallbackOnly: true },
-      preparedAt,
-      expiresAt,
-      sharedMutationsDuringPreparation: 0
-    };
     const preparationPath = privateArtifactPath(output, 'remediation-preparation.private.json');
-    writePrivateJsonExclusive(preparationPath, authenticateRemediationPreparation(preparation, key));
-    verifyRemediationPreparation(readPrivateJson(preparationPath), key, remediationAttemptId);
-
+    const stageWorker = {
+      path: path.resolve(REMEDIATION_REAL_STAGE_WORKER),
+      digest: digestFile(REMEDIATION_REAL_STAGE_WORKER),
+      rejectedSyntheticWorkerDigest: digestFile(REFRESH_SYNTHETIC_WORKER),
+      syntheticWorkerAllowed: false
+    };
+    if (
+      stageWorker.path !== path.resolve(root, CURRENT_REMEDIATION_WORKER_REPO_PATH) ||
+      stageWorker.digest !== digestGitFile(root, lineage.toolingCommit, CURRENT_REMEDIATION_WORKER_REPO_PATH) ||
+      stageWorker.rejectedSyntheticWorkerDigest !== digestGitFile(
+        root, lineage.toolingCommit, REFRESH_SYNTHETIC_WORKER_REPO_PATH
+      )
+    ) throw categoricalError('DEV_REMEDIATION_CURRENT_WORKER_PROVENANCE_INVALID');
     const authStages = new Set(['AUTH_RUNTIME_VERIFIED', 'APPLICATION_RUNTIME_VERIFIED']);
     const operations = REMEDIATION_OPERATION_STAGES.map((stage) => ({
       stage,
       runtime: 'node',
       executable: process.execPath,
       executableDigest: digestFile(process.execPath),
-      script: preparation.stageWorker.path,
-      scriptDigest: preparation.stageWorker.digest,
+      script: stageWorker.path,
+      scriptDigest: stageWorker.digest,
       cwd: root,
       args: ['--preparation', preparationPath],
       environmentNames: authStages.has(stage)
@@ -274,16 +314,66 @@ async function prepareDevRecoveryRemediation({
       operations,
       requiredStages: REMEDIATION_OPERATION_STAGES
     });
+    const provenanceBridge = buildRemediationProvenanceBridge({
+      historical: original.provenance,
+      currentExecution: {
+        format: 'dev-recovery-current-execution-provenance-v1',
+        digestScope: 'exact-committed-file-sha256-v1',
+        compatibilityBaseCommit: REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
+        toolingCommit: lineage.toolingCommit,
+        toolingTree: lineage.toolingTree,
+        workerRepoPath: CURRENT_REMEDIATION_WORKER_REPO_PATH,
+        workerDigest: stageWorker.digest,
+        rejectedSyntheticWorkerDigest: stageWorker.rejectedSyntheticWorkerDigest,
+        operationInventoryDigest: unsignedInventory.inventoryDigest
+      }
+    });
     const contract = buildRecoveryRemediationContract({
       remediationAttemptId,
       toolingCommit: lineage.toolingCommit,
       toolingTree: lineage.toolingTree,
       originalBinding: original.binding,
+      provenanceBridge,
       observedDevCertificateDigest: currentObserved.certificateDigest,
       operationInventoryDigest: unsignedInventory.inventoryDigest,
       preparedAt,
       expiresAt
     });
+    const preparation = {
+      format: REMEDIATION_PREPARATION_FORMAT,
+      version: 2,
+      remediationAttemptId,
+      mode: disposable ? 'disposable-managed-local' : 'managed-dev',
+      target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
+      candidate: lineage,
+      original: {
+        binding: original.binding,
+        provenance: original.provenance,
+        failedStateDirectory: path.resolve(failedStateDirectory),
+        originalContractPath: path.resolve(originalContractPath),
+        originalPreparationPath: path.resolve(originalPreparationPath),
+        originalInventoryPath
+      },
+      provenanceBridge,
+      contractDigest: contract.contractDigest,
+      operationInventoryDigest: unsignedInventory.inventoryDigest,
+      currentObserved,
+      targetSession: {
+        connectionString,
+        postgresBin: postgresBin || original.preparation.targetBefore.session.postgresBin || '',
+        smokeUserId: identity.userId,
+        smokeOrganizationId: identity.organizationId
+      },
+      edge,
+      sideEffects,
+      stageWorker,
+      r3Policy: { captureAtExecution: true, fallbackOnly: true },
+      preparedAt,
+      expiresAt,
+      sharedMutationsDuringPreparation: 0
+    };
+    writePrivateJsonExclusive(preparationPath, authenticateRemediationPreparation(preparation, key));
+    verifyRemediationPreparation(readPrivateJson(preparationPath), key, remediationAttemptId);
     const contractPath = privateArtifactPath(output, 'remediation-contract.private.json');
     const inventoryPath = privateArtifactPath(output, 'remediation-operation-inventory.private.json');
     writePrivateJsonExclusive(contractPath, authenticateRecoveryRemediationContract(contract, key));

@@ -27,6 +27,8 @@ import {
 } from './dev-certified-operation-executor.mjs';
 import {
   CANONICAL_APPLICATION_SOURCE_COMMIT,
+  CANONICAL_APPLICATION_SOURCE_TREE,
+  CERTIFIED_ENVIRONMENT_SYNC_ANCESTOR,
   CURRENT_APPLICATION_MIGRATION,
   GOLDEN_WORKFLOW_CONTRACT,
   POST_GOLDEN_MIGRATIONS,
@@ -49,6 +51,8 @@ const { Client } = pg;
 const PREPARATION_FORMAT = 'dev-certified-preparation-v1';
 const REAL_STAGE_WORKER = fileURLToPath(new URL('./dev-certified-real-stage-worker.mjs', import.meta.url));
 const SYNTHETIC_STAGE_WORKER = fileURLToPath(new URL('./dev-certified-test-worker.mjs', import.meta.url));
+const REAL_STAGE_WORKER_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-certified-real-stage-worker.mjs';
+const SYNTHETIC_STAGE_WORKER_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-certified-test-worker.mjs';
 const FIXTURE_ENTITY_LIMITS = Object.freeze({
   access_request: 4,
   allocation: 20,
@@ -193,7 +197,7 @@ function authenticatePreparation(preparation, key) {
   };
 }
 
-function verifyPreparation(record, key, expectedAttemptId = '') {
+function verifyPreparationEnvelope(record, key, expectedAttemptId = '') {
   const preparation = record?.preparation;
   if (
     record?.authentication?.algorithm !== 'hmac-sha256-v1' ||
@@ -202,14 +206,159 @@ function verifyPreparation(record, key, expectedAttemptId = '') {
     preparation?.target?.environment !== 'dev' ||
     preparation?.target?.projectRef !== DEV_PROJECT_REF ||
     (expectedAttemptId && preparation.attemptId !== expectedAttemptId) ||
-    preparation?.stageWorker?.path !== path.resolve(REAL_STAGE_WORKER) ||
-    preparation?.stageWorker?.digest !== digestFile(REAL_STAGE_WORKER) ||
-    preparation?.stageWorker?.digest === digestFile(SYNTHETIC_STAGE_WORKER) ||
     preparation?.fixtureAuthority?.cleanupAuthority !== 'exact-authenticated-ledger-only' ||
     preparation?.sideEffects?.mutationAllowed !== false ||
     preparation?.edge?.deploymentPolicy !== 'read-only-no-deploy'
   ) throw categoricalError('DEV_REFRESH_PREPARATION_INVALID');
   return preparation;
+}
+
+function verifyPreparation(record, key, expectedAttemptId = '') {
+  const preparation = verifyPreparationEnvelope(record, key, expectedAttemptId);
+  if (
+    preparation?.stageWorker?.path !== path.resolve(REAL_STAGE_WORKER) ||
+    preparation?.stageWorker?.digest !== digestFile(REAL_STAGE_WORKER) ||
+    preparation?.stageWorker?.digest === digestFile(SYNTHETIC_STAGE_WORKER)
+  ) throw categoricalError('DEV_REFRESH_PREPARATION_INVALID');
+  return preparation;
+}
+
+function gitValue(repoRoot, args, code) {
+  try {
+    return execFileSync('git', args, {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+  } catch {
+    throw categoricalError(code);
+  }
+}
+
+function gitFileBytes(repoRoot, commit, repoPath) {
+  try {
+    return execFileSync('git', ['show', `${commit}:${repoPath}`], {
+      cwd: repoRoot,
+      encoding: null,
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
+  } catch {
+    throw categoricalError('DEV_REFRESH_HISTORICAL_WORKER_SOURCE_MISSING');
+  }
+}
+
+function assertGitAncestor(repoRoot, ancestor, descendant, code) {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+      cwd: repoRoot,
+      shell: false,
+      windowsHide: true,
+      stdio: 'ignore'
+    });
+  } catch {
+    throw categoricalError(code);
+  }
+}
+
+function verifyHistoricalPreparation({
+  preparationRecord,
+  contractRecord,
+  inventoryRecord,
+  key,
+  repoRoot,
+  currentToolingCommit,
+  expectedAttemptId = ''
+} = {}) {
+  const root = path.resolve(repoRoot || '.');
+  const preparation = verifyPreparationEnvelope(preparationRecord, key, expectedAttemptId);
+  const contract = verifyAuthenticatedCertifiedRefreshContract(contractRecord, key);
+  const inventory = inventoryRecord?.inventory;
+  const historicalCommit = String(preparation?.candidate?.toolingCommit || '');
+  const historicalTree = String(preparation?.candidate?.toolingTree || '');
+  const currentCommit = String(currentToolingCommit || '');
+  if (
+    !/^[0-9a-f]{40}$/.test(historicalCommit) || !/^[0-9a-f]{40}$/.test(historicalTree) ||
+    !/^[0-9a-f]{40}$/.test(currentCommit) ||
+    preparation.stageWorker?.path !== path.resolve(root, REAL_STAGE_WORKER_REPO_PATH) ||
+    canonicalSerialize(preparation.candidate) !== canonicalSerialize(contract.candidate) ||
+    contract.attemptId !== preparation.attemptId ||
+    (preparation.contractDigest && preparation.contractDigest !== contract.contractDigest)
+  ) throw categoricalError('DEV_REFRESH_HISTORICAL_LINEAGE_INVALID');
+
+  const resolvedHistoricalCommit = gitValue(
+    root, ['rev-parse', `${historicalCommit}^{commit}`], 'DEV_REFRESH_HISTORICAL_COMMIT_MISSING'
+  );
+  const resolvedHistoricalTree = gitValue(
+    root, ['rev-parse', `${historicalCommit}^{tree}`], 'DEV_REFRESH_HISTORICAL_TREE_MISSING'
+  );
+  const resolvedCurrentCommit = gitValue(
+    root, ['rev-parse', `${currentCommit}^{commit}`], 'DEV_REFRESH_CURRENT_TOOLING_COMMIT_MISSING'
+  );
+  if (
+    resolvedHistoricalCommit !== historicalCommit || resolvedHistoricalTree !== historicalTree ||
+    preparation.candidate?.canonicalMainCommit !== CANONICAL_APPLICATION_SOURCE_COMMIT ||
+    preparation.candidate?.canonicalMainTree !== CANONICAL_APPLICATION_SOURCE_TREE ||
+    preparation.candidate?.certifiedToolingAncestor !== CERTIFIED_ENVIRONMENT_SYNC_ANCESTOR
+  ) throw categoricalError('DEV_REFRESH_HISTORICAL_LINEAGE_INVALID');
+  assertGitAncestor(root, CANONICAL_APPLICATION_SOURCE_COMMIT, historicalCommit, 'DEV_REFRESH_HISTORICAL_ANCESTOR_INVALID');
+  assertGitAncestor(root, CERTIFIED_ENVIRONMENT_SYNC_ANCESTOR, historicalCommit, 'DEV_REFRESH_HISTORICAL_ANCESTOR_INVALID');
+  assertGitAncestor(root, historicalCommit, resolvedCurrentCommit, 'DEV_REFRESH_HISTORICAL_SUCCESSOR_INVALID');
+
+  const historicalWorkerBytes = gitFileBytes(root, historicalCommit, REAL_STAGE_WORKER_REPO_PATH);
+  const historicalSyntheticBytes = gitFileBytes(root, historicalCommit, SYNTHETIC_STAGE_WORKER_REPO_PATH);
+  try {
+    const historicalWorkerDigest = sha256Bytes(historicalWorkerBytes);
+    const historicalSyntheticDigest = sha256Bytes(historicalSyntheticBytes);
+    if (
+      preparation.stageWorker?.digest !== historicalWorkerDigest ||
+      preparation.stageWorker?.syntheticWorkerDigest !== historicalSyntheticDigest ||
+      historicalWorkerDigest === historicalSyntheticDigest ||
+      inventoryRecord?.authentication?.algorithm !== 'hmac-sha256-v1' ||
+      inventoryRecord.authentication.digest !== signPayload(inventory, key)
+    ) throw categoricalError('DEV_REFRESH_HISTORICAL_WORKER_INVALID');
+    const rebuiltInventory = buildOperationInventory({
+      attemptId: inventory?.attemptId,
+      envFileDigest: inventory?.envFileDigest,
+      operations: inventory?.operations
+    });
+    if (
+      canonicalSerialize(rebuiltInventory) !== canonicalSerialize(inventory) ||
+      rebuiltInventory.attemptId !== contract.attemptId ||
+      rebuiltInventory.inventoryDigest !== contract.operationInventoryDigest ||
+      rebuiltInventory.operations.some((operation) =>
+        operation.runtime !== 'node' ||
+        operation.script !== preparation.stageWorker.path ||
+        operation.scriptDigest !== historicalWorkerDigest)
+    ) throw categoricalError('DEV_REFRESH_HISTORICAL_INVENTORY_INVALID');
+    const provenance = {
+      format: 'dev-refresh-historical-provenance-v1',
+      digestScope: 'exact-git-blob-sha256-v1',
+      toolingCommit: historicalCommit,
+      toolingTree: historicalTree,
+      canonicalMainCommit: CANONICAL_APPLICATION_SOURCE_COMMIT,
+      canonicalMainTree: CANONICAL_APPLICATION_SOURCE_TREE,
+      certifiedToolingAncestor: CERTIFIED_ENVIRONMENT_SYNC_ANCESTOR,
+      workerRepoPath: REAL_STAGE_WORKER_REPO_PATH,
+      workerDigest: historicalWorkerDigest,
+      syntheticWorkerDigest: historicalSyntheticDigest,
+      operationInventoryDigest: rebuiltInventory.inventoryDigest,
+      refreshContractDigest: contract.contractDigest,
+      originalPreparationDigest: canonicalDigest(preparationRecord)
+    };
+    return {
+      preparation,
+      contract,
+      inventory: rebuiltInventory,
+      provenance: { ...provenance, provenanceDigest: canonicalDigest(provenance) }
+    };
+  } finally {
+    historicalWorkerBytes.fill(0);
+    historicalSyntheticBytes.fill(0);
+  }
 }
 
 function loadMigrations(repoRoot) {
@@ -458,9 +607,11 @@ export {
   FIXTURE_ENTITY_LIMITS,
   PREPARATION_FORMAT,
   REAL_STAGE_WORKER,
+  REAL_STAGE_WORKER_REPO_PATH,
   authenticatePreparation,
   edgeSourceCertificate,
   prepareCertifiedDevRefresh,
   readAuthorityKey,
+  verifyHistoricalPreparation,
   verifyPreparation
 };
