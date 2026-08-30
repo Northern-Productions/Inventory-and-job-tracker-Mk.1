@@ -59,6 +59,7 @@ function assertRemediationCliGuards(options, envFilePath) {
   if (options.apply !== true || options['quiet-window-active'] !== true) {
     throw categoricalError('DEV_REMEDIATION_EXPLICIT_MUTATION_GUARD_REQUIRED');
   }
+  verifyPrivateArtifactProtection(envFilePath);
   const loaded = loadEnvFile(envFilePath);
   const report = buildMutationTargetReport({
     envPath: loaded.path,

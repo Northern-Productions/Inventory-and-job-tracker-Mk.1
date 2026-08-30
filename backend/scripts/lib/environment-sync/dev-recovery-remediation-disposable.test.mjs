@@ -7,6 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import pg from 'pg';
+
 import {
   DEV_PROJECT_REF,
   verifyAuthenticatedCertifiedRefreshContract
@@ -29,6 +31,9 @@ import {
 import { prepareDevRecoveryRemediation } from './dev-recovery-remediation-preparation.mjs';
 import { readRemediationJournal } from './dev-recovery-remediation-state.mjs';
 import { writePrivateBytesExclusive } from './private-artifacts.mjs';
+import { applyManagedAuthPrivilegeProfile } from './managed-restore-rehearsal.mjs';
+
+const { Client } = pg;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
@@ -66,19 +71,62 @@ function directoryByteDigest(root) {
 
 async function startLocalApplicationHarness() {
   const seen = [];
-  const server = http.createServer((request, response) => {
+  let binding = null;
+  let activeSessionId = '';
+  let failNextLogout = false;
+  const databaseMutation = async (kind) => {
+    if (!binding) throw new Error('LOCAL_AUTH_BINDING_MISSING');
+    const client = new Client({ connectionString: binding.connectionString });
+    await client.connect();
+    try {
+      if (kind === 'login') {
+        const sessionId = crypto.randomUUID();
+        activeSessionId = sessionId;
+        await client.query("update auth.users set last_sign_in_at=greatest(clock_timestamp(),coalesce(last_sign_in_at,'epoch')+interval '1 second'), updated_at=greatest(clock_timestamp(),updated_at+interval '1 second') where id=$1::uuid", [binding.userId]);
+        await client.query("update auth.identities set last_sign_in_at=greatest(clock_timestamp(),coalesce(last_sign_in_at,'epoch')+interval '1 second'), updated_at=greatest(clock_timestamp(),updated_at+interval '1 second') where user_id=$1::uuid", [binding.userId]);
+        await client.query('insert into auth.sessions(id,user_id,created_at,updated_at) values ($1::uuid,$2::uuid,clock_timestamp(),clock_timestamp())', [sessionId, binding.userId]);
+        await client.query(
+          'insert into auth.refresh_tokens(token,user_id,revoked,created_at,updated_at,session_id) values ($3,$1::text,false,clock_timestamp(),clock_timestamp(),$2::uuid)',
+          [binding.userId, sessionId, `local-only-${sessionId}`]
+        );
+      } else {
+        await client.query('delete from auth.refresh_tokens where session_id=$1::uuid', [activeSessionId]);
+        await client.query('delete from auth.sessions where id=$1::uuid and user_id=$2::uuid', [activeSessionId, binding.userId]);
+        activeSessionId = '';
+      }
+    } finally {
+      await client.end();
+    }
+  };
+  const server = http.createServer(async (request, response) => {
     seen.push(`${request.method} ${new URL(request.url, 'http://localhost').pathname}`);
     response.setHeader('content-type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
-      response.end(JSON.stringify({ access_token: 'local-access', refresh_token: 'local-refresh' }));
+      await databaseMutation('login');
+      response.end(JSON.stringify({
+        access_token: 'local-access', refresh_token: 'local-refresh', user: { id: binding.userId }
+      }));
       return;
     }
     if (request.url === '/auth/v1/logout') {
+      if (failNextLogout) {
+        failNextLogout = false;
+        response.statusCode = 503;
+        response.end('{}');
+        return;
+      }
+      await databaseMutation('logout');
       response.end('{}');
       return;
     }
-    if (request.url === '/auth/context') {
-      response.end(JSON.stringify({ data: { role: 'owner', defaultWarehouse: 'LOCAL' } }));
+    if (request.url === '/functions/v1/api?path=%2Fhealth') {
+      response.end(JSON.stringify({ data: { version: 'v1', status: 'ACTIVE' } }));
+      return;
+    }
+    if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
+      response.end(JSON.stringify({ data: {
+        orgId: binding.organizationId, role: 'owner', defaultWarehouse: binding.defaultWarehouse
+      } }));
       return;
     }
     response.end(JSON.stringify({ data: [] }));
@@ -88,6 +136,8 @@ async function startLocalApplicationHarness() {
   return {
     origin: `http://127.0.0.1:${address.port}`,
     seen,
+    bind(value) { binding = value; },
+    failOneLogout() { failNextLogout = true; },
     close: () => new Promise((resolve) => server.close(resolve))
   };
 }
@@ -113,7 +163,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       'utf8'
     ));
     writePrivateBytesExclusive(remediationEnvPath, Buffer.from(
-      `APP_ENV=dev\nSUPABASE_URL=${harness.origin}\nEDGE_API_BASE_URL=${harness.origin}\n` +
+      `APP_ENV=dev\nSUPABASE_URL=${harness.origin}\nEDGE_API_BASE_URL=${harness.origin}/functions/v1/api\n` +
       'SUPABASE_ANON_KEY=local-anon\nSMOKE_USER_EMAIL=local@example.invalid\n' +
       'SMOKE_USER_PASSWORD=local-only\n',
       'utf8'
@@ -132,6 +182,27 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       const preparationRecord = readPrivateJson(prepared.output.preparationPath);
       const preparation = preparationRecord.preparation;
       clusters.push(preparation.targetBefore.session.root);
+      const nativePreferenceClient = new Client({
+        connectionString: preparation.targetBefore.session.connectionString
+      });
+      await nativePreferenceClient.connect();
+      try {
+        const preference = await nativePreferenceClient.query(`
+          insert into app.user_preferences(org_id,user_id,default_warehouse,updated_by)
+          select $1::uuid,$2::uuid,w.code,'disposable-remediation-e2e'
+            from app.warehouses w where w.org_id=$1::uuid order by w.code limit 1
+          on conflict (org_id,user_id) do update
+            set default_warehouse=excluded.default_warehouse,
+                updated_at=clock_timestamp(),
+                updated_by=excluded.updated_by
+          returning default_warehouse`, [
+          preparation.fixtureAuthority.primaryOrganizationId,
+          preparation.fixtureAuthority.smokeActorId
+        ]);
+        assert.equal(preference.rowCount, 1);
+      } finally {
+        await nativePreferenceClient.end();
+      }
       const contract = verifyAuthenticatedCertifiedRefreshContract(
         readPrivateJson(prepared.output.contractPath), key
       );
@@ -184,6 +255,33 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
         attemptId: contract.attemptId,
         stage: 'Y2_VALIDATED'
       });
+      const privilegeConnection = new URL(preparation.targetBefore.session.connectionString);
+      privilegeConnection.username = 'cluster_admin';
+      await applyManagedAuthPrivilegeProfile(privilegeConnection.toString(), 'live-like-remediation');
+      const client = new Client({ connectionString: preparation.targetBefore.session.connectionString });
+      await client.connect();
+      try {
+        const privileges = (await client.query(`select
+          has_table_privilege(current_user,'auth.schema_migrations','select') as can_select,
+          has_table_privilege(current_user,'auth.schema_migrations','insert') as can_insert,
+          has_table_privilege(current_user,'auth.schema_migrations','update') as can_update,
+          has_table_privilege(current_user,'auth.schema_migrations','delete') as can_delete`)).rows[0];
+        assert.deepEqual(privileges, {
+          can_select: true, can_insert: false, can_update: false, can_delete: false
+        });
+        const preference = (await client.query(
+          'select default_warehouse from app.user_preferences where org_id=$1::uuid and user_id=$2::uuid',
+          [preparation.fixtureAuthority.primaryOrganizationId, preparation.fixtureAuthority.smokeActorId]
+        )).rows[0];
+        harness.bind({
+          connectionString: preparation.targetBefore.session.connectionString,
+          userId: preparation.fixtureAuthority.smokeActorId,
+          organizationId: preparation.fixtureAuthority.primaryOrganizationId,
+          defaultWarehouse: String(preference?.default_warehouse || '')
+        });
+      } finally {
+        await client.end();
+      }
       return {
         contract,
         preparation,
@@ -229,17 +327,25 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     const successFailure = await createFailedRecovery('success');
     const success = await prepareRemediation('success', successFailure);
     const successState = path.join(root, 'success-remediation-state');
-    const completed = await runDevRecoveryRemediation({
-      rootDirectory: successState,
-      key,
-      contract: success.contract,
-      executor: success.executor
-    });
+    let completed;
+    try {
+      completed = await runDevRecoveryRemediation({
+        rootDirectory: successState,
+        key,
+        contract: success.contract,
+        executor: success.executor
+      });
+    } catch (error) {
+      throw Object.assign(new Error(
+        `DISPOSABLE_SUCCESS_REMEDIATION_${error?.failedStage || 'UNKNOWN'}_${error?.causeCategory || error?.code || 'UNKNOWN'}`
+      ), { code: 'DISPOSABLE_SUCCESS_REMEDIATION_FAILED' });
+    }
     assert.equal(completed.classification, 'DEV_RECOVERY_REMEDIATION_COMPLETE');
     assert.equal(readRemediationJournal(successState, key).current.state, 'REMEDIATION_COMPLETE');
     assert.equal(directoryByteDigest(successFailure.stateDirectory), successFailure.immutableDigest);
 
     const recoveryFailure = await createFailedRecovery('r3-recovery');
+    harness.failOneLogout();
     const recovery = await prepareRemediation('r3-recovery', recoveryFailure);
     const recoveryState = path.join(root, 'r3-recovery-remediation-state');
     await assert.rejects(runDevRecoveryRemediation({
@@ -269,7 +375,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
     assert.equal(readRemediationJournal(recoveryState, key).current.state, 'REMEDIATION_RECOVERED');
     assert.equal(directoryByteDigest(recoveryFailure.stateDirectory), recoveryFailure.immutableDigest);
-    assert.equal(harness.seen.filter((entry) => entry === 'POST /auth/v1/token').length, 2);
+    assert.equal(harness.seen.filter((entry) => entry === 'POST /auth/v1/token').length, 7);
     assert.ok(harness.seen.every((entry) => /^(?:GET|POST) \//.test(entry)));
   } finally {
     await harness.close();

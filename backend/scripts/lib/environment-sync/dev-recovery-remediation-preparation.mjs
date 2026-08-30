@@ -29,11 +29,21 @@ import {
   verifyAuthenticatedRecoveryRemediationContract
 } from './dev-recovery-remediation-contract.mjs';
 import {
-  assertRecoveryOwnedStateEqual,
+  assertRecoveryApplicationStateEqual,
   buildObservedDevCertificate,
+  captureRemediationAuthCertificate,
   captureRecoveryOwnedState,
-  readOriginalFailedRecovery
+  readOriginalFailedRecovery,
+  withReadOnlySnapshot
 } from './dev-recovery-remediation-shared.mjs';
+import {
+  assertExactRemediationUrls,
+  assertRemediationAuthTransition,
+  captureQuietWindowFromClient,
+  captureRuntimeSideEffectPostureFromClient,
+  fetchFreshEdgeIdentity,
+  runFreshAuthenticationCanary
+} from './dev-recovery-remediation-auth.mjs';
 import {
   createPrivateDirectory,
   privateArtifactPath,
@@ -157,7 +167,7 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
   if (
     record?.authentication?.algorithm !== 'hmac-sha256-v1' ||
     record.authentication.digest !== signPayload(preparation, key) ||
-    preparation?.format !== REMEDIATION_PREPARATION_FORMAT || ![1, 2].includes(version) ||
+    preparation?.format !== REMEDIATION_PREPARATION_FORMAT || ![1, 2, 3].includes(version) ||
     preparation?.target?.environment !== 'dev' || preparation?.target?.projectRef !== DEV_PROJECT_REF ||
     (expectedAttemptId && preparation.remediationAttemptId !== expectedAttemptId) ||
     preparation?.stageWorker?.path !== path.resolve(REMEDIATION_REAL_STAGE_WORKER) ||
@@ -170,7 +180,7 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
     ) ||
     Date.now() > Date.parse(preparation.expiresAt)
   ) throw categoricalError('DEV_REMEDIATION_PREPARATION_INVALID');
-  if (version === 2) {
+  if (version >= 2) {
     const bridge = normalizeRemediationProvenanceBridge(preparation.provenanceBridge);
     if (
       canonicalSerialize(bridge.historical) !== canonicalSerialize(preparation.original?.provenance) ||
@@ -187,6 +197,18 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
       !String(preparation.original?.originalInventoryPath || '').trim()
     ) throw categoricalError('DEV_REMEDIATION_PREPARATION_PROVENANCE_INVALID');
   }
+  if (version === 3 && (
+    preparation.authHardening?.format !== 'dev-recovery-remediation-auth-hardening-v1' ||
+    preparation.authHardening?.baseline?.format !== 'dev-recovery-remediation-semantic-auth-v1' ||
+    preparation.authHardening?.canary?.freshAuthentication !== true ||
+    preparation.authHardening?.canary?.stableStateExact !== true ||
+    preparation.authHardening?.readiness?.realQuietWindow !== true ||
+    preparation.authHardening?.readiness?.freshSideEffectsSafe !== true ||
+    preparation.authHardening?.readiness?.freshEdgeExact !== true ||
+    canonicalSerialize(preparation.currentObserved?.authHardening) !==
+      canonicalSerialize(preparation.authHardening) ||
+    !String(preparation.targetSession?.smokeDefaultWarehouse || '').trim()
+  )) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_HARDENING_INVALID');
   return preparation;
 }
 
@@ -212,6 +234,7 @@ async function prepareDevRecoveryRemediation({
     const lineage = verifyRepositoryLineage({ repoRoot: root });
     assertDiagnosticAncestor(root, lineage.toolingCommit);
     assertCompatibilityBase(root, lineage.toolingCommit);
+    verifyPrivateArtifactProtection(envFilePath);
     const envBytes = fs.readFileSync(envFilePath);
     let envFileDigest;
     try {
@@ -234,6 +257,7 @@ async function prepareDevRecoveryRemediation({
       }
     }
     assertFreshAuthConfiguration(loaded.values, { disposable });
+    assertExactRemediationUrls(loaded.values, { disposable });
     const originalContractRecord = readPrivateJson(path.resolve(originalContractPath));
     const originalPreparationRecord = readPrivateJson(path.resolve(originalPreparationPath));
     const originalInventoryPath = path.resolve(
@@ -262,8 +286,26 @@ async function prepareDevRecoveryRemediation({
       userId: original.preparation.fixtureAuthority.smokeActorId,
       organizationId: original.preparation.fixtureAuthority.primaryOrganizationId
     };
+    const beforeCanary = await captureRemediationAuthCertificate(connectionString, identity);
+    const smokeDefaultWarehouse = beforeCanary.stable.defaultWarehouse;
+    const canaryPreparation = {
+      mode: disposable ? 'disposable-managed-local' : 'managed-dev',
+      targetSession: {
+        smokeUserId: identity.userId,
+        smokeOrganizationId: identity.organizationId,
+        smokeDefaultWarehouse
+      }
+    };
+    const canary = await runFreshAuthenticationCanary({ preparation: canaryPreparation, values: loaded.values });
+    const afterCanary = await captureRemediationAuthCertificate(connectionString, {
+      ...identity, expectedDefaultWarehouse: smokeDefaultWarehouse
+    });
+    const authTransition = assertRemediationAuthTransition(beforeCanary, afterCanary, {
+      logoutSucceeded: canary.sessionRevoked,
+      requireFreshLogin: true
+    });
     const currentCore = await captureRecoveryOwnedState(connectionString, identity);
-    assertRecoveryOwnedStateEqual(currentCore, original.y2.before);
+    assertRecoveryApplicationStateEqual(currentCore, original.y2.before);
     const sideEffects = disposable
       ? original.preparation.sideEffects
       : readPrivateJson(path.resolve(sideEffectCertificatePath));
@@ -275,7 +317,32 @@ async function prepareDevRecoveryRemediation({
       canonicalSerialize(edge) !== canonicalSerialize(original.preparation.edge) ||
       edge?.sourceDigest !== edgeSourceCertificate(root).sourceDigest
     ) throw categoricalError('DEV_REMEDIATION_PLATFORM_CERTIFICATE_MISMATCH');
-    const currentObserved = buildObservedDevCertificate({ core: currentCore, edge, sideEffects });
+    const freshDatabasePosture = await withReadOnlySnapshot(connectionString, async (client) => ({
+      quietWindow: await captureQuietWindowFromClient(client),
+      sideEffects: await captureRuntimeSideEffectPostureFromClient(client)
+    }), 'dev-recovery-remediation-preparation-readiness');
+    if (['cronJobs', 'networkCallers', 'webhooks', 'foreignResources'].some((name) =>
+      Number(freshDatabasePosture.sideEffects[name]) !== Number(sideEffects.observed?.[name] || 0))) {
+      throw categoricalError('DEV_REMEDIATION_FRESH_SIDE_EFFECT_CERTIFICATE_MISMATCH');
+    }
+    const freshEdge = await fetchFreshEdgeIdentity({
+      preparation: {
+        mode: disposable ? 'disposable-managed-local' : 'managed-dev',
+        edge
+      },
+      values: loaded.values
+    });
+    const authHardening = {
+      format: 'dev-recovery-remediation-auth-hardening-v1',
+      baseline: afterCanary,
+      canary: { ...canary, ...authTransition },
+      readiness: {
+        realQuietWindow: freshDatabasePosture.quietWindow.quiet,
+        freshSideEffectsSafe: freshDatabasePosture.sideEffects.safe,
+        freshEdgeExact: freshEdge.compatible
+      }
+    };
+    const currentObserved = buildObservedDevCertificate({ core: currentCore, edge, sideEffects, authHardening });
     const remediationAttemptId = `dev-recovery-remediation-${new Date().toISOString().replace(/\D/g, '').slice(0, 17)}-${crypto.randomBytes(8).toString('hex')}`;
     const preparedAt = new Date().toISOString();
     const expiresAt = new Date(Date.parse(preparedAt) + PREPARATION_TTL_MS).toISOString();
@@ -293,7 +360,10 @@ async function prepareDevRecoveryRemediation({
         root, lineage.toolingCommit, REFRESH_SYNTHETIC_WORKER_REPO_PATH
       )
     ) throw categoricalError('DEV_REMEDIATION_CURRENT_WORKER_PROVENANCE_INVALID');
-    const authStages = new Set(['AUTH_RUNTIME_VERIFIED', 'APPLICATION_RUNTIME_VERIFIED']);
+    const authStages = new Set([
+      'REMEDIATION_PRECHECK', 'R3_VALIDATED', 'AUTH_RUNTIME_VERIFIED',
+      'APPLICATION_RUNTIME_VERIFIED', 'REMEDIATION_RECOVERY_VERIFIED'
+    ]);
     const operations = REMEDIATION_OPERATION_STAGES.map((stage) => ({
       stage,
       runtime: 'node',
@@ -341,7 +411,7 @@ async function prepareDevRecoveryRemediation({
     });
     const preparation = {
       format: REMEDIATION_PREPARATION_FORMAT,
-      version: 2,
+      version: 3,
       remediationAttemptId,
       mode: disposable ? 'disposable-managed-local' : 'managed-dev',
       target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
@@ -362,8 +432,10 @@ async function prepareDevRecoveryRemediation({
         connectionString,
         postgresBin: postgresBin || original.preparation.targetBefore.session.postgresBin || '',
         smokeUserId: identity.userId,
-        smokeOrganizationId: identity.organizationId
+        smokeOrganizationId: identity.organizationId,
+        smokeDefaultWarehouse
       },
+      authHardening,
       edge,
       sideEffects,
       stageWorker,

@@ -41,6 +41,8 @@ const MANAGED_RESTORE_MANIFEST_FORMAT = 'supabase-managed-overlay-restore-manife
 const MANAGED_RESTORE_CANONICALIZATION = 'supabase-managed-overlay-toc-c14n-v1';
 const DEV_Y2_AUTH_RECOVERY_FORMAT = 'dev-y2-exact-auth-recovery-v1';
 const DEV_Y2_AUTH_RECOVERY_MODE = 'exact-dev-y2-recovery';
+const DEV_REMEDIATION_AUTH_PRESERVATION_FORMAT = 'dev-remediation-auth-preservation-v1';
+const DEV_REMEDIATION_AUTH_PRESERVATION_MODE = 'preserve-target-native-auth';
 const MANAGED_RESTORE_ACTIONS = Object.freeze([
   'restore',
   'transform',
@@ -239,6 +241,48 @@ function verifyExactAuthRecoveryAuthority(authority, key, {
   ) {
     throw categoricalError('DEV_Y2_AUTH_RECOVERY_AUTHORITY_MISMATCH');
   }
+  return authority;
+}
+
+function buildAuthPreservationAuthority({
+  attemptId,
+  target,
+  sourceComponentDigest,
+  migration,
+  evidence
+} = {}, key) {
+  const exact = buildExactAuthRecoveryAuthority({
+    attemptId, target, sourceComponentDigest, migration, evidence
+  }, key);
+  const payload = {
+    ...Object.fromEntries(Object.entries(exact).filter(([name]) => name !== 'authentication')),
+    format: DEV_REMEDIATION_AUTH_PRESERVATION_FORMAT,
+    mode: DEV_REMEDIATION_AUTH_PRESERVATION_MODE
+  };
+  return authenticateManifest(payload, key);
+}
+
+function verifyAuthPreservationAuthority(authority, key, {
+  attemptId,
+  target,
+  sourceComponentDigest,
+  migration
+} = {}) {
+  verifyAuthenticatedManifest(authority, key);
+  const rebuilt = buildAuthPreservationAuthority({
+    attemptId: authority.attemptId,
+    target: authority.target,
+    sourceComponentDigest: authority.sourceComponentDigest,
+    migration: authority.migration,
+    evidence: authority.authEvidence
+  }, key);
+  if (
+    canonicalSerialize(rebuilt) !== canonicalSerialize(authority) ||
+    authority.attemptId !== attemptId ||
+    canonicalSerialize(authority.target) !== canonicalSerialize(target) ||
+    authority.sourceComponentDigest !== sourceComponentDigest ||
+    canonicalSerialize(authority.migration) !== canonicalSerialize(migration)
+  ) throw categoricalError('DEV_REMEDIATION_AUTH_PRESERVATION_AUTHORITY_MISMATCH');
   return authority;
 }
 
@@ -1125,7 +1169,7 @@ async function captureAuthOverlaySourceEvidence(client) {
   return result;
 }
 
-function buildAuthOverlayPurgeSql({ exactRecovery = false } = {}) {
+function buildAuthOverlayPurgeSql({ exactRecovery = false, preserveAuth = false } = {}) {
   const reviewedTables = new Set([...AUTH_PURGE_ORDER, ...AUTH_OVERLAY_TABLES, ...AUTH_PRESERVED_TABLES]);
   if (
     reviewedTables.size !== CURRENT_AUTH_TABLES.length ||
@@ -1133,6 +1177,7 @@ function buildAuthOverlayPurgeSql({ exactRecovery = false } = {}) {
   ) {
     throw categoricalError('MANAGED_AUTH_TABLE_SHAPE_UNREVIEWED');
   }
+  if (preserveAuth) return 'select 1 as managed_auth_preserved;';
   return [
     ...AUTH_PURGE_ORDER.map((tableName) => `delete from auth."${tableName}";`),
     'delete from auth.identities;',
@@ -1273,7 +1318,8 @@ function buildVerificationSql({
       `if exists (select 1 from auth."${tableName}") then raise exception 'MANAGED_AUTH_EPHEMERA_NOT_EMPTY'; end if;`
   ).join('\n  ');
   const exactRecovery = authMode === DEV_Y2_AUTH_RECOVERY_MODE;
-  if (exactRecovery && !authRecoveryAuthority) {
+  const preserveAuth = authMode === DEV_REMEDIATION_AUTH_PRESERVATION_MODE;
+  if ((exactRecovery || preserveAuth) && !authRecoveryAuthority) {
     throw categoricalError('DEV_Y2_AUTH_RECOVERY_AUTHORITY_REQUIRED');
   }
   return `do $managed_overlay_verify$
@@ -1288,7 +1334,7 @@ begin
   if to_regnamespace('app') is null or to_regnamespace('app_api') is null then
     raise exception 'MANAGED_APPLICATION_SCHEMA_MISSING';
   end if;
-  ${exactRecovery ? exactAuthRecoveryAssertions(authRecoveryAuthority) : `select count(*) into v_users from auth.users;
+  ${(exactRecovery || preserveAuth) ? exactAuthRecoveryAssertions(authRecoveryAuthority) : `select count(*) into v_users from auth.users;
   select count(*) into v_identities from auth.identities;
   if v_users <> ${users} or v_identities <> ${identities} then
     raise exception 'MANAGED_AUTH_COUNT_MISMATCH';
@@ -1347,7 +1393,8 @@ function buildManagedOverlaySql({
   nativePreservation = null
 } = {}) {
   const exactRecovery = authMode === DEV_Y2_AUTH_RECOVERY_MODE;
-  if (![DEV_Y2_AUTH_RECOVERY_MODE, 'quarantined-overlay'].includes(authMode)) {
+  const preserveAuth = authMode === DEV_REMEDIATION_AUTH_PRESERVATION_MODE;
+  if (![DEV_Y2_AUTH_RECOVERY_MODE, DEV_REMEDIATION_AUTH_PRESERVATION_MODE, 'quarantined-overlay'].includes(authMode)) {
     throw categoricalError('MANAGED_AUTH_MODE_INVALID');
   }
   const verifiedNativePreservation = nativePreservation
@@ -1365,8 +1412,8 @@ function buildManagedOverlaySql({
     applicationPostDataSql: assertApplicationChunk(applicationPostDataSql),
     applicationAclConvergenceSql: assertApplicationChunk(applicationAclConvergenceSql),
     applicationDefaultAclVerificationSql: assertApplicationChunk(applicationDefaultAclVerificationSql),
-    authUsersSql: exactRecovery ? '' : assertAuthDataChunk(authUsersSql, 'users'),
-    authIdentitiesSql: exactRecovery ? '' : assertAuthDataChunk(authIdentitiesSql, 'identities'),
+    authUsersSql: (exactRecovery || preserveAuth) ? '' : assertAuthDataChunk(authUsersSql, 'users'),
+    authIdentitiesSql: (exactRecovery || preserveAuth) ? '' : assertAuthDataChunk(authIdentitiesSql, 'identities'),
     authRecoverySql: exactRecovery ? assertExactAuthRecoveryDataChunk(authRecoverySql) : '',
     migrationSql: assertChunkBoundary(migrationSql, 'MIGRATION_CHUNK')
   };
@@ -1400,8 +1447,8 @@ ${chunks.applicationDefaultAclPreservationSql}
 \\echo MANAGED_OVERLAY_STAGE_APPLICATION_DEFINITION
 ${chunks.applicationPreDataSql}
 \\echo MANAGED_OVERLAY_STAGE_AUTH_PURGE
-${buildAuthOverlayPurgeSql({ exactRecovery })}
-${exactRecovery ? `\\echo MANAGED_OVERLAY_STAGE_AUTH_EXACT_RECOVERY
+${buildAuthOverlayPurgeSql({ exactRecovery, preserveAuth })}
+${preserveAuth ? '\\echo MANAGED_OVERLAY_STAGE_AUTH_PRESERVED' : exactRecovery ? `\\echo MANAGED_OVERLAY_STAGE_AUTH_EXACT_RECOVERY
 ${chunks.authRecoverySql}` : `\\echo MANAGED_OVERLAY_STAGE_AUTH_USERS
 ${chunks.authUsersSql}
 \\echo MANAGED_OVERLAY_STAGE_AUTH_IDENTITIES
@@ -1520,6 +1567,7 @@ function generateManagedOverlayPackage({
   sourceAclContract,
   applicationDefaultAcl,
   authRecovery = null,
+  preserveAuth = null,
   nativePreservation = null
 } = {}) {
   verifyPrivateArtifactProtection(archivePath);
@@ -1550,7 +1598,10 @@ function generateManagedOverlayPackage({
       applicationReplacement,
       applicationDefaultAcl: verifiedApplicationDefaultAcl
     });
-    const authMode = authRecovery ? DEV_Y2_AUTH_RECOVERY_MODE : 'quarantined-overlay';
+    if (authRecovery && preserveAuth) throw categoricalError('MANAGED_AUTH_MODE_AMBIGUOUS');
+    const authMode = preserveAuth
+      ? DEV_REMEDIATION_AUTH_PRESERVATION_MODE
+      : authRecovery ? DEV_Y2_AUTH_RECOVERY_MODE : 'quarantined-overlay';
     const verifiedAuthRecoveryAuthority = authRecovery
       ? verifyExactAuthRecoveryAuthority(authRecovery.authority, authRecovery.key, {
           attemptId: authRecovery.attemptId,
@@ -1558,7 +1609,14 @@ function generateManagedOverlayPackage({
           sourceComponentDigest: sourceComponent.digest,
           migration
         })
-      : null;
+      : preserveAuth
+        ? verifyAuthPreservationAuthority(preserveAuth.authority, preserveAuth.key, {
+            attemptId: preserveAuth.attemptId,
+            target: targetCatalog.profileTarget,
+            sourceComponentDigest: sourceComponent.digest,
+            migration
+          })
+        : null;
     const verifiedNativePreservation = nativePreservation
       ? verifyNativeSmokePreservation(nativePreservation)
       : null;
@@ -1584,8 +1642,10 @@ function generateManagedOverlayPackage({
       'application-default-acl-preservation.json'
     );
     const scriptPath = privateArtifactPath(privateDirectory, 'managed-overlay.sql');
-    const authRecoveryAuthorityPath = authRecovery
-      ? privateArtifactPath(privateDirectory, 'dev-y2-auth-recovery-authority.json')
+    const authRecoveryAuthorityPath = verifiedAuthRecoveryAuthority
+      ? privateArtifactPath(privateDirectory, preserveAuth
+          ? 'dev-remediation-auth-preservation-authority.json'
+          : 'dev-y2-auth-recovery-authority.json')
       : '';
     writePrivateBytesExclusive(
       appSchemaListPath,
@@ -1628,9 +1688,9 @@ function generateManagedOverlayPackage({
       listPath: appListPath,
       section: 'post-data'
     });
-    if (verifiedAuthRecoveryAuthority) {
+    if (authMode === DEV_Y2_AUTH_RECOVERY_MODE) {
       recoveryAuth = generateExactAuthRecoveryDataChunk({ pgDumpPath, sourceConnectionString });
-    } else {
+    } else if (authMode === 'quarantined-overlay') {
       users = generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName: 'users' });
       identities = generateAuthDataChunk({ pgDumpPath, sourceConnectionString, tableName: 'identities' });
     }
@@ -1822,7 +1882,7 @@ async function executeManagedOverlayPackage({
   const authRecoveryAuthorityPath = packageResult?.paths?.authRecoveryAuthorityPath;
   verifyPrivateArtifactProtection(aclContractPath);
   verifyPrivateArtifactProtection(scriptPath);
-  if (packageResult?.authMode === DEV_Y2_AUTH_RECOVERY_MODE) {
+  if ([DEV_Y2_AUTH_RECOVERY_MODE, DEV_REMEDIATION_AUTH_PRESERVATION_MODE].includes(packageResult?.authMode)) {
     verifyPrivateArtifactProtection(authRecoveryAuthorityPath);
     const authorityBytes = fs.readFileSync(authRecoveryAuthorityPath);
     try {
@@ -1890,6 +1950,8 @@ export {
   AUTH_USERS_COPY_COLUMNS,
   DEV_Y2_AUTH_RECOVERY_FORMAT,
   DEV_Y2_AUTH_RECOVERY_MODE,
+  DEV_REMEDIATION_AUTH_PRESERVATION_FORMAT,
+  DEV_REMEDIATION_AUTH_PRESERVATION_MODE,
   MANAGED_RESTORE_ACTIONS,
   MANAGED_RESTORE_CANONICALIZATION,
   MANAGED_RESTORE_CATEGORIES,
@@ -1906,6 +1968,7 @@ export {
   assertOverlayExecutionGuard,
   authTransformEntries,
   buildAuthOverlayPurgeSql,
+  buildAuthPreservationAuthority,
   buildExactAuthRecoveryAuthority,
   buildApplicationPlaneResetSql,
   buildManagedOverlaySql,
@@ -1923,5 +1986,6 @@ export {
   normalizeAuthShape,
   parsePgRestoreList,
   verifyExactAuthRecoveryAuthority,
+  verifyAuthPreservationAuthority,
   verifyManagedRestoreManifest
 };

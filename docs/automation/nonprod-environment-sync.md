@@ -133,13 +133,46 @@ because the target later appears equal to Y2. When separately approved, the repo
 new recovery-remediation lineage whose purpose is to deliberately restore the original Y2 and establish
 a new known outcome without reinterpreting or completing the failed recovery.
 
-Preparation is read-only against DEV. It binds the exact failed attempt, original Y2, failed recovery
+Preparation is read-only against DEV business and schema state, with one explicit permanent-smoke
+password login/logout canary as the sole bounded Auth-runtime exception. It binds the exact failed attempt, original Y2, failed recovery
 marker and invocation, current tooling commit/tree, canonical application commit, and a fresh observed
 DEV certificate. It requires current DEV to equal original Y2 across every recoverable plane and does
 not capture the remediation fallback. The future destructive command captures a fresh coherent,
 encrypted, authenticated, component-digested R3 immediately before its own one-shot marker and
 destructive boundary. R3 must restore-test through the canonical recovery primitive and equal both
 current DEV and original Y2 before mutation is permitted.
+
+Recovery remediation preserves target-native managed Auth. It regenerates both the deliberate
+original-Y2 application restore and the R3 fallback as `preserve-target-native-auth` packages. Those
+packages emit no Auth delete, insert, or update, do not touch `auth.instances` or
+`auth.schema_migrations`, and prove every reviewed Auth table remains byte-identical inside the
+application restore transaction. The retained historical exact-Y2 package remains immutable evidence
+and is never executed by the successor remediation. This scope rule is remediation-specific and does
+not silently change the Golden-X refresh design.
+
+The signed remediation preparation carries a semantic Auth certificate. Copied/quarantined users and
+identities protect all recovery-significant fields, including credential digests and quarantine state;
+the native smoke identity separately protects stable user/identity metadata, active Owner membership,
+organization, and default warehouse. Only monotonic native login timestamps and at most one
+smoke-owned session/refresh-token pair from a failed logout are permitted. The exception never applies
+to copied users. Preparation, precheck, post-Y2 verification, and post-R3 verification use exact user,
+organization, role, warehouse, and read-only API assertions. Credential-bearing requests use exact
+origins and fail on redirects.
+
+The remediation executes the real database quiet-window census at precheck and immediately before the
+boundary. It also rechecks public Edge health, exact management version/status/JWT metadata, the
+private deployed-body size and SHA-256 identity, and the signed zero cron/network/webhook/
+foreign-resource posture. The CLI quiet-window switch records authorization intent only. Credential
+environment files must be exact owner-protected artifacts before any read; reparse-point environment
+files require a separately protected transient materialization.
+
+The disposable remediation profile mirrors the observed managed DEV permissions: all reviewed Auth
+tables are selectable, users/identities and the other runtime tables are writable, and
+`auth.schema_migrations` is read-only. A blanket Auth grant remains available only as an explicitly
+nonrepresentative high-privilege refresh-test profile. The current Golden-X cutover still generates
+Auth DML that includes `auth.schema_migrations`; live DEV does not grant that DML. A future full refresh
+must correct and recertify that separate path before another cutover. This capability mismatch is a
+plausible failure mechanism, not proof of the historical cutover's cause.
 
 The canonical commands are:
 

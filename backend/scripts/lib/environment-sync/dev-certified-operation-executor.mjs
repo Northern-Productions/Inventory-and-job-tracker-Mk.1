@@ -196,6 +196,7 @@ function verifyOperationInventory(record, key, contract, envFilePath, {
     rebuilt.attemptId !== contract.attemptId ||
     rebuilt.inventoryDigest !== contract.operationInventoryDigest
   ) throw categoricalError('DEV_REFRESH_OPERATION_INVENTORY_MISMATCH');
+  verifyPrivateArtifactProtection(envFilePath);
   const envBytes = fs.readFileSync(envFilePath);
   try {
     if (sha256Bytes(envBytes) !== rebuilt.envFileDigest) {
@@ -351,6 +352,7 @@ function createOperationExecutor({
     envFilePath,
     { testOnlyAllowSynthetic, requiredStages }
   );
+  verifyPrivateArtifactProtection(envFilePath);
   const loaded = loadEnvFile(envFilePath);
   let evidenceRoot = '';
   const operations = new Map(verified.operations.map((operation) => [operation.stage, operation]));

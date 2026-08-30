@@ -42,11 +42,19 @@ import {
 } from './dev-recovery-remediation-contract.mjs';
 import { verifyRemediationPreparation } from './dev-recovery-remediation-preparation.mjs';
 import {
+  assertRecoveryApplicationStateEqual,
   assertOriginalFailedRecoveryUnchanged,
-  assertRecoveryOwnedStateEqual,
+  captureRemediationAuthCertificate,
   captureRecoveryOwnedState,
   captureRecoveryOwnedStateFromClient
 } from './dev-recovery-remediation-shared.mjs';
+import {
+  assertRemediationAuthTransition,
+  captureQuietWindowFromClient,
+  captureRuntimeSideEffectPostureFromClient,
+  fetchFreshEdgeIdentity,
+  runFreshAuthenticationCanary
+} from './dev-recovery-remediation-auth.mjs';
 import { appendRemediationEvent } from './dev-recovery-remediation-state.mjs';
 
 const { Client } = pg;
@@ -158,8 +166,66 @@ function runSubstep(substep, action, { transactionOutcome = 'not_started' } = {}
 async function assertCurrentEqualsY2(context) {
   const original = originalState(context);
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-  assertRecoveryOwnedStateEqual(current, original.y2.before);
-  return { original, current };
+  assertRecoveryApplicationStateEqual(current, original.y2.before);
+  const auth = await captureRemediationAuthCertificate(context.connectionString, {
+    ...identity(context),
+    expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
+  });
+  assertRemediationAuthTransition(context.preparation.authHardening.baseline, auth, {
+    logoutSucceeded: true,
+    requireFreshLogin: false
+  });
+  return { original, current, auth };
+}
+
+async function freshPreBoundaryPosture(context) {
+  const client = new Client({
+    connectionString: context.connectionString,
+    ssl: /(?:127\.0\.0\.1|localhost)/i.test(context.connectionString) ? undefined : { rejectUnauthorized: false },
+    application_name: 'dev-recovery-remediation-fresh-posture'
+  });
+  await client.connect();
+  let began = false;
+  try {
+    await client.query('begin isolation level repeatable read read only');
+    began = true;
+    const proof = await client.query("select current_setting('transaction_read_only') as value");
+    if (proof.rows[0]?.value !== 'on') throw categoricalError('DEV_REMEDIATION_FRESH_POSTURE_READ_ONLY_UNPROVEN');
+    const quietWindow = await captureQuietWindowFromClient(client);
+    const sideEffects = await captureRuntimeSideEffectPostureFromClient(client);
+    if (['cronJobs', 'networkCallers', 'webhooks', 'foreignResources'].some((name) =>
+      Number(sideEffects[name]) !== Number(context.preparation.sideEffects.observed?.[name] || 0))) {
+      throw categoricalError('DEV_REMEDIATION_FRESH_SIDE_EFFECT_CERTIFICATE_MISMATCH');
+    }
+    await client.query('rollback');
+    began = false;
+    const edge = await fetchFreshEdgeIdentity({ preparation: context.preparation });
+    return { quietWindow, sideEffects, edge };
+  } finally {
+    if (began) await client.query('rollback').catch(() => {});
+    await client.end().catch(() => {});
+  }
+}
+
+async function runCertifiedAuthCanary(context) {
+  const before = await captureRemediationAuthCertificate(context.connectionString, {
+    ...identity(context),
+    expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
+  });
+  assertRemediationAuthTransition(context.preparation.authHardening.baseline, before, {
+    logoutSucceeded: true,
+    requireFreshLogin: false
+  });
+  const functional = await runFreshAuthenticationCanary({ preparation: context.preparation });
+  const after = await captureRemediationAuthCertificate(context.connectionString, {
+    ...identity(context),
+    expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
+  });
+  const parity = assertRemediationAuthTransition(before, after, {
+    logoutSucceeded: functional.sessionRevoked,
+    requireFreshLogin: true
+  });
+  return { functional, parity, certificate: after };
 }
 
 async function runRemediationPrecheck(context) {
@@ -171,7 +237,21 @@ async function runRemediationPrecheck(context) {
     context.preparation.sideEffects.safe !== true ||
     context.preparation.sideEffects.mutationAllowed !== false
   ) throw categoricalError('DEV_REMEDIATION_PRECHECK_CERTIFICATE_MISMATCH');
-  return { oldRecoveryFailedImmutable: true, currentEqualsOriginalY2: true, sharedMutations: 0 };
+  const posture = await freshPreBoundaryPosture(context);
+  const auth = await runCertifiedAuthCanary(context);
+  return {
+    oldRecoveryFailedImmutable: true,
+    currentEqualsOriginalY2: true,
+    sharedMutations: 0,
+    realQuietWindow: posture.quietWindow.quiet,
+    freshEdgeExact: posture.edge.compatible,
+    freshSideEffectsSafe: posture.sideEffects.safe,
+    freshAuthentication: auth.functional.freshAuthentication,
+    smokeUserExact: auth.functional.smokeUserExact,
+    smokeOrganizationExact: auth.functional.smokeOrganizationExact,
+    defaultWarehouseExact: auth.functional.defaultWarehouseExact,
+    authSemanticParity: auth.parity.stableStateExact
+  };
 }
 
 async function runCurrentY2Parity(context) {
@@ -208,7 +288,7 @@ async function runR3Capture(context) {
     dataKey = captured.key;
     const wrapped = writeWrappedBaselineDataKey({ dataKey, wrappingKey: context.key, artifactPath: keyPath });
     const before = await captureRecoveryOwnedStateFromClient(client, identity(context));
-    assertRecoveryOwnedStateEqual(before, original.y2.before);
+    assertRecoveryApplicationStateEqual(before, original.y2.before);
     await client.query('rollback');
     began = false;
     const value = {
@@ -240,11 +320,23 @@ async function runR3Validated(context) {
   }
   const tools = resolvePostgresTools(context.preparation.targetSession.postgresBin || '');
   const dataKey = readWrappedBaselineDataKey({ wrappingKey: context.key, artifactPath: r3.keyPath });
+  const originalDataKey = readWrappedBaselineDataKey({
+    wrappingKey: context.key,
+    artifactPath: original.y2.keyPath
+  });
   const token = crypto.randomBytes(8).toString('hex');
   const restoreRoot = path.join(os.tmpdir(), `environment-sync-rehearsal-${token}`);
-  const plaintextPath = privateArtifactPath(r3.packageDirectory, 'r3-remediation-prestate.private.pgdump');
+  const r3PackageDirectory = createPrivateDirectory(path.join(r3.packageDirectory, 'r3-preserve-auth'));
+  const originalPackageDirectory = createPrivateDirectory(path.join(r3.packageDirectory, 'original-y2-preserve-auth'));
+  const plaintextPath = privateArtifactPath(r3PackageDirectory, 'r3-remediation-prestate.private.pgdump');
+  const originalPlaintextPath = privateArtifactPath(
+    originalPackageDirectory, 'original-y2-remediation.private.pgdump'
+  );
   let cluster;
   try {
+    if (!verifyEncryptedComponent(original.y2.component, original.y2.artifactPath)) {
+      throw categoricalError('DEV_REMEDIATION_ORIGINAL_Y2_COMPONENT_MISMATCH');
+    }
     const encrypted = fs.readFileSync(r3.artifactPath);
     let plaintext;
     try {
@@ -253,6 +345,15 @@ async function runR3Validated(context) {
     } finally {
       encrypted.fill(0);
       if (plaintext) plaintext.fill(0);
+    }
+    const originalEncrypted = fs.readFileSync(original.y2.artifactPath);
+    let originalPlaintext;
+    try {
+      originalPlaintext = decryptBaselineBytes(originalEncrypted, originalDataKey);
+      writePrivateBytesExclusive(originalPlaintextPath, originalPlaintext);
+    } finally {
+      originalEncrypted.fill(0);
+      if (originalPlaintext) originalPlaintext.fill(0);
     }
     cluster = await startDisposablePostgres({ rootDirectory: restoreRoot, postgresBin: tools.bin });
     const restoreConnection = await prepareRestoreDatabase(cluster, `x_rehearsal_dev_r3_${token}`);
@@ -272,10 +373,11 @@ async function runR3Validated(context) {
       connectionString: context.connectionString,
       archivePath: plaintextPath,
       sourceComponent: r3.component,
-      privateDirectory: r3.packageDirectory,
+      privateDirectory: r3PackageDirectory,
       attemptId: context.attemptId,
       authorityKey: context.key,
       postgresBin: tools.bin,
+      preserveTargetAuth: true,
       target: {
         environment: 'dev',
         projectRef: context.preparation.mode === 'disposable-managed-local'
@@ -295,12 +397,42 @@ async function runR3Validated(context) {
       canonicalResult.applied !== true || canonicalResult.atomic !== true ||
       canonicalSerialize(canonicallyRestoredApplication) !== canonicalSerialize(r3.before.application)
     ) throw categoricalError('DEV_REMEDIATION_R3_CANONICAL_RESTORE_MISMATCH');
+    const originalRecovery = await generateCurrentDatabaseRecoveryPackage({
+      connectionString: context.connectionString,
+      archivePath: originalPlaintextPath,
+      sourceComponent: original.y2.component,
+      privateDirectory: originalPackageDirectory,
+      attemptId: context.attemptId,
+      authorityKey: context.key,
+      postgresBin: tools.bin,
+      preserveTargetAuth: true,
+      target: {
+        environment: 'dev',
+        projectRef: context.preparation.mode === 'disposable-managed-local'
+          ? 'd'.repeat(20)
+          : DEV_PROJECT_REF
+      }
+    });
+    const originalCanonicalResult = await executeManagedOverlayPackage({
+      psqlPath: tools.psql,
+      connectionString: restoreConnection,
+      packageResult: originalRecovery.packageResult,
+      targetGuard: targetGuard(context, originalRecovery.packageResult),
+      diagnosticDirectory: diagnosticsDirectory(context, 'original-y2-canonical-test-diagnostics-private')
+    });
+    const originalCanonicalApplication = await captureApplicationPlane(restoreConnection);
+    if (
+      originalCanonicalResult.applied !== true || originalCanonicalResult.atomic !== true ||
+      canonicalSerialize(originalCanonicalApplication) !== canonicalSerialize(original.y2.before.application)
+    ) throw categoricalError('DEV_REMEDIATION_ORIGINAL_Y2_CANONICAL_RESTORE_MISMATCH');
     const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-    assertRecoveryOwnedStateEqual(current, r3.before, 'DEV_REMEDIATION_CURRENT_R3_MISMATCH');
-    assertRecoveryOwnedStateEqual(r3.before, original.y2.before, 'DEV_REMEDIATION_R3_Y2_MISMATCH');
+    assertRecoveryApplicationStateEqual(current, r3.before, 'DEV_REMEDIATION_CURRENT_R3_MISMATCH');
+    assertRecoveryApplicationStateEqual(r3.before, original.y2.before, 'DEV_REMEDIATION_R3_Y2_MISMATCH');
+    const posture = await freshPreBoundaryPosture(context);
     const value = {
       ...r3,
       recoveryPackage: recovery.packageResult,
+      originalY2RecoveryPackage: originalRecovery.packageResult,
       recoveryExpected: {
         application: recovery.application,
         auth: recovery.auth,
@@ -323,11 +455,17 @@ async function runR3Validated(context) {
       digestVerified: true,
       canonicalRestoreTested: true,
       currentEqualsR3: true,
-      r3EqualsOriginalY2: true
+      r3EqualsOriginalY2: true,
+      authMutationScope: 'preserve-target-native-auth',
+      realQuietWindowRechecked: posture.quietWindow.quiet,
+      freshEdgeRechecked: posture.edge.compatible,
+      freshSideEffectsRechecked: posture.sideEffects.safe
     };
   } finally {
     dataKey.fill(0);
+    originalDataKey.fill(0);
     if (fs.existsSync(plaintextPath)) fs.rmSync(plaintextPath, { force: true });
+    if (fs.existsSync(originalPlaintextPath)) fs.rmSync(originalPlaintextPath, { force: true });
     if (cluster) await removeDisposablePostgres(cluster);
   }
 }
@@ -362,6 +500,10 @@ async function executeKnownRestore(context, {
   expectedLabel,
   diagnosticName
 } = {}) {
+  const authBefore = await captureRemediationAuthCertificate(context.connectionString, {
+    ...identity(context),
+    expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
+  });
   appendRemediationEvent(context.rootDirectory, context.key, {
     stage,
     substep: 'RESTORE_START',
@@ -412,7 +554,17 @@ async function executeKnownRestore(context, {
     details: { exitCode: 0, atomic: true }
   });
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-  assertRecoveryOwnedStateEqual(current, expected, `DEV_REMEDIATION_${expectedLabel}_POST_COMMIT_MISMATCH`);
+  assertRecoveryApplicationStateEqual(
+    current, expected, `DEV_REMEDIATION_${expectedLabel}_POST_COMMIT_MISMATCH`
+  );
+  const authAfter = await captureRemediationAuthCertificate(context.connectionString, {
+    ...identity(context),
+    expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
+  });
+  assertRemediationAuthTransition(authBefore, authAfter, {
+    logoutSucceeded: true,
+    requireFreshLogin: false
+  });
   appendRemediationEvent(context.rootDirectory, context.key, {
     stage,
     substep: 'POST_COMMIT_STATE_VERIFIED',
@@ -432,11 +584,11 @@ async function runRestoreOriginalY2(context) {
   const original = originalState(context);
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-  assertRecoveryOwnedStateEqual(current, r3.before, 'DEV_REMEDIATION_PRE_BOUNDARY_R3_MISMATCH');
-  assertRecoveryOwnedStateEqual(current, original.y2.before, 'DEV_REMEDIATION_PRE_BOUNDARY_Y2_MISMATCH');
+  assertRecoveryApplicationStateEqual(current, r3.before, 'DEV_REMEDIATION_PRE_BOUNDARY_R3_MISMATCH');
+  assertRecoveryApplicationStateEqual(current, original.y2.before, 'DEV_REMEDIATION_PRE_BOUNDARY_Y2_MISMATCH');
   const restored = await runSubstep('ORIGINAL_Y2_MANAGED_OVERLAY', () => executeKnownRestore(context, {
     stage: 'RESTORE_ORIGINAL_Y2',
-    packageResult: original.y2.recoveryPackage,
+    packageResult: r3.originalY2RecoveryPackage,
     expected: original.y2.before,
     expectedLabel: 'ORIGINAL_Y2',
     diagnosticName: 'original-y2-restore-diagnostics-private'
@@ -454,98 +606,22 @@ async function runRestoreOriginalY2(context) {
   };
 }
 
-function assertAuthTarget(urlValue, context) {
-  const url = new URL(urlValue);
-  if (context.preparation.mode === 'disposable-managed-local') {
-    if (!['127.0.0.1', 'localhost'].includes(url.hostname)) {
-      throw categoricalError('DEV_REMEDIATION_AUTH_NETWORK_TARGET_REJECTED');
-    }
-  } else if (!url.hostname.includes(DEV_PROJECT_REF)) {
-    throw categoricalError('DEV_REMEDIATION_AUTH_NETWORK_TARGET_REJECTED');
-  }
-  return url.toString().replace(/\/$/, '');
-}
-
-async function fetchJson(url, options, code) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000);
-  timeout.unref();
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw categoricalError(code);
-    return body;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function runFreshAuthentication(context) {
-  const authUrl = assertAuthTarget(process.env.SUPABASE_URL, context);
-  const apiUrl = assertAuthTarget(process.env.EDGE_API_BASE_URL, context);
-  const anonKey = String(process.env.SUPABASE_ANON_KEY || '');
-  const email = String(process.env.SMOKE_USER_EMAIL || '');
-  const password = String(process.env.SMOKE_USER_PASSWORD || '');
-  if (!anonKey || !email || !password) throw categoricalError('DEV_REMEDIATION_FRESH_AUTH_INPUT_MISSING');
-  let accessToken = '';
-  let refreshToken = '';
-  try {
-    const signedIn = await fetchJson(`${authUrl}/auth/v1/token?grant_type=password`, {
-      method: 'POST',
-      headers: { apikey: anonKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    }, 'DEV_REMEDIATION_FRESH_AUTHENTICATION_FAILED');
-    accessToken = String(signedIn.access_token || '');
-    refreshToken = String(signedIn.refresh_token || '');
-    if (!accessToken) throw categoricalError('DEV_REMEDIATION_FRESH_AUTHENTICATION_FAILED');
-    const read = (route) => fetchJson(`${apiUrl}${route}`, {
-      method: 'GET',
-      headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
-    }, 'DEV_REMEDIATION_APPLICATION_READ_FAILED');
-    const authContext = await read('/auth/context');
-    const contextData = authContext.data || authContext;
-    const role = String(contextData.role || contextData.membership?.role || '').toLowerCase();
-    const defaultWarehouse = String(contextData.defaultWarehouse || contextData.default_warehouse || '');
-    if (role !== 'owner' || !defaultWarehouse) throw categoricalError('DEV_REMEDIATION_AUTH_CONTEXT_INVALID');
-    await read('/jobs/list?limit=1');
-    await read('/boxes/search?q=__recovery_read_only_no_match__');
-    let sessionRevoked = false;
-    try {
-      const response = await fetch(`${authUrl}/auth/v1/logout`, {
-        method: 'POST',
-        headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
-      });
-      sessionRevoked = response.ok;
-    } catch {
-      sessionRevoked = false;
-    }
-    return {
-      freshAuthentication: true,
-      authContextOwner: true,
-      defaultWarehouseResolved: true,
-      inventoryRead: true,
-      jobRead: true,
-      boxRead: true,
-      sessionRevoked,
-      ephemeralSessionException: !sessionRevoked
-    };
-  } finally {
-    accessToken = '';
-    refreshToken = '';
-  }
+  return runFreshAuthenticationCanary({ preparation: context.preparation });
 }
 
 async function runAuthRuntimeVerified(context) {
   const original = originalState(context);
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-  assertRecoveryOwnedStateEqual(current, original.y2.before);
-  const functional = await runFreshAuthentication(context);
+  assertRecoveryApplicationStateEqual(current, original.y2.before);
+  const auth = await runCertifiedAuthCanary(context);
   const value = {
     nativeSmokeActiveOwner: current.nativeSmoke.ownerMembershipCount === 1,
     rawMetadataMarker: true,
     identityMetadataMarker: true,
     copiedUsersFrozen: true,
-    ...functional
+    authSemanticParity: auth.parity.stableStateExact,
+    ...auth.functional
   };
   writeStageState({ ...stateOptions(context, 'AUTH_RUNTIME_VERIFIED'), value });
   return value;
@@ -553,13 +629,11 @@ async function runAuthRuntimeVerified(context) {
 
 function runApplicationRuntimeVerified(context) {
   const auth = readStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
-  if (!auth.freshAuthentication || !auth.inventoryRead || !auth.jobRead || !auth.boxRead) {
+  if (!auth.freshAuthentication || !auth.readOnlyApiSucceeded) {
     throw categoricalError('DEV_REMEDIATION_APPLICATION_RUNTIME_EVIDENCE_MISSING');
   }
   const value = {
-    inventoryRead: true,
-    jobRead: true,
-    boxRead: true,
+    readOnlyApiSucceeded: true,
     businessMutations: 0,
     sessionRevoked: auth.sessionRevoked,
     ephemeralSessionException: auth.ephemeralSessionException
@@ -571,7 +645,15 @@ function runApplicationRuntimeVerified(context) {
 async function runFinalY2Parity(context) {
   const original = originalState(context);
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-  assertRecoveryOwnedStateEqual(current, original.y2.before, 'DEV_REMEDIATION_FINAL_Y2_MISMATCH');
+  assertRecoveryApplicationStateEqual(current, original.y2.before, 'DEV_REMEDIATION_FINAL_Y2_MISMATCH');
+  const authCurrent = await captureRemediationAuthCertificate(context.connectionString, {
+    ...identity(context),
+    expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
+  });
+  assertRemediationAuthTransition(context.preparation.authHardening.baseline, authCurrent, {
+    logoutSucceeded: true,
+    requireFreshLogin: false
+  });
   const auth = readStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
   const value = {
     current,
@@ -592,25 +674,71 @@ async function runFinalY2Parity(context) {
 async function runRemediationRecoveryDatabase(context) {
   originalState(context);
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
-  const restored = await runSubstep('R3_MANAGED_OVERLAY', () => executeKnownRestore(context, {
-    stage: 'REMEDIATION_RECOVERY_DATABASE',
-    packageResult: r3.recoveryPackage,
-    expected: r3.before,
-    expectedLabel: 'R3',
-    diagnosticName: 'r3-recovery-diagnostics-private'
-  }), { transactionOutcome: 'ambiguous' });
-  writeStageState({ ...stateOptions(context, 'REMEDIATION_RECOVERY_DATABASE'), value: {
-    transactionOutcome: 'committed', current: restored.current
-  } });
-  return { r3Restored: true, transactionOutcome: 'committed', oldRecoveryStateChanged: false };
+  const tools = resolvePostgresTools(context.preparation.targetSession.postgresBin || '');
+  const key = readWrappedBaselineDataKey({ wrappingKey: context.key, artifactPath: r3.keyPath });
+  const packageDirectory = createPrivateDirectory(path.join(context.rootDirectory, 'r3-recovery-apply-package'));
+  const plaintextPath = privateArtifactPath(packageDirectory, 'r3-recovery-apply.private.pgdump');
+  try {
+    const encrypted = fs.readFileSync(r3.artifactPath);
+    let plaintext;
+    try {
+      plaintext = decryptBaselineBytes(encrypted, key);
+      writePrivateBytesExclusive(plaintextPath, plaintext);
+    } finally {
+      encrypted.fill(0);
+      if (plaintext) plaintext.fill(0);
+    }
+    const recovery = await generateCurrentDatabaseRecoveryPackage({
+      connectionString: context.connectionString,
+      archivePath: plaintextPath,
+      sourceComponent: r3.component,
+      privateDirectory: packageDirectory,
+      attemptId: context.attemptId,
+      authorityKey: context.key,
+      postgresBin: tools.bin,
+      preserveTargetAuth: true,
+      target: {
+        environment: 'dev',
+        projectRef: context.preparation.mode === 'disposable-managed-local'
+          ? 'd'.repeat(20)
+          : DEV_PROJECT_REF
+      }
+    });
+    const restored = await runSubstep('R3_MANAGED_OVERLAY', () => executeKnownRestore(context, {
+      stage: 'REMEDIATION_RECOVERY_DATABASE',
+      packageResult: recovery.packageResult,
+      expected: r3.before,
+      expectedLabel: 'R3',
+      diagnosticName: 'r3-recovery-diagnostics-private'
+    }), { transactionOutcome: 'ambiguous' });
+    writeStageState({ ...stateOptions(context, 'REMEDIATION_RECOVERY_DATABASE'), value: {
+      transactionOutcome: 'committed', current: restored.current,
+      authMutationScope: 'preserve-target-native-auth'
+    } });
+    return { r3Restored: true, transactionOutcome: 'committed', oldRecoveryStateChanged: false };
+  } finally {
+    key.fill(0);
+    if (fs.existsSync(plaintextPath)) fs.rmSync(plaintextPath, { force: true });
+  }
 }
 
 async function runRemediationRecoveryVerified(context) {
   originalState(context);
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
-  assertRecoveryOwnedStateEqual(current, r3.before, 'DEV_REMEDIATION_RECOVERY_R3_MISMATCH');
-  return { r3Exact: true, unexplainedDifferences: 0, oldRecoveryFailedImmutable: true };
+  assertRecoveryApplicationStateEqual(current, r3.before, 'DEV_REMEDIATION_RECOVERY_R3_MISMATCH');
+  const auth = await runCertifiedAuthCanary(context);
+  return {
+    r3Exact: true,
+    unexplainedDifferences: 0,
+    oldRecoveryFailedImmutable: true,
+    freshAuthentication: auth.functional.freshAuthentication,
+    smokeUserExact: auth.functional.smokeUserExact,
+    smokeOrganizationExact: auth.functional.smokeOrganizationExact,
+    defaultWarehouseExact: auth.functional.defaultWarehouseExact,
+    readOnlyApiSucceeded: auth.functional.readOnlyApiSucceeded,
+    authSemanticParity: auth.parity.stableStateExact
+  };
 }
 
 async function runRemediationStage(context, stage) {

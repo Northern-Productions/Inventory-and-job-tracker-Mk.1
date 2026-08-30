@@ -261,6 +261,7 @@ function buildRecoveryRemediationContract({
     },
     restorePolicy: {
       desiredState: 'original-y2',
+      authMutationScope: 'preserve-target-native-auth',
       knownCommitRequired: true,
       automaticRetry: false,
       oldRecoveryStateMutable: false,
@@ -270,8 +271,11 @@ function buildRecoveryRemediationContract({
     },
     functionalVerification: {
       freshAuthenticationRequired: true,
+      exactSmokeUserRequired: true,
+      exactSmokeOrganizationRequired: true,
+      exactDefaultWarehouseRequired: true,
       role: 'owner',
-      readOnlyRoutes: ['/auth/context', '/jobs/list', '/boxes/search'],
+      readOnlyRoutes: ['/auth/context', '/jobs/list'],
       businessMutations: false,
       ephemeralSessionExceptionOnly: true
     },
@@ -349,22 +353,33 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
   if (['REMEDIATION_PRECHECK', 'CURRENT_Y2_PARITY'].includes(stage) && (
     details.oldRecoveryFailedImmutable !== true || details.currentEqualsOriginalY2 !== true
   )) throw categoricalError('DEV_REMEDIATION_PRECONDITION_INCOMPLETE');
+  if (stage === 'REMEDIATION_PRECHECK' && (
+    details.realQuietWindow !== true || details.freshEdgeExact !== true ||
+    details.freshSideEffectsSafe !== true || details.freshAuthentication !== true ||
+    details.smokeUserExact !== true || details.smokeOrganizationExact !== true ||
+    details.defaultWarehouseExact !== true || details.authSemanticParity !== true
+  )) throw categoricalError('DEV_REMEDIATION_PREBOUNDARY_HARDENING_INCOMPLETE');
   if (stage === 'R3_CAPTURE' && (
     details.coherentSnapshot !== true || details.encrypted !== true || details.authenticatedKeyWrapped !== true
   )) throw categoricalError('DEV_REMEDIATION_R3_CAPTURE_INCOMPLETE');
   if (stage === 'R3_VALIDATED' && (
     details.digestVerified !== true || details.canonicalRestoreTested !== true ||
-    details.currentEqualsR3 !== true || details.r3EqualsOriginalY2 !== true
+    details.currentEqualsR3 !== true || details.r3EqualsOriginalY2 !== true ||
+    details.authMutationScope !== 'preserve-target-native-auth' ||
+    details.realQuietWindowRechecked !== true || details.freshEdgeRechecked !== true ||
+    details.freshSideEffectsRechecked !== true
   )) throw categoricalError('DEV_REMEDIATION_R3_VALIDATION_INCOMPLETE');
   if (stage === 'RESTORE_ORIGINAL_Y2' && (
     details.originalY2Restored !== true || details.transactionOutcome !== 'committed'
   )) throw categoricalError('DEV_REMEDIATION_RESTORE_OUTCOME_INCOMPLETE');
   if (stage === 'AUTH_RUNTIME_VERIFIED' && (
     details.nativeSmokeActiveOwner !== true || details.freshAuthentication !== true ||
-    details.authContextOwner !== true
+    details.authContextOwner !== true || details.smokeUserExact !== true ||
+    details.smokeOrganizationExact !== true || details.defaultWarehouseExact !== true ||
+    details.authSemanticParity !== true
   )) throw categoricalError('DEV_REMEDIATION_AUTH_RUNTIME_INCOMPLETE');
   if (stage === 'APPLICATION_RUNTIME_VERIFIED' && (
-    details.inventoryRead !== true || details.jobRead !== true || details.boxRead !== true ||
+    details.readOnlyApiSucceeded !== true ||
     details.businessMutations !== 0
   )) throw categoricalError('DEV_REMEDIATION_APPLICATION_RUNTIME_INCOMPLETE');
   if (stage === 'FINAL_Y2_PARITY' && (
@@ -374,7 +389,10 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.r3Restored !== true || details.transactionOutcome !== 'committed'
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_INCOMPLETE');
   if (stage === 'REMEDIATION_RECOVERY_VERIFIED' && (
-    details.r3Exact !== true || details.unexplainedDifferences !== 0
+    details.r3Exact !== true || details.unexplainedDifferences !== 0 ||
+    details.freshAuthentication !== true || details.smokeUserExact !== true ||
+    details.smokeOrganizationExact !== true || details.defaultWarehouseExact !== true ||
+    details.readOnlyApiSucceeded !== true || details.authSemanticParity !== true
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_PARITY_INCOMPLETE');
   return evidence;
 }

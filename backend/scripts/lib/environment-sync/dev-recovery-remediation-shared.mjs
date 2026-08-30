@@ -13,6 +13,9 @@ import {
   captureNativeSmokePreservation,
   verifyNativeSmokePreservation
 } from './native-smoke-preservation.mjs';
+import {
+  captureRemediationAuthCertificateFromClient
+} from './dev-recovery-remediation-auth.mjs';
 
 const { Client } = pg;
 
@@ -65,6 +68,30 @@ async function captureRecoveryOwnedState(connectionString, identity) {
 function assertRecoveryOwnedStateEqual(observed, expected, code = 'DEV_REMEDIATION_CURRENT_Y2_MISMATCH') {
   if (canonicalSerialize(observed) !== canonicalSerialize(expected)) throw categoricalError(code);
   return true;
+}
+
+function assertRecoveryApplicationStateEqual(observed, expected, code = 'DEV_REMEDIATION_CURRENT_Y2_MISMATCH') {
+  const stable = (value) => ({
+    application: value?.application,
+    managed: value?.managed,
+    copiedAuth: {
+      userCount: value?.auth?.userCount,
+      identityCount: value?.auth?.identityCount,
+      userDigest: value?.auth?.userDigest,
+      identityDigest: value?.auth?.identityDigest,
+      unsafeUsers: value?.auth?.unsafeUsers
+    }
+  });
+  if (canonicalSerialize(stable(observed)) !== canonicalSerialize(stable(expected))) {
+    throw categoricalError(code);
+  }
+  return true;
+}
+
+async function captureRemediationAuthCertificate(connectionString, identity) {
+  return withReadOnlySnapshot(connectionString, (client) =>
+    captureRemediationAuthCertificateFromClient(client, identity),
+  'dev-recovery-remediation-auth-certificate');
 }
 
 function readOriginalFailedRecovery({
@@ -138,7 +165,13 @@ function assertOriginalFailedRecoveryUnchanged(options, expectedBinding) {
   return observed;
 }
 
-function buildObservedDevCertificate({ core, edge, sideEffects, capturedAt = new Date().toISOString() } = {}) {
+function buildObservedDevCertificate({
+  core,
+  edge,
+  sideEffects,
+  authHardening = null,
+  capturedAt = new Date().toISOString()
+} = {}) {
   if (!core?.digest || edge?.compatible !== true || edge?.deploymentPolicy !== 'read-only-no-deploy' ||
       sideEffects?.safe !== true || sideEffects?.mutationAllowed !== false) {
     throw categoricalError('DEV_REMEDIATION_OBSERVED_CERTIFICATE_INVALID');
@@ -150,6 +183,7 @@ function buildObservedDevCertificate({ core, edge, sideEffects, capturedAt = new
     core,
     edge,
     sideEffects,
+    ...(authHardening ? { authHardening } : {}),
     sharedMutations: 0
   };
   return { ...certificate, certificateDigest: canonicalDigest(certificate) };
@@ -157,10 +191,12 @@ function buildObservedDevCertificate({ core, edge, sideEffects, capturedAt = new
 
 export {
   assertOriginalFailedRecoveryUnchanged,
+  assertRecoveryApplicationStateEqual,
   assertRecoveryOwnedStateEqual,
   buildObservedDevCertificate,
   captureRecoveryOwnedState,
   captureRecoveryOwnedStateFromClient,
+  captureRemediationAuthCertificate,
   readOriginalFailedRecovery,
   withReadOnlySnapshot
 };

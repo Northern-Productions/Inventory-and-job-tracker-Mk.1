@@ -106,7 +106,20 @@ function contract(attemptId = `dev-recovery-remediation-${crypto.randomBytes(8).
 
 function details(stage) {
   if (['REMEDIATION_PRECHECK', 'CURRENT_Y2_PARITY'].includes(stage)) {
-    return { oldRecoveryFailedImmutable: true, currentEqualsOriginalY2: true };
+    return {
+      oldRecoveryFailedImmutable: true,
+      currentEqualsOriginalY2: true,
+      ...(stage === 'REMEDIATION_PRECHECK' ? {
+        realQuietWindow: true,
+        freshEdgeExact: true,
+        freshSideEffectsSafe: true,
+        freshAuthentication: true,
+        smokeUserExact: true,
+        smokeOrganizationExact: true,
+        defaultWarehouseExact: true,
+        authSemanticParity: true
+      } : {})
+    };
   }
   if (stage === 'R3_CAPTURE') return { coherentSnapshot: true, encrypted: true, authenticatedKeyWrapped: true };
   if (stage === 'R3_VALIDATED') {
@@ -116,19 +129,40 @@ function details(stage) {
       digestVerified: true,
       canonicalRestoreTested: true,
       currentEqualsR3: true,
-      r3EqualsOriginalY2: true
+      r3EqualsOriginalY2: true,
+      authMutationScope: 'preserve-target-native-auth',
+      realQuietWindowRechecked: true,
+      freshEdgeRechecked: true,
+      freshSideEffectsRechecked: true
     };
   }
   if (stage === 'RESTORE_ORIGINAL_Y2') return { originalY2Restored: true, transactionOutcome: 'committed' };
   if (stage === 'AUTH_RUNTIME_VERIFIED') {
-    return { nativeSmokeActiveOwner: true, freshAuthentication: true, authContextOwner: true };
+    return {
+      nativeSmokeActiveOwner: true,
+      freshAuthentication: true,
+      authContextOwner: true,
+      smokeUserExact: true,
+      smokeOrganizationExact: true,
+      defaultWarehouseExact: true,
+      authSemanticParity: true
+    };
   }
   if (stage === 'APPLICATION_RUNTIME_VERIFIED') {
-    return { inventoryRead: true, jobRead: true, boxRead: true, businessMutations: 0 };
+    return { readOnlyApiSucceeded: true, businessMutations: 0 };
   }
   if (stage === 'FINAL_Y2_PARITY') return { originalY2Exact: true, unexplainedDifferences: 0 };
   if (stage === 'REMEDIATION_RECOVERY_DATABASE') return { r3Restored: true, transactionOutcome: 'committed' };
-  if (stage === 'REMEDIATION_RECOVERY_VERIFIED') return { r3Exact: true, unexplainedDifferences: 0 };
+  if (stage === 'REMEDIATION_RECOVERY_VERIFIED') return {
+    r3Exact: true,
+    unexplainedDifferences: 0,
+    freshAuthentication: true,
+    smokeUserExact: true,
+    smokeOrganizationExact: true,
+    defaultWarehouseExact: true,
+    readOnlyApiSucceeded: true,
+    authSemanticParity: true
+  };
   return {};
 }
 
@@ -722,19 +756,26 @@ test('operation events are append-only, authenticated, and transaction-outcome b
 
 test('fresh authentication uses only the guarded endpoint and performs read-only application calls', async () => {
   const seen = [];
+  const userId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
   const server = http.createServer(async (request, response) => {
-    seen.push(`${request.method} ${new URL(request.url, 'http://localhost').pathname}`);
+    const observedUrl = new URL(request.url, 'http://localhost');
+    seen.push(`${request.method} ${observedUrl.pathname}${observedUrl.search}`);
     response.setHeader('content-type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
-      response.end(JSON.stringify({ access_token: 'local-access', refresh_token: 'local-refresh' }));
+      response.end(JSON.stringify({
+        access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId }
+      }));
       return;
     }
     if (request.url === '/auth/v1/logout') {
       response.end('{}');
       return;
     }
-    if (request.url === '/auth/context') {
-      response.end(JSON.stringify({ data: { role: 'owner', defaultWarehouse: 'LOCAL' } }));
+    if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
+      response.end(JSON.stringify({ data: {
+        orgId: organizationId, role: 'owner', defaultWarehouse: 'LOCAL'
+      } }));
       return;
     }
     response.end(JSON.stringify({ data: [] }));
@@ -747,24 +788,40 @@ test('fresh authentication uses only the guarded endpoint and performs read-only
   ].map((name) => [name, process.env[name]]));
   Object.assign(process.env, {
     SUPABASE_URL: origin,
-    EDGE_API_BASE_URL: origin,
+    EDGE_API_BASE_URL: `${origin}/functions/v1/api`,
     SUPABASE_ANON_KEY: 'local-anon',
     SMOKE_USER_EMAIL: 'local@example.invalid',
     SMOKE_USER_PASSWORD: 'local-only'
   });
   try {
-    const result = await runFreshAuthentication({ preparation: { mode: 'disposable-managed-local' } });
+    const result = await runFreshAuthentication({ preparation: {
+      mode: 'disposable-managed-local',
+      targetSession: {
+        smokeUserId: userId,
+        smokeOrganizationId: organizationId,
+        smokeDefaultWarehouse: 'LOCAL'
+      }
+    } });
     assert.equal(result.freshAuthentication, true);
     assert.equal(result.authContextOwner, true);
-    assert.equal(result.inventoryRead, true);
-    assert.equal(result.jobRead, true);
-    assert.equal(result.boxRead, true);
+    assert.equal(result.smokeUserExact, true);
+    assert.equal(result.smokeOrganizationExact, true);
+    assert.equal(result.defaultWarehouseExact, true);
+    assert.equal(result.readOnlyApiSucceeded, true);
     assert.equal(result.sessionRevoked, true);
     assert.deepEqual(seen, [
-      'POST /auth/v1/token', 'GET /auth/context', 'GET /jobs/list', 'GET /boxes/search', 'POST /auth/v1/logout'
+      'POST /auth/v1/token?grant_type=password', 'GET /functions/v1/api?path=%2Fauth%2Fcontext',
+      'GET /functions/v1/api?path=%2Fjobs%2Flist&limit=1', 'POST /auth/v1/logout'
     ]);
     process.env.SUPABASE_URL = 'https://example.com';
-    await assert.rejects(runFreshAuthentication({ preparation: { mode: 'disposable-managed-local' } }), {
+    await assert.rejects(runFreshAuthentication({ preparation: {
+      mode: 'disposable-managed-local',
+      targetSession: {
+        smokeUserId: userId,
+        smokeOrganizationId: organizationId,
+        smokeDefaultWarehouse: 'LOCAL'
+      }
+    } }), {
       code: 'DEV_REMEDIATION_AUTH_NETWORK_TARGET_REJECTED'
     });
   } finally {
@@ -800,12 +857,13 @@ test('all remediation CLI entrypoints guard before repository-local imports and 
   }
 });
 
-test('preparation source is read-only against shared DEV and defers R3 creation to execution', () => {
+test('preparation performs no business or schema mutation and defers R3 creation to execution', () => {
   const source = fs.readFileSync(
     fileURLToPath(new URL('./dev-recovery-remediation-preparation.mjs', import.meta.url)),
     'utf8'
   );
   assert.match(source, /captureRecoveryOwnedState/);
+  assert.match(source, /runFreshAuthenticationCanary/);
   assert.match(source, /sharedMutationsDuringPreparation:\s*0/);
   assert.doesNotMatch(source, /captureEncryptedPgDump|executeManagedOverlayPackage|R3_CAPTURE/);
   assert.doesNotMatch(source, /\b(?:insert|update|delete|truncate|alter table|drop schema)\b/i);

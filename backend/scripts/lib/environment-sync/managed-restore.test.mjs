@@ -31,6 +31,7 @@ import {
   authTransformEntries,
   buildApplicationPlaneResetSql,
   buildAuthOverlayPurgeSql,
+  buildAuthPreservationAuthority,
   buildExactAuthRecoveryAuthority,
   buildManagedOverlaySql,
   buildManagedRestoreManifest,
@@ -39,6 +40,7 @@ import {
   normalizeGeneratedSql,
   parsePgRestoreList,
   verifyExactAuthRecoveryAuthority,
+  verifyAuthPreservationAuthority,
   verifyManagedRestoreManifest
 } from './managed-restore.mjs';
 import {
@@ -644,6 +646,48 @@ test('exact Y2 Auth recovery is authenticated, fixed-table, target-bound, and re
       }),
       /DEV_Y2_AUTH_RECOVERY_DATA_CHUNK_REJECTED/
     );
+  } finally {
+    key.fill(0);
+  }
+});
+
+test('remediation preserve-Auth mode emits no Auth DML and verifies every managed Auth table', () => {
+  const key = crypto.randomBytes(32);
+  const digest = `sha256:${crypto.createHash('sha256').update('').digest('hex')}`;
+  const evidence = {
+    format: 'dev-y2-exact-auth-evidence-v1',
+    algorithm: 'sha256',
+    serialization: 'postgres-jsonb-text-lf-ordered-v1',
+    tables: CURRENT_AUTH_TABLES.map((tableName) => ({ tableName, count: 0, digest }))
+  };
+  const binding = {
+    attemptId: 'dev-remediation-preserve-auth-synthetic',
+    target: { environment: 'dev', projectRef: 'd'.repeat(20) },
+    sourceComponentDigest: `sha256:${'2'.repeat(64)}`,
+    migration: { count: 188, tip: '20260824100000' }
+  };
+  try {
+    const authority = buildAuthPreservationAuthority({ ...binding, evidence }, key);
+    assert.equal(verifyAuthPreservationAuthority(authority, key, binding), authority);
+    const sql = buildManagedOverlaySql({
+      applicationResetSql: 'DROP SCHEMA IF EXISTS app_api CASCADE;\nDROP SCHEMA IF EXISTS app CASCADE;',
+      applicationSchemaSql: 'CREATE SCHEMA app;\nCREATE SCHEMA app_api;',
+      applicationDefaultAclPreservationSql: 'DO $$ BEGIN NULL; END $$;',
+      applicationPreDataSql: 'CREATE TABLE app.boxes(id bigint);',
+      applicationDataSql: 'INSERT INTO app.boxes VALUES (1);',
+      applicationPostDataSql: 'GRANT USAGE ON SCHEMA app TO authenticated;',
+      applicationAclConvergenceSql: 'DO $$ BEGIN NULL; END $$;',
+      applicationDefaultAclVerificationSql: 'DO $$ BEGIN NULL; END $$;',
+      migrationSql: "CREATE TABLE supabase_migrations.schema_migrations(version text);\nINSERT INTO supabase_migrations.schema_migrations VALUES ('20260824100000');",
+      authEvidence: {},
+      migration: binding.migration,
+      authMode: 'preserve-target-native-auth',
+      authRecoveryAuthority: authority
+    });
+    assert.match(sql, /MANAGED_OVERLAY_STAGE_AUTH_PRESERVED/);
+    assert.match(sql, /managed_auth_preserved/);
+    assert.equal((sql.match(/DEV_Y2_AUTH_RECOVERY_POSTCHECK_MISMATCH/g) || []).length, CURRENT_AUTH_TABLES.length);
+    assert.doesNotMatch(sql, /(?:delete from|insert into|update|truncate) auth\./i);
   } finally {
     key.fill(0);
   }

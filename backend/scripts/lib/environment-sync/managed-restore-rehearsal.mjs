@@ -33,6 +33,7 @@ import {
   assertApplicationReplacementCompatibility,
   assertAuthOverlayCompatibility,
   assertManagedTargetCatalogCompatibility,
+  buildAuthPreservationAuthority,
   buildExactAuthRecoveryAuthority,
   buildManagedRestoreManifest,
   captureApplicationReplacementCatalog,
@@ -213,6 +214,36 @@ async function installExtensionPlane(connectionString, { removePublic = false } 
   });
 }
 
+async function applyManagedAuthPrivilegeProfile(connectionString, profile = 'high-privilege-test-only') {
+  if (!['high-privilege-test-only', 'live-like-remediation'].includes(profile)) {
+    throw categoricalError('MANAGED_REHEARSAL_AUTH_PRIVILEGE_PROFILE_INVALID');
+  }
+  await withClient(connectionString, async (client) => {
+    await client.query('revoke all privileges on all tables in schema auth from postgres');
+    if (profile === 'high-privilege-test-only') {
+      await client.query('grant all privileges on all tables in schema auth to postgres');
+    } else {
+      await client.query('grant select on all tables in schema auth to postgres');
+      await client.query(`do $live_like_auth_privileges$
+        declare v_table text;
+        begin
+          for v_table in
+            select table_name from information_schema.tables
+             where table_schema='auth' and table_type='BASE TABLE'
+               and table_name <> 'schema_migrations'
+             order by table_name
+          loop
+            execute format('grant insert, update, delete on table auth.%I to postgres', v_table);
+          end loop;
+        end
+        $live_like_auth_privileges$;`);
+    }
+    await client.query('grant all privileges on all sequences in schema auth to postgres');
+    await client.query('grant usage on schema auth to postgres');
+  });
+  return { profile, schemaMigrationsReadOnly: profile === 'live-like-remediation' };
+}
+
 function authDefinitionList(tocText) {
   const selected = parsePgRestoreList(tocText).filter(
     (entry) =>
@@ -230,6 +261,7 @@ async function installManagedPlane({
   tools,
   privateDirectory,
   profileStyle,
+  authPrivilegeProfile = 'high-privilege-test-only',
   routineDefaultProfile = 'hardened'
 }) {
   await installExtensionPlane(adminConnection);
@@ -271,9 +303,7 @@ async function installManagedPlane({
     ]) {
       await client.query(`create schema ${quoteIdentifier(schemaName)} authorization ${quoteIdentifier(owner)}`);
     }
-    await client.query('grant all privileges on all tables in schema auth to postgres');
-    await client.query('grant all privileges on all sequences in schema auth to postgres');
-    await client.query('grant usage on schema auth to postgres');
+    await applyManagedAuthPrivilegeProfile(adminConnection, authPrivilegeProfile);
     await client.query('grant usage on schema auth to supabase_auth_admin');
     await client.query('create schema app authorization postgres');
     await client.query('create schema app_api authorization postgres');
@@ -1208,6 +1238,7 @@ async function generateCurrentDatabaseRecoveryPackage({
   attemptId,
   authorityKey,
   postgresBin = '',
+  preserveTargetAuth = false,
   target = { environment: 'dev', projectRef: 'd'.repeat(20) }
 } = {}) {
   if (!Buffer.isBuffer(authorityKey) || authorityKey.length !== 32) {
@@ -1262,7 +1293,9 @@ async function generateCurrentDatabaseRecoveryPackage({
       withClient(connectionString, captureExactAuthRecoveryEvidence),
       withClient(connectionString, captureApplicationAclContract)
     ]);
-    const authAuthority = buildExactAuthRecoveryAuthority({
+    const authAuthority = (preserveTargetAuth
+      ? buildAuthPreservationAuthority
+      : buildExactAuthRecoveryAuthority)({
       attemptId,
       target: normalizedTarget,
       sourceComponentDigest: sourceComponent.digest,
@@ -1283,11 +1316,11 @@ async function generateCurrentDatabaseRecoveryPackage({
       applicationReplacement: targetCatalog.applicationReplacement,
       sourceAclContract,
       applicationDefaultAcl: { certificate: defaultAclCertificate, key: authorityKey },
-      authRecovery: {
-        authority: authAuthority,
-        key: authorityKey,
-        attemptId
-      }
+      ...(preserveTargetAuth ? {
+        preserveAuth: { authority: authAuthority, key: authorityKey, attemptId }
+      } : {
+        authRecovery: { authority: authAuthority, key: authorityKey, attemptId }
+      })
     });
     return {
       packageResult,
@@ -2369,6 +2402,7 @@ async function runManagedRestoreCompatibilityRehearsal({
 }
 
 export {
+  applyManagedAuthPrivilegeProfile,
   applyPostOverlayMigrations,
   assertSourceRestoreAuthority,
   capture0203Proof,
