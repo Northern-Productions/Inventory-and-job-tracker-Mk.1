@@ -12,7 +12,8 @@ function preparse(argv) {
   const help = argv.includes('--help') || argv.includes('-h');
   const required = [
     '--env', '--authority-key', '--original-contract', '--original-preparation',
-    '--failed-state-dir', '--expected-original-attempt', '--expected-original-y2', '--output-dir'
+    '--failed-state-dir', '--expected-original-attempt', '--expected-original-y2', '--output-dir',
+    '--side-effect-certificate', '--edge-certificate'
   ];
   if (!help && required.some((name) => !requiredValue(argv, name))) {
     throw Object.assign(new Error('DEV_REMEDIATION_PREPARATION_ARGUMENT_MISSING'), {

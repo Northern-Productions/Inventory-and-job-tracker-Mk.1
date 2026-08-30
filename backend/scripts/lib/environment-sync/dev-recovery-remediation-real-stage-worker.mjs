@@ -250,6 +250,9 @@ async function runRemediationPrecheck(context) {
     smokeUserExact: auth.functional.smokeUserExact,
     smokeOrganizationExact: auth.functional.smokeOrganizationExact,
     defaultWarehouseExact: auth.functional.defaultWarehouseExact,
+    filmCatalogReadSucceeded: auth.functional.filmCatalogReadSucceeded,
+    boxSearchReadSucceeded: auth.functional.boxSearchReadSucceeded,
+    jobsReadSucceeded: auth.functional.jobsReadSucceeded,
     authSemanticParity: auth.parity.stableStateExact
   };
 }
@@ -629,11 +632,17 @@ async function runAuthRuntimeVerified(context) {
 
 function runApplicationRuntimeVerified(context) {
   const auth = readStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
-  if (!auth.freshAuthentication || !auth.readOnlyApiSucceeded) {
+  if (
+    !auth.freshAuthentication || !auth.readOnlyApiSucceeded ||
+    !auth.filmCatalogReadSucceeded || !auth.boxSearchReadSucceeded || !auth.jobsReadSucceeded
+  ) {
     throw categoricalError('DEV_REMEDIATION_APPLICATION_RUNTIME_EVIDENCE_MISSING');
   }
   const value = {
     readOnlyApiSucceeded: true,
+    filmCatalogReadSucceeded: true,
+    boxSearchReadSucceeded: true,
+    jobsReadSucceeded: true,
     businessMutations: 0,
     sessionRevoked: auth.sessionRevoked,
     ephemeralSessionException: auth.ephemeralSessionException
@@ -736,6 +745,9 @@ async function runRemediationRecoveryVerified(context) {
     smokeUserExact: auth.functional.smokeUserExact,
     smokeOrganizationExact: auth.functional.smokeOrganizationExact,
     defaultWarehouseExact: auth.functional.defaultWarehouseExact,
+    filmCatalogReadSucceeded: auth.functional.filmCatalogReadSucceeded,
+    boxSearchReadSucceeded: auth.functional.boxSearchReadSucceeded,
+    jobsReadSucceeded: auth.functional.jobsReadSucceeded,
     readOnlyApiSucceeded: auth.functional.readOnlyApiSucceeded,
     authSemanticParity: auth.parity.stableStateExact
   };

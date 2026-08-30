@@ -26,6 +26,7 @@ import {
   buildRemediationProvenanceBridge,
   buildRecoveryRemediationContract,
   normalizeRemediationProvenanceBridge,
+  remediationStageEnvironmentNames,
   verifyAuthenticatedRecoveryRemediationContract
 } from './dev-recovery-remediation-contract.mjs';
 import {
@@ -118,6 +119,9 @@ function assertFreshAuthConfiguration(values, { disposable = false } = {}) {
   ]) {
     if (!String(values[name] || '').trim()) throw categoricalError('DEV_REMEDIATION_FRESH_AUTH_CONFIGURATION_MISSING');
   }
+  if (!disposable && !String(values.SUPABASE_ACCESS_TOKEN || '').trim()) {
+    throw categoricalError('DEV_REMEDIATION_MANAGEMENT_TOKEN_MISSING');
+  }
   const urls = [values.SUPABASE_URL, values.EDGE_API_BASE_URL].map((value) => new URL(value));
   if (disposable) {
     if (urls.some((url) => !['127.0.0.1', 'localhost'].includes(url.hostname))) {
@@ -207,7 +211,8 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
     preparation.authHardening?.readiness?.freshEdgeExact !== true ||
     canonicalSerialize(preparation.currentObserved?.authHardening) !==
       canonicalSerialize(preparation.authHardening) ||
-    !String(preparation.targetSession?.smokeDefaultWarehouse || '').trim()
+    !Object.hasOwn(preparation.targetSession || {}, 'smokeDefaultWarehouse') ||
+    typeof preparation.targetSession.smokeDefaultWarehouse !== 'string'
   )) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_HARDENING_INVALID');
   return preparation;
 }
@@ -360,10 +365,6 @@ async function prepareDevRecoveryRemediation({
         root, lineage.toolingCommit, REFRESH_SYNTHETIC_WORKER_REPO_PATH
       )
     ) throw categoricalError('DEV_REMEDIATION_CURRENT_WORKER_PROVENANCE_INVALID');
-    const authStages = new Set([
-      'REMEDIATION_PRECHECK', 'R3_VALIDATED', 'AUTH_RUNTIME_VERIFIED',
-      'APPLICATION_RUNTIME_VERIFIED', 'REMEDIATION_RECOVERY_VERIFIED'
-    ]);
     const operations = REMEDIATION_OPERATION_STAGES.map((stage) => ({
       stage,
       runtime: 'node',
@@ -373,9 +374,7 @@ async function prepareDevRecoveryRemediation({
       scriptDigest: stageWorker.digest,
       cwd: root,
       args: ['--preparation', preparationPath],
-      environmentNames: authStages.has(stage)
-        ? ['EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL']
-        : [],
+      environmentNames: remediationStageEnvironmentNames(stage, { disposable }),
       timeoutMs: 30 * 60 * 1000
     }));
     const unsignedInventory = buildOperationInventory({
@@ -475,6 +474,7 @@ export {
   PREPARATION_TTL_MS,
   REMEDIATION_PREPARATION_FORMAT,
   REMEDIATION_REAL_STAGE_WORKER,
+  assertFreshAuthConfiguration,
   authenticateRemediationPreparation,
   prepareDevRecoveryRemediation,
   verifyRemediationPreparation

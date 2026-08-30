@@ -200,6 +200,38 @@ remain compatible with retained v1 failure evidence. Successful remediation pres
 
 The signed operation inventory pins every stage's absolute executable and script bytes, arguments, bounded timeout, working directory, and permitted environment variable names. The orchestrator executes the complete stage chain itself; operators do not manually stitch stage commands. Child output is suppressed. A child can return only categorical/count evidence through an inherited owner-protected file descriptor, after which the orchestrator validates and signs accepted evidence.
 
+Managed remediation preparation requires the guarded DEV database URL, `SUPABASE_URL`,
+`EDGE_API_BASE_URL`, `SUPABASE_ANON_KEY`, `SMOKE_USER_EMAIL`, `SMOKE_USER_PASSWORD`, and
+`SUPABASE_ACCESS_TOKEN`. The management token is mandatory only for managed preparation and the two
+child stages that reverify Edge management metadata/body identity. Disposable loopback preparation
+does not require it. The preparation command also requires the private authority key, original signed
+contract/preparation/inventory, failed state directory and exact attempt/Y2 bindings, side-effect and
+Edge certificates, a new private output directory, and PostgreSQL 18 tooling resolved from the
+original preparation or `--postgres-bin`. All mandatory arguments except the optional PostgreSQL path
+are rejected before repository imports or private-file access.
+
+The signed least-privilege stage environment census is:
+
+| Stage | Managed child environment | Database/capability |
+| --- | --- | --- |
+| `REMEDIATION_PRECHECK` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and Edge/management reads |
+| `CURRENT_Y2_PARITY` | none | Read-only DB |
+| `R3_CAPTURE` | none | Repeatable-read exported snapshot; private encrypted artifacts only |
+| `R3_VALIDATED` | `EDGE_API_BASE_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_URL` | Live read-only DB, local disposable restore, Edge/management reads |
+| `RESTORE_ORIGINAL_Y2` | none | Serializable managed application/schema overlay preserving target-native Auth |
+| `AUTH_RUNTIME_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and four Edge reads |
+| `APPLICATION_RUNTIME_VERIFIED` | none | Validates prior signed stage state only |
+| `FINAL_Y2_PARITY` | none | Read-only DB |
+| `REMEDIATION_RECOVERY_DATABASE` | none | Serializable managed R3 overlay preserving target-native Auth |
+| `REMEDIATION_RECOVERY_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and four Edge reads |
+
+The four functional reads are `/auth/context`, `/film-data/catalog`, `/boxes/search` with an
+all-warehouse no-match query, and `/jobs/list` with a one-row limit. They perform no business
+mutation. The default-warehouse expectation is exact: an explicitly captured empty string is valid;
+an absent or non-string field is invalid. The full stage census, including private inputs, external
+calls, expected state, failure disposition, and R3 dependency, is machine-readable in the remediation
+contract module and is covered by focused and disposable child-process tests.
+
 Preparation enumerates exactly `PRECHECK`, `QUIET_WINDOW`, `Y2_CAPTURE`, `Y2_VALIDATED`, `SIDE_EFFECTS_QUARANTINED`, `DATABASE_CUTOVER`, `DATABASE_VERIFIED`, `AUTH_RUNTIME`, `EDGE_RUNTIME`, `WORKFLOW_CERTIFICATION`, `FIXTURE_CLEANUP`, `FINAL_PARITY`, `RECOVERY_DATABASE`, `RECOVERY_AUTH_RUNTIME`, and `RECOVERY_VERIFIED`. Every entry resolves to the production stage worker and its exact digest. `dev-certified-test-worker.mjs` is test-only; preparation, inventory verification, refresh, and recovery all reject its path or digest even when an inventory is otherwise correctly authenticated.
 
 `SIDE_EFFECTS_QUARANTINED` is a historical stage name for a verify-only guard. It proves the already-safe DEV posture before destruction and has no configuration mutation capability. Unsafe mail, SMS, URL, vendor-secret, cron, network, webhook, foreign-resource, Storage/Vault, or signup posture blocks the attempt before Y2/destruction and is corrected only in a separately approved ordinary configuration task. `EDGE_RUNTIME` is likewise read-only: source graph, dependency lock, deployed metadata, API contract, and runtime compatibility must already match. Incompatibility blocks before destruction; refresh never deploys Edge and recovery only proves that Edge remained unchanged.

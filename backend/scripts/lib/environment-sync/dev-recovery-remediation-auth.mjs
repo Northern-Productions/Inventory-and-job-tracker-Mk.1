@@ -315,6 +315,10 @@ async function runFreshAuthenticationCanary({ preparation, values = process.env 
       asText(context.role).toLowerCase() !== 'owner' ||
       asText(context.defaultWarehouse) !== expectedWarehouse
     ) throw categoricalError('DEV_REMEDIATION_AUTH_CONTEXT_INVALID');
+    await read('/film-data/catalog', {}, 'DEV_REMEDIATION_FILM_CATALOG_READ_FAILED');
+    await read('/boxes/search', {
+      warehouse: 'ALL', q: 'CODEX_REMEDIATION_READ_ONLY_NO_MATCH'
+    }, 'DEV_REMEDIATION_BOX_SEARCH_READ_FAILED');
     await read('/jobs/list', { limit: 1 }, 'DEV_REMEDIATION_APPLICATION_READ_FAILED');
     await revokeSession();
     return {
@@ -323,6 +327,9 @@ async function runFreshAuthenticationCanary({ preparation, values = process.env 
       smokeOrganizationExact: true,
       authContextOwner: true,
       defaultWarehouseExact: true,
+      filmCatalogReadSucceeded: true,
+      boxSearchReadSucceeded: true,
+      jobsReadSucceeded: true,
       readOnlyApiSucceeded: true,
       sessionRevoked,
       ephemeralSessionException: !sessionRevoked

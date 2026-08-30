@@ -22,6 +22,7 @@ import { removeRetainedDisposablePostgres } from './disposable-postgres.mjs';
 import {
   REMEDIATION_OPERATION_STAGES,
   assertRecoveryRemediationEvidence,
+  remediationStageEnvironmentNames,
   verifyAuthenticatedRecoveryRemediationContract
 } from './dev-recovery-remediation-contract.mjs';
 import {
@@ -99,7 +100,8 @@ async function startLocalApplicationHarness() {
     }
   };
   const server = http.createServer(async (request, response) => {
-    seen.push(`${request.method} ${new URL(request.url, 'http://localhost').pathname}`);
+    const requestUrl = new URL(request.url, 'http://localhost');
+    seen.push(`${request.method} ${requestUrl.pathname}${requestUrl.search}`);
     response.setHeader('content-type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
       await databaseMutation('login');
@@ -312,8 +314,16 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       const contract = verifyAuthenticatedRecoveryRemediationContract(
         readPrivateJson(prepared.output.contractPath), key
       );
+      const inventoryRecord = readPrivateJson(prepared.output.inventoryPath);
+      assert.deepEqual(
+        inventoryRecord.inventory.operations.map(({ stage, environmentNames }) => ({ stage, environmentNames })),
+        REMEDIATION_OPERATION_STAGES.map((stage) => ({
+          stage,
+          environmentNames: remediationStageEnvironmentNames(stage, { disposable: true })
+        }))
+      );
       const executor = createOperationExecutor({
-        inventory: readPrivateJson(prepared.output.inventoryPath),
+        inventory: inventoryRecord,
         key,
         contract,
         envFilePath: remediationEnvPath,
@@ -375,7 +385,14 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
     assert.equal(readRemediationJournal(recoveryState, key).current.state, 'REMEDIATION_RECOVERED');
     assert.equal(directoryByteDigest(recoveryFailure.stateDirectory), recoveryFailure.immutableDigest);
-    assert.equal(harness.seen.filter((entry) => entry === 'POST /auth/v1/token').length, 7);
+    assert.equal(harness.seen.filter((entry) =>
+      entry === 'POST /auth/v1/token?grant_type=password').length, 7);
+    for (const route of [
+      '/functions/v1/api?path=%2Fauth%2Fcontext',
+      '/functions/v1/api?path=%2Ffilm-data%2Fcatalog',
+      '/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH',
+      '/functions/v1/api?path=%2Fjobs%2Flist&limit=1'
+    ]) assert.equal(harness.seen.filter((entry) => entry === `GET ${route}`).length, 7);
     assert.ok(harness.seen.every((entry) => /^(?:GET|POST) \//.test(entry)));
   } finally {
     await harness.close();

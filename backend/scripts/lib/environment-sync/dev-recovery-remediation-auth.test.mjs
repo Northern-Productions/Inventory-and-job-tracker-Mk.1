@@ -142,6 +142,10 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
       response.end(JSON.stringify({ access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId } }));
     } else if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
       response.end(JSON.stringify({ data: { orgId: organizationId, role: 'owner', defaultWarehouse: '' } }));
+    } else if (request.url === '/functions/v1/api?path=%2Ffilm-data%2Fcatalog') {
+      response.end(JSON.stringify({ data: { entries: [] } }));
+    } else if (request.url === '/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH') {
+      response.end(JSON.stringify({ data: [] }));
     } else if (request.url === '/functions/v1/api?path=%2Fjobs%2Flist&limit=1') {
       response.end(JSON.stringify({ data: [] }));
     } else if (request.url === '/auth/v1/logout') {
@@ -172,9 +176,14 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
       }
     });
     assert.equal(result.defaultWarehouseExact, true);
+    assert.equal(result.filmCatalogReadSucceeded, true);
+    assert.equal(result.boxSearchReadSucceeded, true);
+    assert.equal(result.jobsReadSucceeded, true);
     assert.deepEqual(requests, [
       'POST /auth/v1/token?grant_type=password',
       'GET /functions/v1/api?path=%2Fauth%2Fcontext',
+      'GET /functions/v1/api?path=%2Ffilm-data%2Fcatalog',
+      'GET /functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH',
       'GET /functions/v1/api?path=%2Fjobs%2Flist&limit=1',
       'POST /auth/v1/logout'
     ]);

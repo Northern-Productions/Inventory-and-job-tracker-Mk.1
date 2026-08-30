@@ -45,8 +45,8 @@ function windowsPowerShell(script, environment = {}) {
     '-NoLogo',
     '-NoProfile',
     '-NonInteractive',
-    '-EncodedCommand',
-    Buffer.from(script, 'utf16le').toString('base64')
+    '-Command',
+    script
   ], {
     shell: false,
     windowsHide: true,
@@ -133,6 +133,21 @@ test('actual Windows helper protects parent and inherited descendants before ret
   } finally {
     removeTestRoot(root);
   }
+});
+
+test('Windows protection uses the checked-in exact-target helper rather than encoded command text', (t) => {
+  if (!windowsOnly(t)) return;
+  const moduleSource = fs.readFileSync(path.join(import.meta.dirname, 'private-artifacts.mjs'), 'utf8');
+  const helperSource = fs.readFileSync(
+    path.join(import.meta.dirname, 'private-artifacts-windows-acl.ps1'),
+    'utf8'
+  );
+  assert.match(moduleSource, /'-File', WINDOWS_ACL_SCRIPT/);
+  assert.doesNotMatch(moduleSource, /-EncodedCommand/);
+  assert.match(helperSource, /CODEX_PRIVATE_ARTIFACT_TARGET/);
+  assert.match(helperSource, /SetAccessRuleProtection\(\$true, \$false\)/);
+  assert.match(helperSource, /ReparsePoint/);
+  assert.doesNotMatch(helperSource, /Write-(?:Output|Host)|ConvertTo-Json/);
 });
 
 test('semantic verifier accepts redundant owner ACE representation rejected by the failed commit', { concurrency: false }, async (t) => {

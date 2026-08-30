@@ -33,12 +33,15 @@ import {
   CURRENT_REMEDIATION_WORKER_REPO_PATH,
   REMEDIATION_EVIDENCE_FORMAT,
   REMEDIATION_OPERATION_STAGES,
+  REMEDIATION_READ_ONLY_ROUTES,
+  REMEDIATION_STAGE_INPUT_CENSUS,
   REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
   assertRecoveryRemediationEvidence,
   authenticateRecoveryRemediationContract,
   buildRemediationProvenanceBridge,
   buildRecoveryRemediationContract,
   normalizeOriginalBinding,
+  remediationStageEnvironmentNames,
   verifyAuthenticatedRecoveryRemediationContract,
   verifyRecoveryRemediationContract
 } from './dev-recovery-remediation-contract.mjs';
@@ -49,6 +52,7 @@ import {
 import { runFreshAuthentication } from './dev-recovery-remediation-real-stage-worker.mjs';
 import {
   REMEDIATION_REAL_STAGE_WORKER,
+  assertFreshAuthConfiguration,
   authenticateRemediationPreparation,
   verifyRemediationPreparation
 } from './dev-recovery-remediation-preparation.mjs';
@@ -117,6 +121,9 @@ function details(stage) {
         smokeUserExact: true,
         smokeOrganizationExact: true,
         defaultWarehouseExact: true,
+        filmCatalogReadSucceeded: true,
+        boxSearchReadSucceeded: true,
+        jobsReadSucceeded: true,
         authSemanticParity: true
       } : {})
     };
@@ -145,11 +152,20 @@ function details(stage) {
       smokeUserExact: true,
       smokeOrganizationExact: true,
       defaultWarehouseExact: true,
+      filmCatalogReadSucceeded: true,
+      boxSearchReadSucceeded: true,
+      jobsReadSucceeded: true,
       authSemanticParity: true
     };
   }
   if (stage === 'APPLICATION_RUNTIME_VERIFIED') {
-    return { readOnlyApiSucceeded: true, businessMutations: 0 };
+    return {
+      readOnlyApiSucceeded: true,
+      filmCatalogReadSucceeded: true,
+      boxSearchReadSucceeded: true,
+      jobsReadSucceeded: true,
+      businessMutations: 0
+    };
   }
   if (stage === 'FINAL_Y2_PARITY') return { originalY2Exact: true, unexplainedDifferences: 0 };
   if (stage === 'REMEDIATION_RECOVERY_DATABASE') return { r3Restored: true, transactionOutcome: 'committed' };
@@ -160,6 +176,9 @@ function details(stage) {
     smokeUserExact: true,
     smokeOrganizationExact: true,
     defaultWarehouseExact: true,
+    filmCatalogReadSucceeded: true,
+    boxSearchReadSucceeded: true,
+    jobsReadSucceeded: true,
     readOnlyApiSucceeded: true,
     authSemanticParity: true
   };
@@ -318,6 +337,7 @@ test('remediation contract is independently authenticated and binds the permanen
     assert.equal(value.restorePolicy.oldRecoveryStateMutable, false);
     assert.equal(value.restorePolicy.automaticRetry, false);
     assert.deepEqual(value.operationStages, REMEDIATION_OPERATION_STAGES);
+    assert.deepEqual(value.functionalVerification.readOnlyRoutes, REMEDIATION_READ_ONLY_ROUTES);
     const signed = authenticateRecoveryRemediationContract(value, key);
     assert.equal(verifyAuthenticatedRecoveryRemediationContract(signed, key), value);
     const tampered = structuredClone(signed);
@@ -328,6 +348,70 @@ test('remediation contract is independently authenticated and binds the permanen
   } finally {
     key.fill(0);
   }
+});
+
+test('all ten remediation stages have an exact least-privilege input census', () => {
+  assert.deepEqual(Object.keys(REMEDIATION_STAGE_INPUT_CENSUS), REMEDIATION_OPERATION_STAGES);
+  const expectedManaged = {
+    REMEDIATION_PRECHECK: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ACCESS_TOKEN',
+      'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    CURRENT_Y2_PARITY: [],
+    R3_CAPTURE: [],
+    R3_VALIDATED: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
+    RESTORE_ORIGINAL_Y2: [],
+    AUTH_RUNTIME_VERIFIED: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    APPLICATION_RUNTIME_VERIFIED: [],
+    FINAL_Y2_PARITY: [],
+    REMEDIATION_RECOVERY_DATABASE: [],
+    REMEDIATION_RECOVERY_VERIFIED: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ]
+  };
+  for (const stage of REMEDIATION_OPERATION_STAGES) {
+    const entry = REMEDIATION_STAGE_INPUT_CENSUS[stage];
+    assert.deepEqual(remediationStageEnvironmentNames(stage), expectedManaged[stage]);
+    assert.ok(entry.privateInputs.length > 0);
+    assert.ok(entry.databaseMode);
+    assert.ok(entry.expectedTargetState);
+    assert.ok(entry.mutationCapability);
+    assert.ok(entry.failureDisposition);
+    assert.ok(entry.recoveryDependency);
+  }
+  assert.deepEqual(remediationStageEnvironmentNames('REMEDIATION_PRECHECK', { disposable: true }), [
+    'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+  ]);
+  assert.deepEqual(remediationStageEnvironmentNames('R3_VALIDATED', { disposable: true }), [
+    'EDGE_API_BASE_URL', 'SUPABASE_URL'
+  ]);
+  assert.throws(() => remediationStageEnvironmentNames('UNKNOWN'), {
+    code: 'DEV_REMEDIATION_OPERATION_STAGE_INVALID'
+  });
+});
+
+test('managed preparation requires management authority while disposable preparation does not', () => {
+  const base = {
+    SUPABASE_URL: `https://${DEV_PROJECT_REF}.supabase.co`,
+    EDGE_API_BASE_URL: `https://${DEV_PROJECT_REF}.supabase.co/functions/v1/api`,
+    SUPABASE_ANON_KEY: 'local-only',
+    SMOKE_USER_EMAIL: 'local@example.invalid',
+    SMOKE_USER_PASSWORD: 'local-only'
+  };
+  assert.throws(() => assertFreshAuthConfiguration(base), {
+    code: 'DEV_REMEDIATION_MANAGEMENT_TOKEN_MISSING'
+  });
+  assert.doesNotThrow(() => assertFreshAuthConfiguration({
+    ...base,
+    SUPABASE_ACCESS_TOKEN: 'local-only-management-authority'
+  }));
+  assert.doesNotThrow(() => assertFreshAuthConfiguration({
+    ...base,
+    SUPABASE_URL: 'http://127.0.0.1:54321',
+    EDGE_API_BASE_URL: 'http://127.0.0.1:54321/functions/v1/api'
+  }, { disposable: true }));
 });
 
 test('historical refresh provenance remains exact while a signed successor bridge binds current execution', () => {
@@ -426,6 +510,38 @@ test('historical refresh provenance remains exact while a signed successor bridg
       verifyRemediationPreparation(preparationRecord, key, bridged.remediationAttemptId),
       preparationPayload
     );
+
+    const authHardening = {
+      format: 'dev-recovery-remediation-auth-hardening-v1',
+      baseline: { format: 'dev-recovery-remediation-semantic-auth-v1' },
+      canary: { freshAuthentication: true, stableStateExact: true },
+      readiness: {
+        realQuietWindow: true,
+        freshSideEffectsSafe: true,
+        freshEdgeExact: true
+      }
+    };
+    const emptyWarehousePreparation = structuredClone(preparationPayload);
+    emptyWarehousePreparation.version = 3;
+    emptyWarehousePreparation.authHardening = authHardening;
+    emptyWarehousePreparation.targetSession = { smokeDefaultWarehouse: '' };
+    emptyWarehousePreparation.currentObserved = { authHardening };
+    emptyWarehousePreparation.currentObserved.certificateDigest = canonicalDigest({ authHardening });
+    assert.equal(
+      verifyRemediationPreparation(
+        authenticateRemediationPreparation(emptyWarehousePreparation, key),
+        key,
+        bridged.remediationAttemptId
+      ).targetSession.smokeDefaultWarehouse,
+      ''
+    );
+    const missingWarehousePreparation = structuredClone(emptyWarehousePreparation);
+    delete missingWarehousePreparation.targetSession.smokeDefaultWarehouse;
+    assert.throws(() => verifyRemediationPreparation(
+      authenticateRemediationPreparation(missingWarehousePreparation, key),
+      key,
+      bridged.remediationAttemptId
+    ), { code: 'DEV_REMEDIATION_PREPARATION_AUTH_HARDENING_INVALID' });
 
     for (const mutate of [
       (value) => { value.provenanceBridge.currentExecution.workerDigest = digest('wrong-worker'); },
@@ -807,10 +923,15 @@ test('fresh authentication uses only the guarded endpoint and performs read-only
     assert.equal(result.smokeUserExact, true);
     assert.equal(result.smokeOrganizationExact, true);
     assert.equal(result.defaultWarehouseExact, true);
+    assert.equal(result.filmCatalogReadSucceeded, true);
+    assert.equal(result.boxSearchReadSucceeded, true);
+    assert.equal(result.jobsReadSucceeded, true);
     assert.equal(result.readOnlyApiSucceeded, true);
     assert.equal(result.sessionRevoked, true);
     assert.deepEqual(seen, [
       'POST /auth/v1/token?grant_type=password', 'GET /functions/v1/api?path=%2Fauth%2Fcontext',
+      'GET /functions/v1/api?path=%2Ffilm-data%2Fcatalog',
+      'GET /functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH',
       'GET /functions/v1/api?path=%2Fjobs%2Flist&limit=1', 'POST /auth/v1/logout'
     ]);
     process.env.SUPABASE_URL = 'https://example.com';
@@ -850,6 +971,23 @@ test('all remediation CLI entrypoints guard before repository-local imports and 
       assert.equal(missing.status, 1);
       assert.match(missing.stderr, /DEV_REMEDIATION_/);
       assert.doesNotMatch(missing.stderr, /authority|contract|state-dir|evidence-dir/i);
+    }
+    const missingCertificates = spawnIsolated(PREPARE_ENTRY, [
+      '--env', 'unread.env', '--authority-key', 'unread.key',
+      '--original-contract', 'unread-contract', '--original-preparation', 'unread-preparation',
+      '--failed-state-dir', 'unread-state', '--expected-original-attempt', 'unread-attempt',
+      '--expected-original-y2', 'unread-y2', '--output-dir', 'unwritten-output'
+    ], root);
+    assert.equal(missingCertificates.status, 1);
+    assert.match(missingCertificates.stderr, /DEV_REMEDIATION_PREPARATION_ARGUMENT_MISSING/);
+    assert.doesNotMatch(missingCertificates.stderr, /unread|unwritten/);
+    const prepareSource = fs.readFileSync(PREPARE_ENTRY, 'utf8');
+    for (const option of [
+      '--env', '--authority-key', '--original-contract', '--original-preparation',
+      '--failed-state-dir', '--expected-original-attempt', '--expected-original-y2', '--output-dir',
+      '--side-effect-certificate', '--edge-certificate'
+    ]) {
+      assert.ok(prepareSource.match(new RegExp(option, 'g')).length >= 2, `${option} must appear in validation and usage`);
     }
     assert.deepEqual(fs.readdirSync(root).sort(), ['home', 'temp']);
   } finally {

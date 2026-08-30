@@ -32,6 +32,162 @@ const REMEDIATION_OPERATION_STAGES = Object.freeze([
   'REMEDIATION_RECOVERY_VERIFIED'
 ]);
 
+const REMEDIATION_READ_ONLY_ROUTES = Object.freeze([
+  '/auth/context',
+  '/film-data/catalog',
+  '/boxes/search',
+  '/jobs/list'
+]);
+
+function freezeStageInputCensus(value) {
+  return Object.freeze(Object.fromEntries(Object.entries(value).map(([stage, entry]) => [
+    stage,
+    Object.freeze({
+      ...entry,
+      managedEnvironmentNames: Object.freeze([...entry.managedEnvironmentNames].sort()),
+      disposableEnvironmentNames: Object.freeze([...entry.disposableEnvironmentNames].sort()),
+      privateInputs: Object.freeze([...entry.privateInputs]),
+      externalCalls: Object.freeze([...entry.externalCalls])
+    })
+  ])));
+}
+
+const REMEDIATION_STAGE_INPUT_CENSUS = freezeStageInputCensus({
+  REMEDIATION_PRECHECK: {
+    managedEnvironmentNames: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ACCESS_TOKEN',
+      'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    disposableEnvironmentNames: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts'],
+    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes', 'supabase-management-api'],
+    databaseMode: 'read-only',
+    expectedTargetState: 'current-equals-original-y2',
+    mutationCapability: 'auth-session-lifecycle-only',
+    failureDisposition: 'pre-boundary-terminal',
+    recoveryDependency: 'none'
+  },
+  CURRENT_Y2_PARITY: {
+    managedEnvironmentNames: [],
+    disposableEnvironmentNames: [],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts'],
+    externalCalls: ['dev-postgresql'],
+    databaseMode: 'read-only',
+    expectedTargetState: 'current-equals-original-y2',
+    mutationCapability: 'none',
+    failureDisposition: 'pre-boundary-terminal',
+    recoveryDependency: 'none'
+  },
+  R3_CAPTURE: {
+    managedEnvironmentNames: [],
+    disposableEnvironmentNames: [],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts', 'private-state-directory'],
+    externalCalls: ['dev-postgresql', 'pg-dump'],
+    databaseMode: 'repeatable-read-read-only-exported-snapshot',
+    expectedTargetState: 'current-equals-original-y2',
+    mutationCapability: 'private-artifacts-only',
+    failureDisposition: 'pre-boundary-terminal',
+    recoveryDependency: 'none'
+  },
+  R3_VALIDATED: {
+    managedEnvironmentNames: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
+    disposableEnvironmentNames: ['EDGE_API_BASE_URL', 'SUPABASE_URL'],
+    privateInputs: [
+      'signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts', 'r3-capture-artifacts'
+    ],
+    externalCalls: ['dev-postgresql', 'local-disposable-postgresql', 'dev-edge-health', 'supabase-management-api'],
+    databaseMode: 'live-read-only-and-local-disposable-write',
+    expectedTargetState: 'r3-equals-current-and-original-y2',
+    mutationCapability: 'private-artifacts-and-local-disposable-database-only',
+    failureDisposition: 'pre-boundary-terminal',
+    recoveryDependency: 'none'
+  },
+  RESTORE_ORIGINAL_Y2: {
+    managedEnvironmentNames: [],
+    disposableEnvironmentNames: [],
+    privateInputs: [
+      'signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts', 'validated-r3-stage-state'
+    ],
+    externalCalls: ['dev-postgresql', 'psql'],
+    databaseMode: 'serializable-managed-overlay',
+    expectedTargetState: 'restore-original-y2-preserve-target-native-auth',
+    mutationCapability: 'managed-app-schema-restore-preserve-target-native-auth',
+    failureDisposition: 'post-boundary-recovery-required-on-unknown-or-failure',
+    recoveryDependency: 'validated-r3'
+  },
+  AUTH_RUNTIME_VERIFIED: {
+    managedEnvironmentNames: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    disposableEnvironmentNames: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts'],
+    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes'],
+    databaseMode: 'read-only',
+    expectedTargetState: 'original-y2-with-target-native-auth',
+    mutationCapability: 'auth-session-lifecycle-only',
+    failureDisposition: 'post-boundary-recovery-required',
+    recoveryDependency: 'validated-r3'
+  },
+  APPLICATION_RUNTIME_VERIFIED: {
+    managedEnvironmentNames: [],
+    disposableEnvironmentNames: [],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'auth-runtime-stage-state'],
+    externalCalls: [],
+    databaseMode: 'none',
+    expectedTargetState: 'all-approved-read-routes-passed',
+    mutationCapability: 'none',
+    failureDisposition: 'post-boundary-recovery-required',
+    recoveryDependency: 'validated-r3'
+  },
+  FINAL_Y2_PARITY: {
+    managedEnvironmentNames: [],
+    disposableEnvironmentNames: [],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts', 'auth-runtime-stage-state'],
+    externalCalls: ['dev-postgresql'],
+    databaseMode: 'read-only',
+    expectedTargetState: 'exact-original-y2-final-parity',
+    mutationCapability: 'none',
+    failureDisposition: 'post-boundary-recovery-required',
+    recoveryDependency: 'validated-r3'
+  },
+  REMEDIATION_RECOVERY_DATABASE: {
+    managedEnvironmentNames: [],
+    disposableEnvironmentNames: [],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'validated-r3-stage-state', 'r3-capture-artifacts'],
+    externalCalls: ['dev-postgresql', 'psql'],
+    databaseMode: 'serializable-managed-overlay',
+    expectedTargetState: 'restore-r3-preserve-target-native-auth',
+    mutationCapability: 'managed-app-schema-restore-preserve-target-native-auth',
+    failureDisposition: 'terminal-recovery-failed-on-unknown-or-failure',
+    recoveryDependency: 'validated-r3'
+  },
+  REMEDIATION_RECOVERY_VERIFIED: {
+    managedEnvironmentNames: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    disposableEnvironmentNames: [
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+    ],
+    privateInputs: ['signed-preparation', 'authority-key-fd', 'validated-r3-stage-state'],
+    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes'],
+    databaseMode: 'read-only',
+    expectedTargetState: 'exact-r3-with-target-native-auth',
+    mutationCapability: 'auth-session-lifecycle-only',
+    failureDisposition: 'terminal-recovery-failed',
+    recoveryDependency: 'validated-r3'
+  }
+});
+
+function remediationStageEnvironmentNames(stage, { disposable = false } = {}) {
+  const census = REMEDIATION_STAGE_INPUT_CENSUS[stage];
+  if (!census) throw categoricalError('DEV_REMEDIATION_OPERATION_STAGE_INVALID');
+  return [...(disposable ? census.disposableEnvironmentNames : census.managedEnvironmentNames)];
+}
+
 function categoricalError(code) {
   const error = new Error(code);
   error.code = code;
@@ -275,7 +431,7 @@ function buildRecoveryRemediationContract({
       exactSmokeOrganizationRequired: true,
       exactDefaultWarehouseRequired: true,
       role: 'owner',
-      readOnlyRoutes: ['/auth/context', '/jobs/list'],
+      readOnlyRoutes: REMEDIATION_READ_ONLY_ROUTES,
       businessMutations: false,
       ephemeralSessionExceptionOnly: true
     },
@@ -357,7 +513,9 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.realQuietWindow !== true || details.freshEdgeExact !== true ||
     details.freshSideEffectsSafe !== true || details.freshAuthentication !== true ||
     details.smokeUserExact !== true || details.smokeOrganizationExact !== true ||
-    details.defaultWarehouseExact !== true || details.authSemanticParity !== true
+    details.defaultWarehouseExact !== true || details.filmCatalogReadSucceeded !== true ||
+    details.boxSearchReadSucceeded !== true || details.jobsReadSucceeded !== true ||
+    details.authSemanticParity !== true
   )) throw categoricalError('DEV_REMEDIATION_PREBOUNDARY_HARDENING_INCOMPLETE');
   if (stage === 'R3_CAPTURE' && (
     details.coherentSnapshot !== true || details.encrypted !== true || details.authenticatedKeyWrapped !== true
@@ -376,10 +534,12 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.nativeSmokeActiveOwner !== true || details.freshAuthentication !== true ||
     details.authContextOwner !== true || details.smokeUserExact !== true ||
     details.smokeOrganizationExact !== true || details.defaultWarehouseExact !== true ||
-    details.authSemanticParity !== true
+    details.filmCatalogReadSucceeded !== true || details.boxSearchReadSucceeded !== true ||
+    details.jobsReadSucceeded !== true || details.authSemanticParity !== true
   )) throw categoricalError('DEV_REMEDIATION_AUTH_RUNTIME_INCOMPLETE');
   if (stage === 'APPLICATION_RUNTIME_VERIFIED' && (
-    details.readOnlyApiSucceeded !== true ||
+    details.readOnlyApiSucceeded !== true || details.filmCatalogReadSucceeded !== true ||
+    details.boxSearchReadSucceeded !== true || details.jobsReadSucceeded !== true ||
     details.businessMutations !== 0
   )) throw categoricalError('DEV_REMEDIATION_APPLICATION_RUNTIME_INCOMPLETE');
   if (stage === 'FINAL_Y2_PARITY' && (
@@ -392,7 +552,9 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.r3Exact !== true || details.unexplainedDifferences !== 0 ||
     details.freshAuthentication !== true || details.smokeUserExact !== true ||
     details.smokeOrganizationExact !== true || details.defaultWarehouseExact !== true ||
-    details.readOnlyApiSucceeded !== true || details.authSemanticParity !== true
+    details.filmCatalogReadSucceeded !== true || details.boxSearchReadSucceeded !== true ||
+    details.jobsReadSucceeded !== true || details.readOnlyApiSucceeded !== true ||
+    details.authSemanticParity !== true
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_PARITY_INCOMPLETE');
   return evidence;
 }
@@ -402,6 +564,8 @@ export {
   REMEDIATION_CONTRACT_FORMAT,
   REMEDIATION_EVIDENCE_FORMAT,
   REMEDIATION_OPERATION_STAGES,
+  REMEDIATION_READ_ONLY_ROUTES,
+  REMEDIATION_STAGE_INPUT_CENSUS,
   REMEDIATION_PROVENANCE_BRIDGE_FORMAT,
   REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
   REQUIRED_DIAGNOSTIC_TOOLING_COMMIT,
@@ -411,6 +575,7 @@ export {
   buildRecoveryRemediationContract,
   normalizeRemediationProvenanceBridge,
   normalizeOriginalBinding,
+  remediationStageEnvironmentNames,
   verifyAuthenticatedRecoveryRemediationContract,
   verifyRecoveryRemediationContract
 };
