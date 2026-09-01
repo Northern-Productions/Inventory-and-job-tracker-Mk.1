@@ -33,6 +33,7 @@ import { prepareDevRecoveryRemediation } from './dev-recovery-remediation-prepar
 import { readRemediationJournal } from './dev-recovery-remediation-state.mjs';
 import { writePrivateBytesExclusive } from './private-artifacts.mjs';
 import { applyManagedAuthPrivilegeProfile } from './managed-restore-rehearsal.mjs';
+import { verifyManagedOverlayPackageForExecution } from './managed-restore.mjs';
 
 const { Client } = pg;
 
@@ -68,6 +69,18 @@ function directoryByteDigest(root) {
   };
   visit(root);
   return `sha256:${hash.digest('hex')}`;
+}
+
+function replacePrivateBytesDurably(filePath, bytes) {
+  const descriptor = fs.openSync(filePath, 'r+');
+  try {
+    fs.ftruncateSync(descriptor, 0);
+    fs.writeFileSync(descriptor, bytes);
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+  fs.chmodSync(filePath, 0o600);
 }
 
 async function startLocalApplicationHarness() {
@@ -153,6 +166,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
   const root = temporaryRoot('dev-recovery-remediation-e2e-');
   const key = crypto.randomBytes(32);
   const clusters = [];
+  const timings = { r3Capture: [], r3Validated: [], remediation: [], recovery: [] };
   const harness = await startLocalApplicationHarness();
   try {
     const keyPath = path.join(root, 'authority.private.bin');
@@ -191,10 +205,9 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       try {
         const preference = await nativePreferenceClient.query(`
           insert into app.user_preferences(org_id,user_id,default_warehouse,updated_by)
-          select $1::uuid,$2::uuid,w.code,'disposable-remediation-e2e'
-            from app.warehouses w where w.org_id=$1::uuid order by w.code limit 1
+          values ($1::uuid,$2::uuid,'','disposable-remediation-e2e')
           on conflict (org_id,user_id) do update
-            set default_warehouse=excluded.default_warehouse,
+            set default_warehouse='',
                 updated_at=clock_timestamp(),
                 updated_by=excluded.updated_by
           returning default_warehouse`, [
@@ -202,6 +215,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
           preparation.fixtureAuthority.smokeActorId
         ]);
         assert.equal(preference.rowCount, 1);
+        assert.equal(preference.rows[0].default_warehouse, '');
       } finally {
         await nativePreferenceClient.end();
       }
@@ -338,34 +352,59 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     const success = await prepareRemediation('success', successFailure);
     const successState = path.join(root, 'success-remediation-state');
     let completed;
+    const remediationStarted = performance.now();
     try {
       completed = await runDevRecoveryRemediation({
         rootDirectory: successState,
         key,
         contract: success.contract,
-        executor: success.executor
+        executor: {
+          async run(stage, context) {
+            if (stage === 'AUTH_RUNTIME_VERIFIED') harness.failOneLogout();
+            const started = performance.now();
+            try {
+              return await success.executor.run(stage, context);
+            } finally {
+              if (stage === 'R3_CAPTURE') timings.r3Capture.push(performance.now() - started);
+              if (stage === 'R3_VALIDATED') timings.r3Validated.push(performance.now() - started);
+            }
+          }
+        }
       });
     } catch (error) {
       throw Object.assign(new Error(
         `DISPOSABLE_SUCCESS_REMEDIATION_${error?.failedStage || 'UNKNOWN'}_${error?.causeCategory || error?.code || 'UNKNOWN'}`
       ), { code: 'DISPOSABLE_SUCCESS_REMEDIATION_FAILED' });
     }
+    timings.remediation.push(performance.now() - remediationStarted);
     assert.equal(completed.classification, 'DEV_RECOVERY_REMEDIATION_COMPLETE');
     assert.equal(readRemediationJournal(successState, key).current.state, 'REMEDIATION_COMPLETE');
+    assert.equal(readStageState({
+      rootDirectory: successState,
+      key,
+      attemptId: success.contract.remediationAttemptId,
+      stage: 'FINAL_Y2_PARITY'
+    }).ephemeralSessionException, true);
     assert.equal(directoryByteDigest(successFailure.stateDirectory), successFailure.immutableDigest);
 
     const recoveryFailure = await createFailedRecovery('r3-recovery');
-    harness.failOneLogout();
     const recovery = await prepareRemediation('r3-recovery', recoveryFailure);
     const recoveryState = path.join(root, 'r3-recovery-remediation-state');
     await assert.rejects(runDevRecoveryRemediation({
       rootDirectory: recoveryState,
       key,
       contract: recovery.contract,
-      executor: {
-        async run(stage, context) {
-          const evidence = await recovery.executor.run(stage, context);
-          if (stage === 'AUTH_RUNTIME_VERIFIED') {
+        executor: {
+          async run(stage, context) {
+            const started = performance.now();
+            let evidence;
+            try {
+              evidence = await recovery.executor.run(stage, context);
+            } finally {
+              if (stage === 'R3_CAPTURE') timings.r3Capture.push(performance.now() - started);
+              if (stage === 'R3_VALIDATED') timings.r3Validated.push(performance.now() - started);
+            }
+            if (stage === 'AUTH_RUNTIME_VERIFIED') {
             throw Object.assign(new Error('DISPOSABLE_POST_COMMIT_FAILURE'), {
               code: 'DISPOSABLE_POST_COMMIT_FAILURE', transactionOutcome: 'not_started'
             });
@@ -376,12 +415,73 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     }), (error) => error.code === 'DEV_REMEDIATION_RECOVERY_REQUIRED' &&
       error.transactionOutcome === 'committed');
     assert.equal(readRemediationJournal(recoveryState, key).current.state, 'REMEDIATION_RECOVERY_REQUIRED');
-    const recovered = await runDevRecoveryRemediationRecovery({
+    const r3 = readStageState({
       rootDirectory: recoveryState,
       key,
-      contract: recovery.contract,
-      executor: recovery.executor
+      attemptId: recovery.contract.remediationAttemptId,
+      stage: 'R3_VALIDATED'
     });
+    const packageVerification = {
+      connectionString: recoveryFailure.preparation.targetBefore.session.connectionString,
+      packageResult: r3.recoveryPackage,
+      targetGuard: { mode: 'disposable-managed-local', loopback: true }
+    };
+    assert.equal(verifyManagedOverlayPackageForExecution(packageVerification).authenticated, true);
+    const scriptPath = r3.recoveryPackage.paths.scriptPath;
+    const scriptBytes = fs.readFileSync(scriptPath);
+    try {
+      const script = scriptBytes.toString('utf8');
+      const authStage = script
+        .split('\\echo MANAGED_OVERLAY_STAGE_AUTH_PURGE\n')[1]
+        ?.split('\\echo MANAGED_OVERLAY_STAGE_AUTH_PRESERVED')[0];
+      assert.ok(authStage);
+      assert.equal(r3.recoveryPackage.authMode, 'preserve-target-native-auth');
+      const hasAuthTableDml = /^\s*(?:insert\s+into|update|delete\s+from|truncate(?:\s+table)?)\s+auth\./im
+        .test(authStage);
+      assert.equal(hasAuthTableDml, false);
+      replacePrivateBytesDurably(scriptPath, Buffer.concat([scriptBytes, Buffer.from('\n-- tamper\n')]));
+      assert.throws(
+        () => verifyManagedOverlayPackageForExecution(packageVerification),
+        { code: 'MANAGED_OVERLAY_ARTIFACT_MISMATCH' }
+      );
+      replacePrivateBytesDurably(scriptPath, scriptBytes);
+    } finally {
+      scriptBytes.fill(0);
+    }
+    const manifestPath = r3.recoveryPackage.paths.manifestPath;
+    const heldManifestPath = path.join(path.dirname(manifestPath), 'held-package-artifact.private');
+    fs.renameSync(manifestPath, heldManifestPath);
+    try {
+      assert.throws(() => verifyManagedOverlayPackageForExecution(packageVerification));
+    } finally {
+      fs.renameSync(heldManifestPath, manifestPath);
+    }
+    assert.equal(verifyManagedOverlayPackageForExecution(packageVerification).authenticated, true);
+    const recoveryStarted = performance.now();
+    let recovered;
+    try {
+      recovered = await runDevRecoveryRemediationRecovery({
+        rootDirectory: recoveryState,
+        key,
+        contract: recovery.contract,
+        executor: {
+          async run(stage, context) {
+            try {
+              return await recovery.executor.run(stage, context);
+            } catch (error) {
+              const category = error?.operationFailure?.category;
+              if (category) throw Object.assign(new Error(category), { code: category });
+              throw error;
+            }
+          }
+        }
+      });
+    } catch (error) {
+      throw Object.assign(new Error(
+        `DISPOSABLE_R3_RECOVERY_${error?.causeCategory || error?.code || 'UNKNOWN'}`
+      ), { code: 'DISPOSABLE_R3_RECOVERY_FAILED' });
+    }
+    timings.recovery.push(performance.now() - recoveryStarted);
     assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
     assert.equal(readRemediationJournal(recoveryState, key).current.state, 'REMEDIATION_RECOVERED');
     assert.equal(directoryByteDigest(recoveryFailure.stateDirectory), recoveryFailure.immutableDigest);
@@ -394,6 +494,17 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       '/functions/v1/api?path=%2Fjobs%2Flist&limit=1'
     ]) assert.equal(harness.seen.filter((entry) => entry === `GET ${route}`).length, 7);
     assert.ok(harness.seen.every((entry) => /^(?:GET|POST) \//.test(entry)));
+    const measured = {
+      r3CaptureMs: Math.max(...timings.r3Capture),
+      r3ValidatedMs: Math.max(...timings.r3Validated),
+      remediationMs: Math.max(...timings.remediation),
+      recoveryMs: Math.max(...timings.recovery)
+    };
+    assert.ok(measured.r3CaptureMs < 30 * 60_000);
+    assert.ok(measured.r3ValidatedMs < 30 * 60_000);
+    assert.ok(measured.remediationMs < 2 * 60 * 60_000);
+    assert.ok(measured.recoveryMs < 2 * 60 * 60_000);
+    console.log(`recovery remediation safe timings ${JSON.stringify(measured)}`);
   } finally {
     await harness.close();
     for (const clusterRoot of clusters) {

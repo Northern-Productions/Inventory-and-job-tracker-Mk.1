@@ -1,5 +1,9 @@
 import { canonicalDigest } from '../readonly-diagnostics.mjs';
-import { assertRecoveryRemediationEvidence, verifyRecoveryRemediationContract } from './dev-recovery-remediation-contract.mjs';
+import {
+  assertRecoveryRemediationContractFresh,
+  assertRecoveryRemediationEvidence,
+  verifyRecoveryRemediationContract
+} from './dev-recovery-remediation-contract.mjs';
 import {
   REMEDIATION_TRANSITIONS,
   appendRemediationState,
@@ -8,6 +12,7 @@ import {
   publishRemediationMarker,
   publishRemediationRecoveryMarker,
   readRemediationJournal,
+  reconcileRemediationBoundaryInterruption,
   remediationRestartDisposition
 } from './dev-recovery-remediation-state.mjs';
 
@@ -58,9 +63,12 @@ async function runDevRecoveryRemediation({
   key,
   contract,
   executor,
-  afterDurableTransition
+  afterDurableTransition,
+  afterBoundaryPublished,
+  now = () => Date.now()
 } = {}) {
   verifyRecoveryRemediationContract(contract);
+  assertRecoveryRemediationContractFresh(contract, now());
   requireExecutor(executor);
   let journal = initializeRemediationJournal({
     rootDirectory,
@@ -95,10 +103,16 @@ async function runDevRecoveryRemediation({
 
     currentStage = 'R3_VALIDATED';
     evidence = await runStage(executor, currentStage, context);
+    assertRecoveryRemediationContractFresh(contract, now());
     publishRemediationMarker(rootDirectory, key, {
       originalBinding: contract.original,
+      preparationDigest: evidence.details.preparationDigest,
+      operationInventoryDigest: evidence.details.operationInventoryDigest,
+      stageWorkerDigest: evidence.details.stageWorkerDigest,
       r3RecoveryId: evidence.details.r3RecoveryId,
       r3ComponentDigest: evidence.details.r3ComponentDigest,
+      r3RecoveryPackageDigest: evidence.details.r3RecoveryPackageDigest,
+      r3StageBindingDigest: evidence.details.r3StageBindingDigest,
       toolingCommit: contract.candidate.toolingCommit,
       toolingTree: contract.candidate.toolingTree
     });
@@ -108,6 +122,7 @@ async function runDevRecoveryRemediation({
     await notify(afterDurableTransition, journal);
 
     publishRemediationBoundary(rootDirectory, key);
+    if (typeof afterBoundaryPublished === 'function') await afterBoundaryPublished();
     journal = appendRemediationState(rootDirectory, key, 'DESTRUCTIVE_BOUNDARY', {
       evidenceDigest: canonicalDigest(readRemediationJournal(rootDirectory, key).boundary)
     });
@@ -189,17 +204,43 @@ async function runDevRecoveryRemediation({
   }
 }
 
-async function runDevRecoveryRemediationRecovery({ rootDirectory, key, contract, executor } = {}) {
+async function runDevRecoveryRemediationRecovery({
+  rootDirectory,
+  key,
+  contract,
+  executor,
+  afterRecoveryPrecheck,
+  afterRecoveryMarkerPublished
+} = {}) {
   verifyRecoveryRemediationContract(contract);
   requireExecutor(executor);
-  if (remediationRestartDisposition(rootDirectory, key) !== 'REMEDIATION_RECOVERY_REQUIRED') {
+  const frozen = reconcileRemediationBoundaryInterruption(rootDirectory, key, {
+    contractDigest: contract.contractDigest,
+    operationInventoryDigest: contract.operationInventoryDigest,
+    toolingCommit: contract.candidate.toolingCommit,
+    toolingTree: contract.candidate.toolingTree
+  });
+  if (
+    remediationRestartDisposition(rootDirectory, key) !== 'REMEDIATION_RECOVERY_REQUIRED' ||
+    frozen.current.contractDigest !== contract.contractDigest ||
+    frozen.marker?.operationInventoryDigest !== contract.operationInventoryDigest ||
+    frozen.marker?.toolingCommit !== contract.candidate.toolingCommit ||
+    frozen.marker?.toolingTree !== contract.candidate.toolingTree
+  ) {
     throw categoricalError('DEV_REMEDIATION_RECOVERY_NOT_PERMITTED');
   }
+  const context = { rootDirectory: frozen.paths.root, contract };
+  const precheck = await runStage(executor, 'REMEDIATION_RECOVERY_PRECHECK', context);
+  if (typeof afterRecoveryPrecheck === 'function') await afterRecoveryPrecheck();
   publishRemediationRecoveryMarker(rootDirectory, key);
+  if (typeof afterRecoveryMarkerPublished === 'function') await afterRecoveryMarkerPublished();
   let journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_STARTED', {
-    evidenceDigest: canonicalDigest(readRemediationJournal(rootDirectory, key).recovery)
+    evidenceDigest: canonicalDigest({
+      precheck,
+      marker: readRemediationJournal(rootDirectory, key).recovery
+    })
   });
-  const context = { rootDirectory: journal.paths.root, contract };
+  context.rootDirectory = journal.paths.root;
   try {
     journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE');
     let evidence = await runStage(executor, 'REMEDIATION_RECOVERY_DATABASE', context);

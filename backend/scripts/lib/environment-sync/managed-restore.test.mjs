@@ -651,7 +651,7 @@ test('exact Y2 Auth recovery is authenticated, fixed-table, target-bound, and re
   }
 });
 
-test('remediation preserve-Auth mode emits no Auth DML and verifies every managed Auth table', () => {
+test('remediation preserve-Auth mode emits no Auth DML and bounds only native-Smoke volatility', () => {
   const key = crypto.randomBytes(32);
   const digest = `sha256:${crypto.createHash('sha256').update('').digest('hex')}`;
   const evidence = {
@@ -686,7 +686,13 @@ test('remediation preserve-Auth mode emits no Auth DML and verifies every manage
     });
     assert.match(sql, /MANAGED_OVERLAY_STAGE_AUTH_PRESERVED/);
     assert.match(sql, /managed_auth_preserved/);
-    assert.equal((sql.match(/DEV_Y2_AUTH_RECOVERY_POSTCHECK_MISMATCH/g) || []).length, CURRENT_AUTH_TABLES.length);
+    assert.equal(
+      (sql.match(/DEV_Y2_AUTH_RECOVERY_POSTCHECK_MISMATCH/g) || []).length,
+      CURRENT_AUTH_TABLES.length - 4
+    );
+    assert.equal((sql.match(/DEV_REMEDIATION_AUTH_PRESERVATION_COUNT_MISMATCH/g) || []).length, 2);
+    assert.equal((sql.match(/DEV_REMEDIATION_AUTH_PRESERVATION_EPHEMERA_MISMATCH/g) || []).length, 2);
+    assert.match(sql, /v_auth_count > 1/);
     assert.doesNotMatch(sql, /(?:delete from|insert into|update|truncate) auth\./i);
   } finally {
     key.fill(0);

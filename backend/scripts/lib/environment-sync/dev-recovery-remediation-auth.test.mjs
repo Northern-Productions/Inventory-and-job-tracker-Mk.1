@@ -9,10 +9,33 @@ import {
   LIVE_SUPABASE_ORIGIN,
   assertExactRemediationUrls,
   assertRemediationAuthTransition,
+  captureQuietWindowFromClient,
   captureRemediationAuthCertificateFromClient,
   fetchFreshEdgeIdentity,
   runFreshAuthenticationCanary
 } from './dev-recovery-remediation-auth.mjs';
+
+test('recovery quiet-window census rejects each live-like activity category independently', async () => {
+  const categories = ['active_clients', 'idle_in_transaction', 'lock_waiters', 'write_shaped'];
+  for (const category of categories) {
+    const row = Object.fromEntries(categories.map((name) => [name, name === category ? 1 : 0]));
+    await assert.rejects(
+      captureQuietWindowFromClient({ query: async () => ({ rows: [row] }) }),
+      { code: 'DEV_REMEDIATION_QUIET_WINDOW_NOT_QUIET' }
+    );
+  }
+  assert.deepEqual(
+    await captureQuietWindowFromClient({
+      query: async () => ({ rows: [{
+        active_clients: 0,
+        idle_in_transaction: 0,
+        lock_waiters: 0,
+        write_shaped: 0
+      }] })
+    }),
+    { quiet: true, activeClients: 0, idleInTransaction: 0, lockWaiters: 0, writeShaped: 0 }
+  );
+});
 
 function certificate({
   lastSignIn = '2026-08-29T10:00:00.000Z',
@@ -89,6 +112,17 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   assert.throws(() => assertRemediationAuthTransition(before, certificate({
     lastSignIn: '2026-08-29T10:01:00.000Z', sessions: ['one', 'two']
   }), { logoutSucceeded: false }), { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT' });
+  for (const mutate of [
+    (value) => { value.stable.copiedIdentities.digest = 'changed-identities'; },
+    (value) => { value.stable.nativeUsers.digest = 'changed-native-stable'; },
+    (value) => { value.stable.relationshipDigest = 'changed-owner-relationship'; }
+  ]) {
+    const changed = certificate({ lastSignIn: '2026-08-29T10:01:00.000Z' });
+    mutate(changed);
+    assert.throws(() => assertRemediationAuthTransition(before, changed, {
+      logoutSucceeded: true
+    }), { code: 'DEV_REMEDIATION_AUTH_STABLE_STATE_DRIFT' });
+  }
 });
 
 test('semantic Auth certificate preserves an absent warehouse preference as the exact empty default', async () => {

@@ -52,6 +52,7 @@ import {
   writePrivateJsonExclusive
 } from './private-artifacts.mjs';
 import { signPayload } from './dev-certified-state.mjs';
+import { readRemediationJournal } from './dev-recovery-remediation-state.mjs';
 
 const REMEDIATION_PREPARATION_FORMAT = 'dev-recovery-remediation-preparation-v1';
 const REMEDIATION_REAL_STAGE_WORKER = fileURLToPath(
@@ -165,7 +166,7 @@ function authenticateRemediationPreparation(preparation, key) {
   };
 }
 
-function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
+function verifyRemediationPreparationStructure(record, key, expectedAttemptId = '') {
   const preparation = record?.preparation;
   const version = preparation?.version;
   if (
@@ -181,8 +182,7 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
     preparation?.original?.binding?.retryAllowed !== false ||
     preparation?.currentObserved?.certificateDigest !== canonicalDigest(
       Object.fromEntries(Object.entries(preparation.currentObserved || {}).filter(([name]) => name !== 'certificateDigest'))
-    ) ||
-    Date.now() > Date.parse(preparation.expiresAt)
+    )
   ) throw categoricalError('DEV_REMEDIATION_PREPARATION_INVALID');
   if (version >= 2) {
     const bridge = normalizeRemediationProvenanceBridge(preparation.provenanceBridge);
@@ -214,6 +214,54 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '') {
     !Object.hasOwn(preparation.targetSession || {}, 'smokeDefaultWarehouse') ||
     typeof preparation.targetSession.smokeDefaultWarehouse !== 'string'
   )) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_HARDENING_INVALID');
+  return preparation;
+}
+
+function verifyRemediationPreparation(record, key, expectedAttemptId = '', { now = Date.now() } = {}) {
+  const preparation = verifyRemediationPreparationStructure(record, key, expectedAttemptId);
+  if (!Number.isFinite(now) || now > Date.parse(preparation.expiresAt)) {
+    throw categoricalError('DEV_REMEDIATION_PREPARATION_INVALID');
+  }
+  return preparation;
+}
+
+const FROZEN_STAGE_STATES = Object.freeze({
+  RECOVERY_CLI: 'REMEDIATION_RECOVERY_REQUIRED',
+  RESTORE_ORIGINAL_Y2: 'RESTORE_ORIGINAL_Y2',
+  AUTH_RUNTIME_VERIFIED: 'AUTH_RUNTIME_VERIFIED',
+  APPLICATION_RUNTIME_VERIFIED: 'APPLICATION_RUNTIME_VERIFIED',
+  FINAL_Y2_PARITY: 'FINAL_Y2_PARITY',
+  REMEDIATION_RECOVERY_PRECHECK: 'REMEDIATION_RECOVERY_REQUIRED',
+  REMEDIATION_RECOVERY_DATABASE: 'REMEDIATION_RECOVERY_DATABASE',
+  REMEDIATION_RECOVERY_VERIFIED: 'REMEDIATION_RECOVERY_VERIFIED'
+});
+
+function verifyFrozenRemediationPreparation(record, key, {
+  rootDirectory,
+  expectedAttemptId = '',
+  contractDigest = '',
+  operationInventoryDigest = '',
+  stage
+} = {}) {
+  const preparation = verifyRemediationPreparationStructure(record, key, expectedAttemptId);
+  const expectedState = FROZEN_STAGE_STATES[stage];
+  if (!expectedState) throw categoricalError('DEV_REMEDIATION_FROZEN_STAGE_INVALID');
+  const journal = readRemediationJournal(rootDirectory, key);
+  const marker = journal.marker;
+  const boundary = journal.boundary;
+  if (
+    journal.current.state !== expectedState || !marker || !boundary ||
+    marker.preparationDigest !== canonicalDigest(preparation) ||
+    marker.contractDigest !== contractDigest ||
+    marker.operationInventoryDigest !== operationInventoryDigest ||
+    marker.operationInventoryDigest !== preparation.operationInventoryDigest ||
+    marker.stageWorkerDigest !== preparation.stageWorker.digest ||
+    marker.toolingCommit !== preparation.candidate.toolingCommit ||
+    marker.toolingTree !== preparation.candidate.toolingTree ||
+    marker.remediationAttemptId !== preparation.remediationAttemptId ||
+    (['RECOVERY_CLI', 'REMEDIATION_RECOVERY_PRECHECK'].includes(stage) && journal.recovery) ||
+    (['REMEDIATION_RECOVERY_DATABASE', 'REMEDIATION_RECOVERY_VERIFIED'].includes(stage) && !journal.recovery)
+  ) throw categoricalError('DEV_REMEDIATION_FROZEN_PREPARATION_MISMATCH');
   return preparation;
 }
 
@@ -477,5 +525,6 @@ export {
   assertFreshAuthConfiguration,
   authenticateRemediationPreparation,
   prepareDevRecoveryRemediation,
+  verifyFrozenRemediationPreparation,
   verifyRemediationPreparation
 };

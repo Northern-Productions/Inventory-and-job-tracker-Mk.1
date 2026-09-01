@@ -47,6 +47,14 @@ function categoricalError(code) {
   return error;
 }
 
+function assertSha256(value, code) {
+  if (!/^sha256:[0-9a-f]{64}$/.test(String(value || ''))) throw categoricalError(code);
+}
+
+function assertGitIdentity(value, code) {
+  if (!/^[0-9a-f]{40}$/.test(String(value || ''))) throw categoricalError(code);
+}
+
 function assertKey(key) {
   if (!Buffer.isBuffer(key) || key.length !== 32) throw categoricalError('DEV_REMEDIATION_STATE_KEY_INVALID');
 }
@@ -142,6 +150,33 @@ function readRemediationJournal(rootDirectory, key, { verifyProtection = true } 
       sidecar.originalBindingDigest !== records[0].originalBindingDigest
     ) throw categoricalError('DEV_REMEDIATION_SIDECAR_BINDING_MISMATCH');
   }
+  if (marker) {
+    for (const value of [
+      marker.preparationDigest,
+      marker.operationInventoryDigest,
+      marker.stageWorkerDigest,
+      marker.r3ComponentDigest,
+      marker.r3RecoveryPackageDigest,
+      marker.r3StageBindingDigest
+    ]) assertSha256(value, 'DEV_REMEDIATION_MARKER_FROZEN_BINDING_INVALID');
+    assertGitIdentity(marker.toolingCommit, 'DEV_REMEDIATION_MARKER_TOOLING_INVALID');
+    assertGitIdentity(marker.toolingTree, 'DEV_REMEDIATION_MARKER_TOOLING_INVALID');
+  }
+  if (boundary && (
+    !marker || boundary.markerDigest !== canonicalDigest(marker) ||
+    boundary.preparationDigest !== marker.preparationDigest ||
+    boundary.operationInventoryDigest !== marker.operationInventoryDigest ||
+    boundary.stageWorkerDigest !== marker.stageWorkerDigest ||
+    boundary.r3RecoveryPackageDigest !== marker.r3RecoveryPackageDigest ||
+    boundary.r3StageBindingDigest !== marker.r3StageBindingDigest
+  )) throw categoricalError('DEV_REMEDIATION_BOUNDARY_FROZEN_BINDING_INVALID');
+  if (recovery && (
+    !marker || !boundary || recovery.markerDigest !== canonicalDigest(marker) ||
+    recovery.boundaryDigest !== canonicalDigest(boundary) ||
+    recovery.r3RecoveryId !== marker.r3RecoveryId ||
+    recovery.r3RecoveryPackageDigest !== marker.r3RecoveryPackageDigest ||
+    recovery.r3StageBindingDigest !== marker.r3StageBindingDigest
+  )) throw categoricalError('DEV_REMEDIATION_RECOVERY_FROZEN_BINDING_INVALID');
   return { paths, records, current: records.at(-1), marker, boundary, recovery };
 }
 
@@ -212,8 +247,13 @@ function appendRemediationState(rootDirectory, key, state, {
 
 function publishRemediationMarker(rootDirectory, key, {
   originalBinding,
+  preparationDigest,
+  operationInventoryDigest,
+  stageWorkerDigest,
   r3RecoveryId,
   r3ComponentDigest,
+  r3RecoveryPackageDigest,
+  r3StageBindingDigest,
   toolingCommit,
   toolingTree,
   recordedAt = new Date().toISOString()
@@ -232,8 +272,13 @@ function publishRemediationMarker(rootDirectory, key, {
     originalRefreshAttemptId: originalBinding.refreshAttemptId,
     originalY2RecoveryId: originalBinding.y2RecoveryId,
     originalFailedRecoveryMarkerDigest: originalBinding.failedRecoveryMarkerDigest,
+    preparationDigest,
+    operationInventoryDigest,
+    stageWorkerDigest,
     r3RecoveryId,
     r3ComponentDigest,
+    r3RecoveryPackageDigest,
+    r3StageBindingDigest,
     toolingCommit,
     toolingTree,
     markedAt: recordedAt,
@@ -256,6 +301,12 @@ function publishRemediationBoundary(rootDirectory, key, recordedAt = new Date().
     originalBindingDigest: journal.current.originalBindingDigest,
     target: 'dev',
     projectRef: DEV_PROJECT_REF,
+    markerDigest: canonicalDigest(journal.marker),
+    preparationDigest: journal.marker.preparationDigest,
+    operationInventoryDigest: journal.marker.operationInventoryDigest,
+    stageWorkerDigest: journal.marker.stageWorkerDigest,
+    r3RecoveryPackageDigest: journal.marker.r3RecoveryPackageDigest,
+    r3StageBindingDigest: journal.marker.r3StageBindingDigest,
     crossedAt: recordedAt,
     recoveryRequiredOnInterruption: true
   };
@@ -276,7 +327,11 @@ function publishRemediationRecoveryMarker(rootDirectory, key, recordedAt = new D
     originalBindingDigest: journal.current.originalBindingDigest,
     target: 'dev',
     projectRef: DEV_PROJECT_REF,
+    markerDigest: canonicalDigest(journal.marker),
+    boundaryDigest: canonicalDigest(journal.boundary),
     r3RecoveryId: journal.marker.r3RecoveryId,
+    r3RecoveryPackageDigest: journal.marker.r3RecoveryPackageDigest,
+    r3StageBindingDigest: journal.marker.r3StageBindingDigest,
     startedAt: recordedAt,
     retryAllowed: false
   };
@@ -331,9 +386,43 @@ function remediationRestartDisposition(rootDirectory, key) {
   if (journal.current.state === 'REMEDIATION_COMPLETE') return 'REMEDIATION_COMPLETE';
   if (journal.current.state === 'REMEDIATION_RECOVERED') return 'REMEDIATION_RECOVERED';
   if (journal.current.state === 'REMEDIATION_RECOVERY_FAILED') return 'REMEDIATION_RECOVERY_FAILED';
+  if (journal.recovery) return 'REMEDIATION_RECOVERY_FROZEN';
   if (journal.boundary) return 'REMEDIATION_RECOVERY_REQUIRED';
   if (journal.marker) return 'PRE_MUTATION_REMEDIATION_FROZEN';
   return 'PRE_MUTATION_ABORT_ONLY';
+}
+
+function reconcileRemediationBoundaryInterruption(rootDirectory, key, {
+  contractDigest,
+  operationInventoryDigest,
+  toolingCommit,
+  toolingTree
+} = {}) {
+  let journal = readRemediationJournal(rootDirectory, key);
+  if (!journal.boundary || !journal.marker || journal.recovery) return journal;
+  if (
+    journal.current.contractDigest !== contractDigest ||
+    journal.marker.operationInventoryDigest !== operationInventoryDigest ||
+    journal.marker.toolingCommit !== toolingCommit ||
+    journal.marker.toolingTree !== toolingTree
+  ) throw categoricalError('DEV_REMEDIATION_BOUNDARY_RECONCILIATION_BINDING_INVALID');
+  if (journal.current.state === 'REMEDIATION_MARKED') {
+    journal = appendRemediationState(rootDirectory, key, 'DESTRUCTIVE_BOUNDARY', {
+      evidenceDigest: canonicalDigest(journal.boundary),
+      failureCategory: 'PROCESS_INTERRUPTION_AFTER_BOUNDARY_PUBLICATION',
+      transactionOutcome: 'not_started'
+    });
+  }
+  if (
+    journal.current.state !== 'REMEDIATION_RECOVERY_REQUIRED' &&
+    REMEDIATION_TRANSITIONS[journal.current.state]?.includes('REMEDIATION_RECOVERY_REQUIRED')
+  ) {
+    journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_REQUIRED', {
+      failureCategory: 'PROCESS_INTERRUPTION_AFTER_DESTRUCTIVE_BOUNDARY',
+      transactionOutcome: journal.current.transactionOutcome === 'committed' ? 'committed' : 'ambiguous'
+    });
+  }
+  return journal;
 }
 
 export {
@@ -350,5 +439,6 @@ export {
   publishRemediationMarker,
   publishRemediationRecoveryMarker,
   readRemediationJournal,
+  reconcileRemediationBoundaryInterruption,
   remediationRestartDisposition
 };

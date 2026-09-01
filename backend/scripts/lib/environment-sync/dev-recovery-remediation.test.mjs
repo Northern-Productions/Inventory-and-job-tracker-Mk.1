@@ -36,6 +36,7 @@ import {
   REMEDIATION_READ_ONLY_ROUTES,
   REMEDIATION_STAGE_INPUT_CENSUS,
   REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
+  assertRecoveryRemediationContractFresh,
   assertRecoveryRemediationEvidence,
   authenticateRecoveryRemediationContract,
   buildRemediationProvenanceBridge,
@@ -59,6 +60,7 @@ import {
   REMEDIATION_REAL_STAGE_WORKER,
   assertFreshAuthConfiguration,
   authenticateRemediationPreparation,
+  verifyFrozenRemediationPreparation,
   verifyRemediationPreparation
 } from './dev-recovery-remediation-preparation.mjs';
 import { assertRecoveryOwnedStateEqual } from './dev-recovery-remediation-shared.mjs';
@@ -102,9 +104,13 @@ function originalBinding() {
   };
 }
 
-function contract(attemptId = `dev-recovery-remediation-${crypto.randomBytes(8).toString('hex')}`) {
-  const preparedAt = new Date(Date.now() - 1_000).toISOString();
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+function contract(
+  attemptId = `dev-recovery-remediation-${crypto.randomBytes(8).toString('hex')}`,
+  {
+    preparedAt = new Date(Date.now() - 1_000).toISOString(),
+    expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+  } = {}
+) {
   return buildRecoveryRemediationContract({
     remediationAttemptId: attemptId,
     toolingCommit: 'a'.repeat(40),
@@ -140,8 +146,13 @@ function details(stage) {
   if (stage === 'R3_CAPTURE') return { coherentSnapshot: true, encrypted: true, authenticatedKeyWrapped: true };
   if (stage === 'R3_VALIDATED') {
     return {
+      preparationDigest: digest('preparation'),
+      operationInventoryDigest: digest('inventory-placeholder'),
+      stageWorkerDigest: digest('worker'),
       r3RecoveryId: 'r3-dev-recovery-remediation-synthetic',
       r3ComponentDigest: digest('r3'),
+      r3RecoveryPackageDigest: digest('r3-package'),
+      r3StageBindingDigest: digest('r3-stage'),
       digestVerified: true,
       canonicalRestoreTested: true,
       currentEqualsR3: true,
@@ -149,7 +160,17 @@ function details(stage) {
       authMutationScope: 'preserve-target-native-auth',
       realQuietWindowRechecked: true,
       freshEdgeRechecked: true,
-      freshSideEffectsRechecked: true
+      freshSideEffectsRechecked: true,
+      recoveryPackageAuthenticated: true,
+      finalSemanticAuthExact: true,
+      nativeSmokeActiveOwner: true,
+      rawMetadataMarker: true,
+      identityMetadataMarker: true,
+      providerCredentialDigestsExact: true,
+      selectedOrganizationExact: true,
+      canonicalEmptyDefaultWarehouse: true,
+      copiedUsersExact: true,
+      copiedIdentitiesExact: true
     };
   }
   if (stage === 'RESTORE_ORIGINAL_Y2') return { originalY2Restored: true, transactionOutcome: 'committed' };
@@ -164,7 +185,12 @@ function details(stage) {
       filmCatalogReadSucceeded: true,
       boxSearchReadSucceeded: true,
       jobsReadSucceeded: true,
-      authSemanticParity: true
+      authSemanticParity: true,
+      boundedEphemera: true,
+      copiedUsersExact: true,
+      copiedIdentitiesExact: true,
+      sessionRevoked: true,
+      ephemeralSessionException: false
     };
   }
   if (stage === 'APPLICATION_RUNTIME_VERIFIED') {
@@ -176,8 +202,35 @@ function details(stage) {
       businessMutations: 0
     };
   }
-  if (stage === 'FINAL_Y2_PARITY') return { originalY2Exact: true, unexplainedDifferences: 0 };
-  if (stage === 'REMEDIATION_RECOVERY_DATABASE') return { r3Restored: true, transactionOutcome: 'committed' };
+  if (stage === 'FINAL_Y2_PARITY') return {
+    originalY2Exact: true,
+    unexplainedDifferences: 0,
+    authSemanticParity: true,
+    boundedEphemera: true,
+    sessionRevoked: true
+  };
+  if (stage === 'REMEDIATION_RECOVERY_PRECHECK') return {
+    targetExact: true,
+    exactAttemptAndR3Binding: true,
+    recoveryRequiredStateExact: true,
+    noExistingRecoveryInvocation: true,
+    retainedRecoveryPackageAuthenticated: true,
+    realQuietWindow: true,
+    activeClients: 0,
+    idleInTransaction: 0,
+    lockWaiters: 0,
+    writeShaped: 0,
+    freshEdgeExact: true,
+    freshSideEffectsSafe: true,
+    recoverablePlaneExact: true,
+    authSemanticParity: true,
+    sharedMutations: 0
+  };
+  if (stage === 'REMEDIATION_RECOVERY_DATABASE') return {
+    r3Restored: true,
+    transactionOutcome: 'committed',
+    retainedPackageUsed: true
+  };
   if (stage === 'REMEDIATION_RECOVERY_VERIFIED') return {
     r3Exact: true,
     unexplainedDifferences: 0,
@@ -189,13 +242,22 @@ function details(stage) {
     boxSearchReadSucceeded: true,
     jobsReadSucceeded: true,
     readOnlyApiSucceeded: true,
-    authSemanticParity: true
+    authSemanticParity: true,
+    boundedEphemera: true,
+    sessionRevoked: true,
+    ephemeralSessionException: false
   };
   return {};
 }
 
 function evidence(value, stage) {
   const stageDetails = details(stage);
+  if (stage === 'R3_VALIDATED') {
+    stageDetails.operationInventoryDigest = value.operationInventoryDigest;
+    if (value.version === 2) {
+      stageDetails.stageWorkerDigest = value.provenanceBridge.currentExecution.workerDigest;
+    }
+  }
   return {
     format: REMEDIATION_EVIDENCE_FORMAT,
     stage,
@@ -218,6 +280,55 @@ function executor(value, failAt = '') {
         transactionOutcome: stage === 'RESTORE_ORIGINAL_Y2' ? 'ambiguous' : 'not_started'
       });
       return evidence(value, stage);
+    }
+  };
+}
+
+function remediationPreparationRecord(value, key, { attemptId = value.remediationAttemptId } = {}) {
+  const workerBytes = fs.readFileSync(REMEDIATION_REAL_STAGE_WORKER);
+  const syntheticBytes = fs.readFileSync(TEST_WORKER);
+  try {
+    const preparation = {
+      format: 'dev-recovery-remediation-preparation-v1',
+      version: 1,
+      remediationAttemptId: attemptId,
+      target: { environment: 'dev', projectRef: DEV_PROJECT_REF },
+      candidate: value.candidate,
+      original: { binding: value.original },
+      currentObserved: { value: true },
+      operationInventoryDigest: value.operationInventoryDigest,
+      stageWorker: {
+        path: path.resolve(REMEDIATION_REAL_STAGE_WORKER),
+        digest: sha256Bytes(workerBytes),
+        rejectedSyntheticWorkerDigest: sha256Bytes(syntheticBytes),
+        syntheticWorkerAllowed: false
+      },
+      expiresAt: value.expiresAt
+    };
+    preparation.currentObserved.certificateDigest = canonicalDigest({ value: true });
+    return authenticateRemediationPreparation(preparation, key);
+  } finally {
+    workerBytes.fill(0);
+    syntheticBytes.fill(0);
+  }
+}
+
+function executorForPreparation(value, preparationRecord, failAt = '') {
+  return {
+    async run(stage) {
+      if (stage === failAt) {
+        throw Object.assign(new Error('INJECTED_REMEDIATION_FAILURE'), {
+          code: 'INJECTED_REMEDIATION_FAILURE',
+          transactionOutcome: stage === 'RESTORE_ORIGINAL_Y2' ? 'ambiguous' : 'not_started'
+        });
+      }
+      const result = evidence(value, stage);
+      if (stage === 'R3_VALIDATED') {
+        result.details.preparationDigest = canonicalDigest(preparationRecord.preparation);
+        result.details.stageWorkerDigest = preparationRecord.preparation.stageWorker.digest;
+        result.evidenceDigest = canonicalDigest(result.details);
+      }
+      return result;
     }
   };
 }
@@ -359,7 +470,7 @@ test('remediation contract is independently authenticated and binds the permanen
   }
 });
 
-test('all ten remediation stages have an exact least-privilege input census', () => {
+test('all eleven remediation stages have an exact least-privilege input census', () => {
   assert.deepEqual(Object.keys(REMEDIATION_STAGE_INPUT_CENSUS), REMEDIATION_OPERATION_STAGES);
   const expectedManaged = {
     REMEDIATION_PRECHECK: [
@@ -375,6 +486,7 @@ test('all ten remediation stages have an exact least-privilege input census', ()
     ],
     APPLICATION_RUNTIME_VERIFIED: [],
     FINAL_Y2_PARITY: [],
+    REMEDIATION_RECOVERY_PRECHECK: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
     REMEDIATION_RECOVERY_DATABASE: [],
     REMEDIATION_RECOVERY_VERIFIED: [
       'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
@@ -469,7 +581,11 @@ test('R3 canonical overlays are loopback-guarded while remediation restores rema
     r3Validation.match(/targetGuard:\s*disposableLoopbackOverlayGuard\(\)/g)?.length,
     2
   );
-  assert.doesNotMatch(r3Validation, /targetGuard:\s*remediationDatabaseOverlayGuard/);
+  assert.equal(
+    r3Validation.match(/targetGuard:\s*remediationDatabaseOverlayGuard\(context, recovery\.packageResult\)/g)?.length,
+    1
+  );
+  assert.match(r3Validation, /verifyManagedOverlayPackageForExecution\(\{[\s\S]*recoveryPackageAuthenticated/);
   const knownRestore = source.slice(
     source.indexOf('async function executeKnownRestore'),
     source.indexOf('async function runRestoreOriginalY2')
@@ -478,6 +594,39 @@ test('R3 canonical overlays are loopback-guarded while remediation restores rema
     knownRestore,
     /connectionString:\s*context\.connectionString[\s\S]*targetGuard:\s*remediationDatabaseOverlayGuard\(context, packageResult\)/
   );
+});
+
+test('fallback authenticates and executes the prevalidated R3 package without postfailure regeneration', () => {
+  const source = fs.readFileSync(REMEDIATION_REAL_STAGE_WORKER, 'utf8');
+  const recoveryPrecheck = source.slice(
+    source.indexOf('async function runRemediationRecoveryPrecheck'),
+    source.indexOf('async function runRemediationRecoveryDatabase')
+  );
+  const recoveryDatabase = source.slice(
+    source.indexOf('async function runRemediationRecoveryDatabase'),
+    source.indexOf('async function runRemediationRecoveryVerified')
+  );
+  assert.match(recoveryPrecheck, /verifyManagedOverlayPackageForExecution/);
+  assert.match(recoveryPrecheck, /packageResult:\s*r3\.recoveryPackage/);
+  assert.match(recoveryDatabase, /packageResult:\s*r3\.recoveryPackage/g);
+  assert.match(recoveryDatabase, /retainedPackageUsed:\s*true/);
+  assert.doesNotMatch(recoveryDatabase, /generateCurrentDatabaseRecoveryPackage/);
+  assert.doesNotMatch(recoveryDatabase, /decryptBaselineBytes|readWrappedBaselineDataKey|captureEncryptedPgDump/);
+});
+
+test('R3 validation requires final semantic Auth evidence immediately before durable marker publication', () => {
+  const source = fs.readFileSync(REMEDIATION_REAL_STAGE_WORKER, 'utf8');
+  const r3Validation = source.slice(
+    source.indexOf('async function runR3Validated'),
+    source.indexOf('async function databaseSessionEvidence')
+  );
+  assert.match(r3Validation, /freshPreBoundaryPosture\(context\)[\s\S]*captureRemediationAuthCertificate/);
+  assert.match(r3Validation, /canonicalEmptyDefaultWarehouse/);
+  assert.match(r3Validation, /copiedUsersExact:[\s\S]*copiedIdentitiesExact/);
+  const orchestrator = fs.readFileSync(fileURLToPath(
+    new URL('./dev-recovery-remediation-orchestrator.mjs', import.meta.url)
+  ), 'utf8');
+  assert.match(orchestrator, /runStage\(executor, currentStage, context\)[\s\S]*assertRecoveryRemediationContractFresh[\s\S]*publishRemediationMarker/);
 });
 
 test('historical refresh provenance remains exact while a signed successor bridge binds current execution', () => {
@@ -715,6 +864,230 @@ test('v1 remediation contract normalization remains byte-identical', () => {
   assert.equal(value.version, 1);
   assert.equal(canonicalSerialize(verifyRecoveryRemediationContract(value)), canonicalSerialize(value));
   assert.equal(Object.hasOwn(value, 'provenanceBridge'), false);
+});
+
+test('pre-boundary freshness rejects stale invocation and expiry immediately before marker publication', async () => {
+  const baseNow = Date.now();
+  const value = contract(undefined, {
+    preparedAt: new Date(baseNow - 1_000).toISOString(),
+    expiresAt: new Date(baseNow + 1_000).toISOString()
+  });
+  const key = crypto.randomBytes(32);
+  const preparationRecord = remediationPreparationRecord(value, key);
+  const root = temporaryRoot('dev-remediation-expiry-preboundary');
+  let observedNow = baseNow;
+  try {
+    assert.throws(() => assertRecoveryRemediationContractFresh(value, baseNow + 2_000), {
+      code: 'DEV_REMEDIATION_PREPARATION_EXPIRED_PRE_BOUNDARY'
+    });
+    assert.throws(() => verifyRemediationPreparation(
+      preparationRecord,
+      key,
+      value.remediationAttemptId,
+      { now: baseNow + 2_000 }
+    ), { code: 'DEV_REMEDIATION_PREPARATION_INVALID' });
+    const baseExecutor = executorForPreparation(value, preparationRecord);
+    await assert.rejects(runDevRecoveryRemediation({
+      rootDirectory: root,
+      key,
+      contract: value,
+      now: () => observedNow,
+      executor: {
+        async run(stage, context) {
+          const result = await baseExecutor.run(stage, context);
+          if (stage === 'R3_VALIDATED') observedNow = baseNow + 2_000;
+          return result;
+        }
+      }
+    }), { code: 'DEV_REMEDIATION_PREPARATION_EXPIRED_PRE_BOUNDARY' });
+    const journal = readRemediationJournal(root, key);
+    assert.equal(journal.current.state, 'FAILED_PRE_MUTATION');
+    assert.equal(journal.marker, null);
+    assert.equal(journal.boundary, null);
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('exact frozen preparation survives post-boundary expiry and permits only recovery-required fallback', async () => {
+  const baseNow = Date.now();
+  const value = contract(undefined, {
+    preparedAt: new Date(baseNow - 1_000).toISOString(),
+    expiresAt: new Date(baseNow + 60_000).toISOString()
+  });
+  const key = crypto.randomBytes(32);
+  const preparationRecord = remediationPreparationRecord(value, key);
+  const root = temporaryRoot('dev-remediation-expiry-postboundary');
+  let observedNow = baseNow;
+  try {
+    const baseExecutor = executorForPreparation(value, preparationRecord, 'AUTH_RUNTIME_VERIFIED');
+    await assert.rejects(runDevRecoveryRemediation({
+      rootDirectory: root,
+      key,
+      contract: value,
+      now: () => observedNow,
+      afterDurableTransition({ state }) {
+        if (state === 'DESTRUCTIVE_BOUNDARY') observedNow = baseNow + 120_000;
+      },
+      executor: baseExecutor
+    }), { code: 'DEV_REMEDIATION_RECOVERY_REQUIRED' });
+    const frozen = verifyFrozenRemediationPreparation(preparationRecord, key, {
+      rootDirectory: root,
+      expectedAttemptId: value.remediationAttemptId,
+      contractDigest: value.contractDigest,
+      operationInventoryDigest: value.operationInventoryDigest,
+      stage: 'RECOVERY_CLI'
+    });
+    assert.equal(frozen, preparationRecord.preparation);
+    assert.throws(() => verifyRemediationPreparation(
+      preparationRecord,
+      key,
+      value.remediationAttemptId,
+      { now: observedNow }
+    ), { code: 'DEV_REMEDIATION_PREPARATION_INVALID' });
+    const wrongPreparation = remediationPreparationRecord(value, key, {
+      attemptId: 'dev-recovery-remediation-wrong-attempt'
+    });
+    assert.throws(() => verifyFrozenRemediationPreparation(wrongPreparation, key, {
+      rootDirectory: root,
+      expectedAttemptId: value.remediationAttemptId,
+      contractDigest: value.contractDigest,
+      operationInventoryDigest: value.operationInventoryDigest,
+      stage: 'RECOVERY_CLI'
+    }), { code: 'DEV_REMEDIATION_PREPARATION_INVALID' });
+    const recovered = await runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executorForPreparation(value, preparationRecord)
+    });
+    assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
+    assert.equal(readRemediationJournal(root, key).current.state, 'REMEDIATION_RECOVERED');
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('remaining remediation stages complete when the exact frozen preparation expires after boundary', async () => {
+  const baseNow = Date.now();
+  const value = contract(undefined, {
+    preparedAt: new Date(baseNow - 1_000).toISOString(),
+    expiresAt: new Date(baseNow + 60_000).toISOString()
+  });
+  const key = crypto.randomBytes(32);
+  const preparationRecord = remediationPreparationRecord(value, key);
+  const root = temporaryRoot('dev-remediation-postboundary-continuation');
+  let observedNow = baseNow;
+  try {
+    const result = await runDevRecoveryRemediation({
+      rootDirectory: root,
+      key,
+      contract: value,
+      now: () => observedNow,
+      afterDurableTransition({ state }) {
+        if (state === 'DESTRUCTIVE_BOUNDARY') observedNow = baseNow + 120_000;
+      },
+      executor: executorForPreparation(value, preparationRecord)
+    });
+    assert.equal(result.classification, 'DEV_RECOVERY_REMEDIATION_COMPLETE');
+    assert.equal(readRemediationJournal(root, key).current.state, 'REMEDIATION_COMPLETE');
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('recovery precheck failure leaves recovery-required state without publishing the one-shot marker', async () => {
+  const root = temporaryRoot('dev-remediation-recovery-precheck');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  const preparationRecord = remediationPreparationRecord(value, key);
+  try {
+    await assert.rejects(runDevRecoveryRemediation({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executorForPreparation(value, preparationRecord, 'AUTH_RUNTIME_VERIFIED')
+    }), { code: 'DEV_REMEDIATION_RECOVERY_REQUIRED' });
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executor(value, 'REMEDIATION_RECOVERY_PRECHECK')
+    }), { code: 'INJECTED_REMEDIATION_FAILURE' });
+    const journal = readRemediationJournal(root, key);
+    assert.equal(journal.current.state, 'REMEDIATION_RECOVERY_REQUIRED');
+    assert.equal(journal.recovery, null);
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('boundary and recovery-precheck crash windows remain deterministic and recovery-marker publication is one-shot', async () => {
+  const root = temporaryRoot('dev-remediation-crash-windows');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  const preparationRecord = remediationPreparationRecord(value, key);
+  try {
+    await assert.rejects(runDevRecoveryRemediation({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executorForPreparation(value, preparationRecord),
+      afterBoundaryPublished() {
+        throw Object.assign(new Error('INJECTED_BOUNDARY_PROCESS_CRASH'), {
+          code: 'INJECTED_BOUNDARY_PROCESS_CRASH'
+        });
+      }
+    }), { code: 'DEV_REMEDIATION_RECOVERY_REQUIRED' });
+    let journal = readRemediationJournal(root, key);
+    assert.equal(journal.current.state, 'REMEDIATION_MARKED');
+    assert.ok(journal.boundary);
+    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_REQUIRED');
+
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executorForPreparation(value, preparationRecord),
+      afterRecoveryPrecheck() {
+        throw Object.assign(new Error('INJECTED_RECOVERY_PRECHECK_PROCESS_CRASH'), {
+          code: 'INJECTED_RECOVERY_PRECHECK_PROCESS_CRASH'
+        });
+      }
+    }), { code: 'INJECTED_RECOVERY_PRECHECK_PROCESS_CRASH' });
+    journal = readRemediationJournal(root, key);
+    assert.equal(journal.current.state, 'REMEDIATION_RECOVERY_REQUIRED');
+    assert.equal(journal.recovery, null);
+
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executorForPreparation(value, preparationRecord),
+      afterRecoveryMarkerPublished() {
+        throw Object.assign(new Error('INJECTED_RECOVERY_MARKER_PROCESS_CRASH'), {
+          code: 'INJECTED_RECOVERY_MARKER_PROCESS_CRASH'
+        });
+      }
+    }), { code: 'INJECTED_RECOVERY_MARKER_PROCESS_CRASH' });
+    journal = readRemediationJournal(root, key);
+    assert.equal(journal.current.state, 'REMEDIATION_RECOVERY_REQUIRED');
+    assert.ok(journal.recovery);
+    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_FROZEN');
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: executorForPreparation(value, preparationRecord)
+    }), { code: 'DEV_REMEDIATION_RECOVERY_NOT_PERMITTED' });
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('remediation target, failed-recovery, current-Y2, and R3 guards fail closed', () => {

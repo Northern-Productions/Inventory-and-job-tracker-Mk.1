@@ -15,8 +15,12 @@ import {
   runDevRecoveryRemediation,
   runDevRecoveryRemediationRecovery
 } from './dev-recovery-remediation-orchestrator.mjs';
-import { verifyRemediationPreparation } from './dev-recovery-remediation-preparation.mjs';
+import {
+  verifyFrozenRemediationPreparation,
+  verifyRemediationPreparation
+} from './dev-recovery-remediation-preparation.mjs';
 import { verifyPrivateArtifactProtection } from './private-artifacts.mjs';
+import { reconcileRemediationBoundaryInterruption } from './dev-recovery-remediation-state.mjs';
 
 function categoricalError(code) {
   const error = new Error(code);
@@ -112,9 +116,24 @@ async function runDevRecoveryRemediationCli(mode, argv, repoRoot, testOnlyRuntim
   const key = readAuthorityKeyFn(keyPath);
   try {
     const contract = verifyAuthenticatedRecoveryRemediationContract(readPrivateJson(contractPath), key);
-    const preparation = verifyRemediationPreparation(
-      readPrivateJson(preparationPath), key, contract.remediationAttemptId
-    );
+    if (mode === 'recover') {
+      reconcileRemediationBoundaryInterruption(stateDirectory, key, {
+        contractDigest: contract.contractDigest,
+        operationInventoryDigest: contract.operationInventoryDigest,
+        toolingCommit: contract.candidate.toolingCommit,
+        toolingTree: contract.candidate.toolingTree
+      });
+    }
+    const preparationRecord = readPrivateJson(preparationPath);
+    const preparation = mode === 'recover'
+      ? verifyFrozenRemediationPreparation(preparationRecord, key, {
+          rootDirectory: stateDirectory,
+          expectedAttemptId: contract.remediationAttemptId,
+          contractDigest: contract.contractDigest,
+          operationInventoryDigest: contract.operationInventoryDigest,
+          stage: 'RECOVERY_CLI'
+        })
+      : verifyRemediationPreparation(preparationRecord, key, contract.remediationAttemptId);
     if (
       preparation.currentObserved.certificateDigest !== contract.observedDevCertificateDigest ||
       preparation.original.binding.failedJournalDigest !== contract.original.failedJournalDigest ||

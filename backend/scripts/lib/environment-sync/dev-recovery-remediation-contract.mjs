@@ -28,6 +28,7 @@ const REMEDIATION_OPERATION_STAGES = Object.freeze([
   'AUTH_RUNTIME_VERIFIED',
   'APPLICATION_RUNTIME_VERIFIED',
   'FINAL_Y2_PARITY',
+  'REMEDIATION_RECOVERY_PRECHECK',
   'REMEDIATION_RECOVERY_DATABASE',
   'REMEDIATION_RECOVERY_VERIFIED'
 ]);
@@ -153,6 +154,20 @@ const REMEDIATION_STAGE_INPUT_CENSUS = freezeStageInputCensus({
     mutationCapability: 'none',
     failureDisposition: 'post-boundary-recovery-required',
     recoveryDependency: 'validated-r3'
+  },
+  REMEDIATION_RECOVERY_PRECHECK: {
+    managedEnvironmentNames: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
+    disposableEnvironmentNames: ['EDGE_API_BASE_URL', 'SUPABASE_URL'],
+    privateInputs: [
+      'signed-frozen-preparation', 'authority-key-fd', 'remediation-marker',
+      'remediation-boundary', 'validated-r3-stage-state', 'retained-r3-recovery-package'
+    ],
+    externalCalls: ['dev-postgresql', 'dev-edge-health', 'supabase-management-api'],
+    databaseMode: 'repeatable-read-read-only',
+    expectedTargetState: 'recovery-required-exact-r3-recoverable-plane',
+    mutationCapability: 'none',
+    failureDisposition: 'recovery-required-without-recovery-marker',
+    recoveryDependency: 'validated-preboundary-r3-package'
   },
   REMEDIATION_RECOVERY_DATABASE: {
     managedEnvironmentNames: [],
@@ -479,6 +494,14 @@ function verifyRecoveryRemediationContract(contract = {}) {
   return contract;
 }
 
+function assertRecoveryRemediationContractFresh(contract, now = Date.now()) {
+  verifyRecoveryRemediationContract(contract);
+  if (!Number.isFinite(now) || now > Date.parse(contract.expiresAt)) {
+    throw categoricalError('DEV_REMEDIATION_PREPARATION_EXPIRED_PRE_BOUNDARY');
+  }
+  return contract;
+}
+
 function verifyAuthenticatedRecoveryRemediationContract(record, key) {
   const expected = authenticateRecoveryRemediationContract(record?.contract, key);
   const left = Buffer.from(String(expected.authentication.digest || ''));
@@ -525,7 +548,21 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.currentEqualsR3 !== true || details.r3EqualsOriginalY2 !== true ||
     details.authMutationScope !== 'preserve-target-native-auth' ||
     details.realQuietWindowRechecked !== true || details.freshEdgeRechecked !== true ||
-    details.freshSideEffectsRechecked !== true
+    details.freshSideEffectsRechecked !== true ||
+    details.recoveryPackageAuthenticated !== true ||
+    details.finalSemanticAuthExact !== true || details.nativeSmokeActiveOwner !== true ||
+    details.rawMetadataMarker !== true || details.identityMetadataMarker !== true ||
+    details.providerCredentialDigestsExact !== true || details.selectedOrganizationExact !== true ||
+    details.canonicalEmptyDefaultWarehouse !== true || details.copiedUsersExact !== true ||
+    details.copiedIdentitiesExact !== true ||
+    details.operationInventoryDigest !== contract.operationInventoryDigest ||
+    (contract.version === 2 &&
+      details.stageWorkerDigest !== contract.provenanceBridge.currentExecution.workerDigest) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(details.preparationDigest || '')) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(details.operationInventoryDigest || '')) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(details.stageWorkerDigest || '')) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(details.r3RecoveryPackageDigest || '')) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(details.r3StageBindingDigest || ''))
   )) throw categoricalError('DEV_REMEDIATION_R3_VALIDATION_INCOMPLETE');
   if (stage === 'RESTORE_ORIGINAL_Y2' && (
     details.originalY2Restored !== true || details.transactionOutcome !== 'committed'
@@ -535,7 +572,11 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.authContextOwner !== true || details.smokeUserExact !== true ||
     details.smokeOrganizationExact !== true || details.defaultWarehouseExact !== true ||
     details.filmCatalogReadSucceeded !== true || details.boxSearchReadSucceeded !== true ||
-    details.jobsReadSucceeded !== true || details.authSemanticParity !== true
+    details.jobsReadSucceeded !== true || details.authSemanticParity !== true ||
+    typeof details.sessionRevoked !== 'boolean' ||
+    details.ephemeralSessionException !== !details.sessionRevoked ||
+    details.boundedEphemera !== true || details.copiedUsersExact !== true ||
+    details.copiedIdentitiesExact !== true
   )) throw categoricalError('DEV_REMEDIATION_AUTH_RUNTIME_INCOMPLETE');
   if (stage === 'APPLICATION_RUNTIME_VERIFIED' && (
     details.readOnlyApiSucceeded !== true || details.filmCatalogReadSucceeded !== true ||
@@ -543,10 +584,23 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.businessMutations !== 0
   )) throw categoricalError('DEV_REMEDIATION_APPLICATION_RUNTIME_INCOMPLETE');
   if (stage === 'FINAL_Y2_PARITY' && (
-    details.originalY2Exact !== true || details.unexplainedDifferences !== 0
+    details.originalY2Exact !== true || details.unexplainedDifferences !== 0 ||
+    details.authSemanticParity !== true || details.boundedEphemera !== true ||
+    typeof details.sessionRevoked !== 'boolean'
   )) throw categoricalError('DEV_REMEDIATION_FINAL_PARITY_INCOMPLETE');
+  if (stage === 'REMEDIATION_RECOVERY_PRECHECK' && (
+    details.targetExact !== true || details.exactAttemptAndR3Binding !== true ||
+    details.recoveryRequiredStateExact !== true || details.noExistingRecoveryInvocation !== true ||
+    details.retainedRecoveryPackageAuthenticated !== true || details.realQuietWindow !== true ||
+    details.activeClients !== 0 || details.idleInTransaction !== 0 ||
+    details.lockWaiters !== 0 || details.writeShaped !== 0 ||
+    details.freshEdgeExact !== true || details.freshSideEffectsSafe !== true ||
+    details.recoverablePlaneExact !== true || details.authSemanticParity !== true ||
+    details.sharedMutations !== 0
+  )) throw categoricalError('DEV_REMEDIATION_RECOVERY_PRECHECK_INCOMPLETE');
   if (stage === 'REMEDIATION_RECOVERY_DATABASE' && (
-    details.r3Restored !== true || details.transactionOutcome !== 'committed'
+    details.r3Restored !== true || details.transactionOutcome !== 'committed' ||
+    details.retainedPackageUsed !== true
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_INCOMPLETE');
   if (stage === 'REMEDIATION_RECOVERY_VERIFIED' && (
     details.r3Exact !== true || details.unexplainedDifferences !== 0 ||
@@ -554,7 +608,9 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.smokeOrganizationExact !== true || details.defaultWarehouseExact !== true ||
     details.filmCatalogReadSucceeded !== true || details.boxSearchReadSucceeded !== true ||
     details.jobsReadSucceeded !== true || details.readOnlyApiSucceeded !== true ||
-    details.authSemanticParity !== true
+    details.authSemanticParity !== true || details.boundedEphemera !== true ||
+    typeof details.sessionRevoked !== 'boolean' ||
+    details.ephemeralSessionException !== !details.sessionRevoked
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_PARITY_INCOMPLETE');
   return evidence;
 }
@@ -569,6 +625,7 @@ export {
   REMEDIATION_PROVENANCE_BRIDGE_FORMAT,
   REMEDIATION_PROVENANCE_FIX_BASE_COMMIT,
   REQUIRED_DIAGNOSTIC_TOOLING_COMMIT,
+  assertRecoveryRemediationContractFresh,
   assertRecoveryRemediationEvidence,
   authenticateRecoveryRemediationContract,
   buildRemediationProvenanceBridge,

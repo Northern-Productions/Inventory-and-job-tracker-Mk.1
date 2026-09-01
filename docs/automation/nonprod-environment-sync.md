@@ -187,10 +187,20 @@ npm --prefix backend run env:recover-dev-recovery-remediation-certified -- --app
 The remediation uses an independent append-only authenticated journal and permanent marker. Its real
 stages are `REMEDIATION_PRECHECK`, `CURRENT_Y2_PARITY`, `R3_CAPTURE`, `R3_VALIDATED`,
 `RESTORE_ORIGINAL_Y2`, `AUTH_RUNTIME_VERIFIED`, `APPLICATION_RUNTIME_VERIFIED`, and
-`FINAL_Y2_PARITY`; R3 recovery uses `REMEDIATION_RECOVERY_DATABASE` and
+`FINAL_Y2_PARITY`; R3 recovery uses `REMEDIATION_RECOVERY_PRECHECK`,
+`REMEDIATION_RECOVERY_DATABASE`, and
 `REMEDIATION_RECOVERY_VERIFIED`. Synthetic workers are rejected. A pre-boundary failure is terminal.
 A post-boundary failure becomes `REMEDIATION_RECOVERY_REQUIRED` and cannot resume or retry the
 remediation; only the separately authorized one-shot R3 recovery command may run.
+
+Preparation freshness is phase-aware. The signed preparation and contract must remain inside their
+two-hour window at invocation, throughout all pre-boundary stages, and immediately before marker
+publication. The marker and boundary then freeze the exact preparation, contract, inventory, worker,
+tooling commit/tree, attempt, R3 component, R3 stage, and prevalidated recovery-package bindings.
+After the boundary, elapsed wall-clock time alone cannot strand that exact destructive lifecycle.
+An expired preparation is accepted by the recovery command only after the authenticated boundary is
+reconciled to durable `REMEDIATION_RECOVERY_REQUIRED` state and every frozen binding agrees. It cannot
+start or restart ordinary remediation. A published recovery marker remains permanently one-shot.
 
 Restore execution retains authenticated categorical evidence for restore start, database/session
 identity, transaction start, mutation application, commit/rollback/ambiguity, post-commit state,
@@ -222,6 +232,7 @@ The signed least-privilege stage environment census is:
 | `AUTH_RUNTIME_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and four Edge reads |
 | `APPLICATION_RUNTIME_VERIFIED` | none | Validates prior signed stage state only |
 | `FINAL_Y2_PARITY` | none | Read-only DB |
+| `REMEDIATION_RECOVERY_PRECHECK` | `EDGE_API_BASE_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_URL` | Repeatable-read read-only target/R3/package/quiet-window/recoverable-plane and Edge posture proof; no recovery marker yet |
 | `REMEDIATION_RECOVERY_DATABASE` | none | Serializable managed R3 overlay preserving target-native Auth |
 | `REMEDIATION_RECOVERY_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and four Edge reads |
 
@@ -231,6 +242,21 @@ mutation. The default-warehouse expectation is exact: an explicitly captured emp
 an absent or non-string field is invalid. The full stage census, including private inputs, external
 calls, expected state, failure disposition, and R3 dependency, is machine-readable in the remediation
 contract module and is covered by focused and disposable child-process tests.
+
+`R3_VALIDATED` durably retains the exact already-generated R3 recovery package, including every
+private referenced artifact's size and digest, Auth-preservation mode, target compatibility, ACL and
+default-ACL contracts, source-component binding, and generated SQL. The fallback precheck authenticates
+that retained package before publishing its marker; `REMEDIATION_RECOVERY_DATABASE` authenticates it
+again and executes those exact bytes. Recovery never regenerates a package from an uncertain target.
+The recovery precheck also requires zero active clients, idle transactions, lock waiters, and
+write-shaped activity, unchanged Edge/side-effect posture, and exact recoverable-plane continuity.
+
+Immediately before remediation marker publication, `R3_VALIDATED` recaptures semantic Auth evidence:
+active Owner membership, both target-native Smoke markers, provider/credential-bearing stable digests,
+selected organization, canonical empty default warehouse, and exact copied/quarantined users and
+identities. Final remediation and R3 recovery parity consume the authenticated runtime logout result.
+A failed logout permits only the certified bounded native-Smoke session/refresh-token residue; copied
+users and identities receive no exception.
 
 Preparation enumerates exactly `PRECHECK`, `QUIET_WINDOW`, `Y2_CAPTURE`, `Y2_VALIDATED`, `SIDE_EFFECTS_QUARANTINED`, `DATABASE_CUTOVER`, `DATABASE_VERIFIED`, `AUTH_RUNTIME`, `EDGE_RUNTIME`, `WORKFLOW_CERTIFICATION`, `FIXTURE_CLEANUP`, `FINAL_PARITY`, `RECOVERY_DATABASE`, `RECOVERY_AUTH_RUNTIME`, and `RECOVERY_VERIFIED`. Every entry resolves to the production stage worker and its exact digest. `dev-certified-test-worker.mjs` is test-only; preparation, inventory verification, refresh, and recovery all reject its path or digest even when an inventory is otherwise correctly authenticated.
 

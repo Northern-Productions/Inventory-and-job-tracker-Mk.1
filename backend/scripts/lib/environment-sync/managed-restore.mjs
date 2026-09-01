@@ -1284,8 +1284,9 @@ function assertExactAuthRecoveryDataChunk(sql) {
   return text;
 }
 
-function exactAuthRecoveryAssertions(authority) {
-  return authority.authEvidence.tables.map((entry) => `
+function exactAuthRecoveryAssertions(authority, tableNames = CURRENT_AUTH_TABLES) {
+  const selected = new Set(tableNames);
+  return authority.authEvidence.tables.filter((entry) => selected.has(entry.tableName)).map((entry) => `
   select count(*)::bigint,
          'sha256:' || encode(extensions.digest(
            convert_to(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, E'\\n'
@@ -1297,6 +1298,38 @@ function exactAuthRecoveryAssertions(authority) {
   if v_auth_count <> ${entry.count} or v_auth_digest <> '${entry.digest}' then
     raise exception 'DEV_Y2_AUTH_RECOVERY_POSTCHECK_MISMATCH';
   end if;`).join('\n');
+}
+
+function authPreservationAssertions(authority) {
+  const volatileTables = new Set(['users', 'identities', 'sessions', 'refresh_tokens']);
+  const table = (tableName) => authority.authEvidence.tables.find((entry) => entry.tableName === tableName);
+  const users = table('users');
+  const identities = table('identities');
+  const sessions = table('sessions');
+  const refreshTokens = table('refresh_tokens');
+  if (![users, identities, sessions, refreshTokens].every(Boolean)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_PRESERVATION_AUTHORITY_INCOMPLETE');
+  }
+  return `${exactAuthRecoveryAssertions(
+    authority,
+    CURRENT_AUTH_TABLES.filter((tableName) => !volatileTables.has(tableName))
+  )}
+  select count(*)::bigint into v_auth_count from auth.users;
+  if v_auth_count <> ${users.count} then
+    raise exception 'DEV_REMEDIATION_AUTH_PRESERVATION_COUNT_MISMATCH';
+  end if;
+  select count(*)::bigint into v_auth_count from auth.identities;
+  if v_auth_count <> ${identities.count} then
+    raise exception 'DEV_REMEDIATION_AUTH_PRESERVATION_COUNT_MISMATCH';
+  end if;
+  select count(*)::bigint into v_auth_count from auth.sessions;
+  if v_auth_count < ${sessions.count} or v_auth_count > ${sessions.count + 1} then
+    raise exception 'DEV_REMEDIATION_AUTH_PRESERVATION_EPHEMERA_MISMATCH';
+  end if;
+  select count(*)::bigint into v_auth_count from auth.refresh_tokens;
+  if v_auth_count < ${refreshTokens.count} or v_auth_count > ${refreshTokens.count + 1} then
+    raise exception 'DEV_REMEDIATION_AUTH_PRESERVATION_EPHEMERA_MISMATCH';
+  end if;`;
 }
 
 function buildVerificationSql({
@@ -1334,7 +1367,8 @@ begin
   if to_regnamespace('app') is null or to_regnamespace('app_api') is null then
     raise exception 'MANAGED_APPLICATION_SCHEMA_MISSING';
   end if;
-  ${(exactRecovery || preserveAuth) ? exactAuthRecoveryAssertions(authRecoveryAuthority) : `select count(*) into v_users from auth.users;
+  ${exactRecovery ? exactAuthRecoveryAssertions(authRecoveryAuthority) : preserveAuth
+    ? authPreservationAssertions(authRecoveryAuthority) : `select count(*) into v_users from auth.users;
   select count(*) into v_identities from auth.identities;
   if v_users <> ${users} or v_identities <> ${identities} then
     raise exception 'MANAGED_AUTH_COUNT_MISMATCH';
@@ -1552,6 +1586,20 @@ function generateExactAuthRecoveryDataChunk({ pgDumpPath, sourceConnectionString
   );
 }
 
+function captureManagedOverlayArtifacts(paths) {
+  return Object.fromEntries(Object.entries(paths).sort(([left], [right]) => left.localeCompare(right)).map(
+    ([name, artifactPath]) => {
+      verifyPrivateArtifactProtection(artifactPath);
+      const bytes = fs.readFileSync(artifactPath);
+      try {
+        return [name, { size: bytes.length, digest: sha256(bytes) }];
+      } finally {
+        bytes.fill(0);
+      }
+    }
+  ));
+}
+
 function generateManagedOverlayPackage({
   pgRestorePath,
   pgDumpPath,
@@ -1753,18 +1801,20 @@ function generateManagedOverlayPackage({
         authorityBytes.fill(0);
       }
     }
+    const paths = {
+      appSchemaListPath,
+      appListPath,
+      migrationListPath,
+      manifestPath,
+      aclContractPath,
+      defaultAclContractPath,
+      ...(authRecoveryAuthorityPath ? { authRecoveryAuthorityPath } : {}),
+      scriptPath
+    };
     return {
       manifest,
-      paths: {
-        appSchemaListPath,
-        appListPath,
-        migrationListPath,
-        manifestPath,
-        aclContractPath,
-        defaultAclContractPath,
-        ...(authRecoveryAuthorityPath ? { authRecoveryAuthorityPath } : {}),
-        scriptPath
-      },
+      paths,
+      artifacts: captureManagedOverlayArtifacts(paths),
       script: { size: fs.statSync(scriptPath).size, digest: scriptDigest, semanticDigest },
       targetCompatibility,
       sourceAclContract,
@@ -1849,6 +1899,40 @@ async function executeManagedOverlayPackage({
   targetGuard,
   diagnosticDirectory
 } = {}) {
+  const { executionTarget, scriptPath } = verifyManagedOverlayPackageForExecution({
+    connectionString,
+    packageResult,
+    targetGuard
+  });
+  let result;
+  try {
+    result = await runPrivateDiagnosticCommand({
+      executable: psqlPath,
+      args: ['--no-psqlrc', '--set', 'ON_ERROR_STOP=1', '--file', scriptPath],
+      env: postgresChildEnvironment(connectionString, {
+        PGAPPNAME: 'environment-sync-managed-overlay',
+        PGOPTIONS: '-c statement_timeout=0'
+      }),
+      diagnosticDirectory,
+      failureCode: 'MANAGED_OVERLAY_EXECUTION_FAILED'
+    });
+  } catch (error) {
+    if (error?.safeDiagnostic) {
+      error.safeDiagnostic.statementCategory = classifyManagedScriptFailure(
+        scriptPath,
+        error.safeDiagnostic
+      );
+    }
+    throw error;
+  }
+  return { applied: true, atomic: true, diagnostic: result.safeDiagnostic, executionTarget };
+}
+
+function verifyManagedOverlayPackageForExecution({
+  connectionString,
+  packageResult,
+  targetGuard
+} = {}) {
   const executionTarget = assertOverlayExecutionGuard(connectionString, targetGuard);
   verifyManagedRestoreManifest(packageResult?.manifest);
   verifyApplicationAclContract(packageResult?.sourceAclContract);
@@ -1880,6 +1964,25 @@ async function executeManagedOverlayPackage({
   const scriptPath = packageResult?.paths?.scriptPath;
   const aclContractPath = packageResult?.paths?.aclContractPath;
   const authRecoveryAuthorityPath = packageResult?.paths?.authRecoveryAuthorityPath;
+  const artifactNames = Object.keys(packageResult?.paths || {}).sort();
+  if (
+    artifactNames.length < 7 ||
+    canonicalSerialize(artifactNames) !== canonicalSerialize(Object.keys(packageResult?.artifacts || {}).sort())
+  ) throw categoricalError('MANAGED_OVERLAY_ARTIFACT_INVENTORY_INVALID');
+  for (const name of artifactNames) {
+    const artifactPath = packageResult.paths[name];
+    const descriptor = packageResult.artifacts[name];
+    verifyPrivateArtifactProtection(artifactPath);
+    const bytes = fs.readFileSync(artifactPath);
+    try {
+      if (
+        !Number.isSafeInteger(descriptor?.size) || descriptor.size < 1 ||
+        bytes.length !== descriptor.size || sha256(bytes) !== descriptor.digest
+      ) throw categoricalError('MANAGED_OVERLAY_ARTIFACT_MISMATCH');
+    } finally {
+      bytes.fill(0);
+    }
+  }
   verifyPrivateArtifactProtection(aclContractPath);
   verifyPrivateArtifactProtection(scriptPath);
   if ([DEV_Y2_AUTH_RECOVERY_MODE, DEV_REMEDIATION_AUTH_PRESERVATION_MODE].includes(packageResult?.authMode)) {
@@ -1919,28 +2022,7 @@ async function executeManagedOverlayPackage({
   } finally {
     scriptBytes.fill(0);
   }
-  let result;
-  try {
-    result = await runPrivateDiagnosticCommand({
-      executable: psqlPath,
-      args: ['--no-psqlrc', '--set', 'ON_ERROR_STOP=1', '--file', scriptPath],
-      env: postgresChildEnvironment(connectionString, {
-        PGAPPNAME: 'environment-sync-managed-overlay',
-        PGOPTIONS: '-c statement_timeout=0'
-      }),
-      diagnosticDirectory,
-      failureCode: 'MANAGED_OVERLAY_EXECUTION_FAILED'
-    });
-  } catch (error) {
-    if (error?.safeDiagnostic) {
-      error.safeDiagnostic.statementCategory = classifyManagedScriptFailure(
-        scriptPath,
-        error.safeDiagnostic
-      );
-    }
-    throw error;
-  }
-  return { applied: true, atomic: true, diagnostic: result.safeDiagnostic };
+  return { authenticated: true, executionTarget, scriptPath, artifactCount: artifactNames.length };
 }
 
 export {
@@ -1987,5 +2069,6 @@ export {
   parsePgRestoreList,
   verifyExactAuthRecoveryAuthority,
   verifyAuthPreservationAuthority,
+  verifyManagedOverlayPackageForExecution,
   verifyManagedRestoreManifest
 };
