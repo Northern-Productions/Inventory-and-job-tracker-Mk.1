@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -69,8 +69,13 @@ import {
   executeManagedOverlayPackage
 } from './managed-restore.mjs';
 import {
+  appendRemediationAuthCanaryState,
   appendRemediationEvent,
+  beginRemediationAuthCanary,
+  initializeRemediationJournal,
+  readRemediationAuthCanaries,
   readRemediationJournal,
+  remediationAuthCanaryDisposition,
   remediationRestartDisposition
 } from './dev-recovery-remediation-state.mjs';
 import { createPrivateDirectory, writePrivateBytesExclusive } from './private-artifacts.mjs';
@@ -152,6 +157,7 @@ function details(stage) {
       r3RecoveryId: 'r3-dev-recovery-remediation-synthetic',
       r3ComponentDigest: digest('r3'),
       r3RecoveryPackageDigest: digest('r3-package'),
+      originalY2RecoveryPackageDigest: digest('original-y2-package'),
       r3StageBindingDigest: digest('r3-stage'),
       digestVerified: true,
       canonicalRestoreTested: true,
@@ -162,13 +168,14 @@ function details(stage) {
       freshEdgeRechecked: true,
       freshSideEffectsRechecked: true,
       recoveryPackageAuthenticated: true,
+      originalY2PackageAuthenticated: true,
       finalSemanticAuthExact: true,
       nativeSmokeActiveOwner: true,
       rawMetadataMarker: true,
       identityMetadataMarker: true,
       providerCredentialDigestsExact: true,
       selectedOrganizationExact: true,
-      canonicalEmptyDefaultWarehouse: true,
+      signedDefaultWarehouseExact: true,
       copiedUsersExact: true,
       copiedIdentitiesExact: true
     };
@@ -282,6 +289,15 @@ function executor(value, failAt = '') {
       return evidence(value, stage);
     }
   };
+}
+
+async function createRecoveryRequiredState(rootDirectory, key, value) {
+  await assert.rejects(runDevRecoveryRemediation({
+    rootDirectory,
+    key,
+    contract: value,
+    executor: executor(value, 'AUTH_RUNTIME_VERIFIED')
+  }), { code: 'DEV_REMEDIATION_RECOVERY_REQUIRED' });
 }
 
 function remediationPreparationRecord(value, key, { attemptId = value.remediationAttemptId } = {}) {
@@ -482,14 +498,16 @@ test('all eleven remediation stages have an exact least-privilege input census',
     R3_VALIDATED: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
     RESTORE_ORIGINAL_Y2: [],
     AUTH_RUNTIME_VERIFIED: [
-      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ACCESS_TOKEN',
+      'SUPABASE_ANON_KEY', 'SUPABASE_URL'
     ],
     APPLICATION_RUNTIME_VERIFIED: [],
     FINAL_Y2_PARITY: [],
     REMEDIATION_RECOVERY_PRECHECK: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
     REMEDIATION_RECOVERY_DATABASE: [],
     REMEDIATION_RECOVERY_VERIFIED: [
-      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ACCESS_TOKEN',
+      'SUPABASE_ANON_KEY', 'SUPABASE_URL'
     ]
   };
   for (const stage of REMEDIATION_OPERATION_STAGES) {
@@ -621,7 +639,7 @@ test('R3 validation requires final semantic Auth evidence immediately before dur
     source.indexOf('async function databaseSessionEvidence')
   );
   assert.match(r3Validation, /freshPreBoundaryPosture\(context\)[\s\S]*captureRemediationAuthCertificate/);
-  assert.match(r3Validation, /canonicalEmptyDefaultWarehouse/);
+  assert.match(r3Validation, /signedDefaultWarehouseExact/);
   assert.match(r3Validation, /copiedUsersExact:[\s\S]*copiedIdentitiesExact/);
   const orchestrator = fs.readFileSync(fileURLToPath(
     new URL('./dev-recovery-remediation-orchestrator.mjs', import.meta.url)
@@ -729,6 +747,12 @@ test('historical refresh provenance remains exact while a signed successor bridg
     const authHardening = {
       format: 'dev-recovery-remediation-auth-hardening-v1',
       baseline: { format: 'dev-recovery-remediation-semantic-auth-v1' },
+      auditPosture: {
+        format: 'dev-recovery-remediation-auth-audit-posture-v1',
+        source: 'disposable-auth-provider-config',
+        postgresStorage: 'disabled',
+        prerequisiteExact: true
+      },
       canary: { freshAuthentication: true, stableStateExact: true },
       readiness: {
         realQuietWindow: true,
@@ -1026,6 +1050,170 @@ test('recovery precheck failure leaves recovery-required state without publishin
   }
 });
 
+test('attempt-bound Auth canary evidence is durable, monotonic, credential-free, and conservative', () => {
+  const root = temporaryRoot('dev-remediation-auth-canary-state');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  try {
+    initializeRemediationJournal({
+      rootDirectory: root,
+      key,
+      remediationAttemptId: value.remediationAttemptId,
+      contractDigest: value.contractDigest,
+      originalBindingDigest: canonicalDigest(value.original)
+    });
+    const canary = beginRemediationAuthCanary(root, key, 'AUTH_RUNTIME');
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'LOGIN_STARTED');
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'LOGIN_SUCCEEDED');
+    assert.deepEqual(remediationAuthCanaryDisposition(root, key), {
+      canaryCount: 1,
+      completedCount: 0,
+      sessionRevoked: false,
+      boundedEphemeraPossible: true
+    });
+    assert.throws(() => appendRemediationAuthCanaryState(
+      root, key, canary.canaryId, 'CANARY_COMPLETE'
+    ), { code: 'DEV_REMEDIATION_AUTH_CANARY_TRANSITION_INVALID' });
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'LOGOUT_ATTEMPTED');
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'BOUNDED_EPHEMERA_POSSIBLE');
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'CANARY_COMPLETE');
+    const records = readRemediationAuthCanaries(root, key)[0].records;
+    assert.deepEqual(records.map((record) => record.state), [
+      'CANARY_NOT_STARTED', 'LOGIN_STARTED', 'LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED',
+      'BOUNDED_EPHEMERA_POSSIBLE', 'CANARY_COMPLETE'
+    ]);
+    const serialized = records.map((record) => JSON.stringify(record)).join('\n');
+    assert.doesNotMatch(serialized, /access.?token|refresh.?token|password|credential/i);
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a real post-login child kill reaches recovery-required and permits stored-package R3 recovery', async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-remediation-child-r3-'));
+  const root = path.join(temporary, 'state-private');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  const preparationRecord = remediationPreparationRecord(value, key);
+  const userId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  const keyPath = path.join(temporary, 'authority.private.bin');
+  const inputPath = path.join(temporary, 'input.private.json');
+  const childPath = path.join(temporary, 'child.private.mjs');
+  const server = http.createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    if (request.url.startsWith('/auth/v1/token')) {
+      response.end(JSON.stringify({
+        access_token: 'synthetic-process-local-access',
+        refresh_token: 'synthetic-process-local-refresh',
+        user: { id: userId }
+      }));
+      return;
+    }
+    response.writeHead(500);
+    response.end('{}');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    writePrivateBytesExclusive(keyPath, key);
+    writePrivateBytesExclusive(inputPath, Buffer.from(JSON.stringify({
+      preparation: {
+        mode: 'disposable-managed-local',
+        targetSession: {
+          smokeUserId: userId,
+          smokeOrganizationId: organizationId,
+          smokeDefaultWarehouse: ''
+        }
+      },
+      values: {
+        SUPABASE_URL: origin,
+        EDGE_API_BASE_URL: `${origin}/functions/v1/api`,
+        SUPABASE_ANON_KEY: 'synthetic-local-only',
+        SMOKE_USER_EMAIL: 'synthetic@example.invalid',
+        SMOKE_USER_PASSWORD: 'synthetic-local-only'
+      }
+    }), 'utf8'));
+    writePrivateBytesExclusive(childPath, Buffer.from(`
+      import fs from 'node:fs';
+      import { runFreshAuthenticationCanary } from ${JSON.stringify(new URL('./dev-recovery-remediation-auth.mjs', import.meta.url).href)};
+      import { beginRemediationAuthCanary, appendRemediationAuthCanaryState } from ${JSON.stringify(new URL('./dev-recovery-remediation-state.mjs', import.meta.url).href)};
+      const [root, keyPath, inputPath] = process.argv.slice(2);
+      const key = fs.readFileSync(keyPath);
+      const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+      const canary = beginRemediationAuthCanary(root, key, 'AUTH_RUNTIME');
+      await runFreshAuthenticationCanary({ ...input, onLifecycle: async (state) => {
+        appendRemediationAuthCanaryState(root, key, canary.canaryId, state);
+        if (state === 'LOGIN_SUCCEEDED') {
+          process.stdout.write('LOGIN_SUCCEEDED\\n');
+          await new Promise(() => {});
+        }
+      }});
+    `, 'utf8'));
+    const baseExecutor = executorForPreparation(value, preparationRecord);
+    const killedExecutor = {
+      async run(stage) {
+        if (stage !== 'AUTH_RUNTIME_VERIFIED') return baseExecutor.run(stage);
+        const child = spawn(process.execPath, [childPath, root, keyPath, inputPath], {
+          shell: false,
+          cwd: temporary,
+          windowsHide: true,
+          env: {
+            SystemRoot: process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows',
+            WINDIR: process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows',
+            TEMP: temporary,
+            TMP: temporary
+          },
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('CHILD_LOGIN_SIGNAL_TIMEOUT')), 15_000);
+          child.stdout.on('data', (chunk) => {
+            if (chunk.toString('utf8').includes('LOGIN_SUCCEEDED')) {
+              clearTimeout(timeout);
+              child.kill();
+              resolve();
+            }
+          });
+          child.once('error', reject);
+        });
+        await new Promise((resolve) => child.once('exit', resolve));
+        assert.equal(remediationAuthCanaryDisposition(root, key).sessionRevoked, false);
+        throw Object.assign(new Error('INJECTED_POST_LOGIN_PROCESS_LOSS'), {
+          code: 'INJECTED_POST_LOGIN_PROCESS_LOSS',
+          transactionOutcome: 'not_started'
+        });
+      }
+    };
+    await assert.rejects(runDevRecoveryRemediation({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: killedExecutor
+    }), { code: 'DEV_REMEDIATION_RECOVERY_REQUIRED' });
+    assert.equal(readRemediationJournal(root, key).current.state, 'REMEDIATION_RECOVERY_REQUIRED');
+    assert.deepEqual(remediationAuthCanaryDisposition(root, key), {
+      canaryCount: 1,
+      completedCount: 0,
+      sessionRevoked: false,
+      boundedEphemeraPossible: true
+    });
+    const recovered = await runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: baseExecutor
+    });
+    assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
+    assert.equal(readRemediationJournal(root, key).current.state, 'REMEDIATION_RECOVERED');
+  } finally {
+    key.fill(0);
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test('boundary and recovery-precheck crash windows remain deterministic and recovery-marker publication is one-shot', async () => {
   const root = temporaryRoot('dev-remediation-crash-windows');
   const key = crypto.randomBytes(32);
@@ -1077,13 +1265,147 @@ test('boundary and recovery-precheck crash windows remain deterministic and reco
     journal = readRemediationJournal(root, key);
     assert.equal(journal.current.state, 'REMEDIATION_RECOVERY_REQUIRED');
     assert.ok(journal.recovery);
-    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_FROZEN');
-    await assert.rejects(runDevRecoveryRemediationRecovery({
+    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_AUTHORIZED');
+    const recovered = await runDevRecoveryRemediationRecovery({
       rootDirectory: root,
       key,
       contract: value,
       executor: executorForPreparation(value, preparationRecord)
-    }), { code: 'DEV_REMEDIATION_RECOVERY_NOT_PERMITTED' });
+    });
+    assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('recovery database boundary blocks destructive resume when commit evidence is absent', async () => {
+  const root = temporaryRoot('dev-remediation-recovery-db-boundary');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  let databaseRuns = 0;
+  const counted = {
+    async run(stage) {
+      if (stage === 'REMEDIATION_RECOVERY_DATABASE') databaseRuns += 1;
+      return evidence(value, stage);
+    }
+  };
+  try {
+    await createRecoveryRequiredState(root, key, value);
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: counted,
+      afterRecoveryBoundaryPublished() {
+        throw Object.assign(new Error('INJECTED_RECOVERY_BOUNDARY_CRASH'), {
+          code: 'INJECTED_RECOVERY_BOUNDARY_CRASH'
+        });
+      }
+    }), { code: 'DEV_REMEDIATION_RECOVERY_FAILED' });
+    assert.equal(databaseRuns, 0);
+    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY');
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: counted
+    }), { code: 'DEV_REMEDIATION_RECOVERY_FAILED' });
+    assert.equal(databaseRuns, 0);
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('committed R3 database restoration survives interruption and completes verification without replay', async () => {
+  const root = temporaryRoot('dev-remediation-recovery-committed');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  let databaseRuns = 0;
+  let verificationRuns = 0;
+  const counted = {
+    async run(stage) {
+      if (stage === 'REMEDIATION_RECOVERY_DATABASE') databaseRuns += 1;
+      if (stage === 'REMEDIATION_RECOVERY_VERIFIED') verificationRuns += 1;
+      return evidence(value, stage);
+    }
+  };
+  try {
+    await createRecoveryRequiredState(root, key, value);
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: counted,
+      afterRecoveryDatabaseCommitted() {
+        throw Object.assign(new Error('INJECTED_POST_COMMIT_CRASH'), {
+          code: 'INJECTED_POST_COMMIT_CRASH'
+        });
+      }
+    }), { code: 'DEV_REMEDIATION_RECOVERY_FAILED' });
+    assert.equal(databaseRuns, 1);
+    assert.equal(verificationRuns, 0);
+    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_DATABASE_COMMITTED');
+    const result = await runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: counted
+    });
+    assert.equal(result.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
+    assert.equal(databaseRuns, 1);
+    assert.equal(verificationRuns, 1);
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('functional recovery verification remains pending and can complete non-destructively', async () => {
+  const root = temporaryRoot('dev-remediation-recovery-verification');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  let databaseRuns = 0;
+  let verificationRuns = 0;
+  const first = {
+    async run(stage) {
+      if (stage === 'REMEDIATION_RECOVERY_DATABASE') databaseRuns += 1;
+      if (stage === 'REMEDIATION_RECOVERY_VERIFIED') {
+        verificationRuns += 1;
+        throw Object.assign(new Error('INJECTED_VERIFICATION_TRANSPORT_FAILURE'), {
+          code: 'INJECTED_VERIFICATION_TRANSPORT_FAILURE'
+        });
+      }
+      return evidence(value, stage);
+    }
+  };
+  try {
+    await createRecoveryRequiredState(root, key, value);
+    await assert.rejects(runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: first
+    }), { code: 'DEV_REMEDIATION_RECOVERY_VERIFICATION_PENDING' });
+    assert.equal(databaseRuns, 1);
+    assert.equal(remediationRestartDisposition(root, key), 'REMEDIATION_RECOVERY_VERIFICATION_PENDING');
+    const second = {
+      async run(stage) {
+        if (stage === 'REMEDIATION_RECOVERY_DATABASE') databaseRuns += 1;
+        if (stage === 'REMEDIATION_RECOVERY_VERIFIED') verificationRuns += 1;
+        return evidence(value, stage);
+      }
+    };
+    const result = await runDevRecoveryRemediationRecovery({
+      rootDirectory: root,
+      key,
+      contract: value,
+      executor: second
+    });
+    assert.equal(result.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
+    assert.equal(databaseRuns, 1);
+    assert.equal(verificationRuns, 2);
   } finally {
     key.fill(0);
     fs.rmSync(root, { recursive: true, force: true });

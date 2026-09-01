@@ -42,6 +42,7 @@ import {
   assertRemediationAuthTransition,
   captureQuietWindowFromClient,
   captureRuntimeSideEffectPostureFromClient,
+  fetchAuthAuditStoragePosture,
   fetchFreshEdgeIdentity,
   runFreshAuthenticationCanary
 } from './dev-recovery-remediation-auth.mjs';
@@ -206,6 +207,9 @@ function verifyRemediationPreparationStructure(record, key, expectedAttemptId = 
     preparation.authHardening?.baseline?.format !== 'dev-recovery-remediation-semantic-auth-v1' ||
     preparation.authHardening?.canary?.freshAuthentication !== true ||
     preparation.authHardening?.canary?.stableStateExact !== true ||
+    preparation.authHardening?.auditPosture?.format !== 'dev-recovery-remediation-auth-audit-posture-v1' ||
+    preparation.authHardening?.auditPosture?.postgresStorage !== 'disabled' ||
+    preparation.authHardening?.auditPosture?.prerequisiteExact !== true ||
     preparation.authHardening?.readiness?.realQuietWindow !== true ||
     preparation.authHardening?.readiness?.freshSideEffectsSafe !== true ||
     preparation.authHardening?.readiness?.freshEdgeExact !== true ||
@@ -226,14 +230,16 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '', { now
 }
 
 const FROZEN_STAGE_STATES = Object.freeze({
-  RECOVERY_CLI: 'REMEDIATION_RECOVERY_REQUIRED',
-  RESTORE_ORIGINAL_Y2: 'RESTORE_ORIGINAL_Y2',
-  AUTH_RUNTIME_VERIFIED: 'AUTH_RUNTIME_VERIFIED',
-  APPLICATION_RUNTIME_VERIFIED: 'APPLICATION_RUNTIME_VERIFIED',
-  FINAL_Y2_PARITY: 'FINAL_Y2_PARITY',
-  REMEDIATION_RECOVERY_PRECHECK: 'REMEDIATION_RECOVERY_REQUIRED',
-  REMEDIATION_RECOVERY_DATABASE: 'REMEDIATION_RECOVERY_DATABASE',
-  REMEDIATION_RECOVERY_VERIFIED: 'REMEDIATION_RECOVERY_VERIFIED'
+  RECOVERY_CLI: Object.freeze(['REMEDIATION_RECOVERY_REQUIRED']),
+  RESTORE_ORIGINAL_Y2: Object.freeze(['RESTORE_ORIGINAL_Y2']),
+  AUTH_RUNTIME_VERIFIED: Object.freeze(['AUTH_RUNTIME_VERIFIED']),
+  APPLICATION_RUNTIME_VERIFIED: Object.freeze(['APPLICATION_RUNTIME_VERIFIED']),
+  FINAL_Y2_PARITY: Object.freeze(['FINAL_Y2_PARITY']),
+  REMEDIATION_RECOVERY_PRECHECK: Object.freeze([
+    'REMEDIATION_RECOVERY_REQUIRED', 'REMEDIATION_RECOVERY_AUTHORIZED'
+  ]),
+  REMEDIATION_RECOVERY_DATABASE: Object.freeze(['REMEDIATION_RECOVERY_DATABASE_BOUNDARY']),
+  REMEDIATION_RECOVERY_VERIFIED: Object.freeze(['REMEDIATION_RECOVERY_VERIFICATION_PENDING'])
 });
 
 function verifyFrozenRemediationPreparation(record, key, {
@@ -244,13 +250,23 @@ function verifyFrozenRemediationPreparation(record, key, {
   stage
 } = {}) {
   const preparation = verifyRemediationPreparationStructure(record, key, expectedAttemptId);
-  const expectedState = FROZEN_STAGE_STATES[stage];
-  if (!expectedState) throw categoricalError('DEV_REMEDIATION_FROZEN_STAGE_INVALID');
+  const expectedStates = FROZEN_STAGE_STATES[stage];
+  if (!expectedStates) throw categoricalError('DEV_REMEDIATION_FROZEN_STAGE_INVALID');
   const journal = readRemediationJournal(rootDirectory, key);
   const marker = journal.marker;
   const boundary = journal.boundary;
+  const initialRecoveryPrecheck = stage === 'REMEDIATION_RECOVERY_PRECHECK' &&
+    journal.current.state === 'REMEDIATION_RECOVERY_REQUIRED' && !journal.recovery &&
+    !journal.recoveryBoundary;
+  const continuingRecoveryPrecheck = stage === 'REMEDIATION_RECOVERY_PRECHECK' &&
+    journal.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED' && Boolean(journal.recovery) &&
+    !journal.recoveryBoundary;
+  const recoveryDatabase = stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+    Boolean(journal.recovery) && Boolean(journal.recoveryBoundary);
+  const recoveryVerification = stage === 'REMEDIATION_RECOVERY_VERIFIED' &&
+    Boolean(journal.recovery) && Boolean(journal.recoveryBoundary);
   if (
-    journal.current.state !== expectedState || !marker || !boundary ||
+    !expectedStates.includes(journal.current.state) || !marker || !boundary ||
     marker.preparationDigest !== canonicalDigest(preparation) ||
     marker.contractDigest !== contractDigest ||
     marker.operationInventoryDigest !== operationInventoryDigest ||
@@ -259,8 +275,11 @@ function verifyFrozenRemediationPreparation(record, key, {
     marker.toolingCommit !== preparation.candidate.toolingCommit ||
     marker.toolingTree !== preparation.candidate.toolingTree ||
     marker.remediationAttemptId !== preparation.remediationAttemptId ||
-    (['RECOVERY_CLI', 'REMEDIATION_RECOVERY_PRECHECK'].includes(stage) && journal.recovery) ||
-    (['REMEDIATION_RECOVERY_DATABASE', 'REMEDIATION_RECOVERY_VERIFIED'].includes(stage) && !journal.recovery)
+    (stage === 'RECOVERY_CLI' && (journal.recovery || journal.recoveryBoundary)) ||
+    (stage === 'REMEDIATION_RECOVERY_PRECHECK' &&
+      !initialRecoveryPrecheck && !continuingRecoveryPrecheck) ||
+    (stage === 'REMEDIATION_RECOVERY_DATABASE' && !recoveryDatabase) ||
+    (stage === 'REMEDIATION_RECOVERY_VERIFIED' && !recoveryVerification)
   ) throw categoricalError('DEV_REMEDIATION_FROZEN_PREPARATION_MISMATCH');
   return preparation;
 }
@@ -340,6 +359,10 @@ async function prepareDevRecoveryRemediation({
       organizationId: original.preparation.fixtureAuthority.primaryOrganizationId
     };
     const beforeCanary = await captureRemediationAuthCertificate(connectionString, identity);
+    const auditPosture = await fetchAuthAuditStoragePosture({
+      preparation: { mode: disposable ? 'disposable-managed-local' : 'managed-dev' },
+      values: loaded.values
+    });
     const smokeDefaultWarehouse = beforeCanary.stable.defaultWarehouse;
     const canaryPreparation = {
       mode: disposable ? 'disposable-managed-local' : 'managed-dev',
@@ -389,6 +412,7 @@ async function prepareDevRecoveryRemediation({
       format: 'dev-recovery-remediation-auth-hardening-v1',
       baseline: afterCanary,
       canary: { ...canary, ...authTransition },
+      auditPosture,
       readiness: {
         realQuietWindow: freshDatabasePosture.quietWindow.quiet,
         freshSideEffectsSafe: freshDatabasePosture.sideEffects.safe,

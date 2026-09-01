@@ -6,6 +6,7 @@ import { DEV_PROJECT_REF } from './dev-certified-contract.mjs';
 const LIVE_SUPABASE_ORIGIN = `https://${DEV_PROJECT_REF}.supabase.co`;
 const LIVE_EDGE_API_BASE = `${LIVE_SUPABASE_ORIGIN}/functions/v1/api`;
 const AUTH_CERTIFICATE_FORMAT = 'dev-recovery-remediation-semantic-auth-v1';
+const AUTH_AUDIT_POSTURE_FORMAT = 'dev-recovery-remediation-auth-audit-posture-v1';
 
 function categoricalError(code) {
   const error = new Error(code);
@@ -136,6 +137,9 @@ async function captureRemediationAuthCertificateFromClient(client, {
       select to_jsonb(r) as value from auth.refresh_tokens r
        where r.user_id is distinct from $1::text order by r.id`, [nativeUserId])
   };
+  const auditLog = await capturedRows(client, `
+    select to_jsonb(a) as value from auth.audit_log_entries a
+     order by pg_catalog.convert_to(pg_catalog.to_jsonb(a)::text, 'UTF8')`);
   const relationshipRows = (await client.query(`
     select to_jsonb(m) as membership,
            to_jsonb(o) as organization,
@@ -172,6 +176,7 @@ async function captureRemediationAuthCertificateFromClient(client, {
     copiedUsers,
     copiedIdentities,
     copiedEphemera,
+    auditLog,
     nativeUsers,
     nativeIdentities,
     relationshipDigest: canonicalDigest(relationshipRows.map((row) => ({
@@ -198,17 +203,24 @@ function timestamp(value) {
   return parsed;
 }
 
-function assertSetPreserved(beforeValues, afterValues, maxAdditions) {
+function assertSetPreserved(beforeValues, afterValues, maxAdditions, allowedValues) {
   const before = new Set(beforeValues);
   const after = new Set(afterValues);
-  if ([...before].some((value) => !after.has(value)) || after.size - before.size > maxAdditions) {
+  const additions = [...after].filter((value) => !before.has(value));
+  const allowed = allowedValues === undefined ? null : new Set(allowedValues);
+  if (
+    [...before].some((value) => !after.has(value)) || additions.length > maxAdditions ||
+    (allowed && additions.some((value) => !allowed.has(value)))
+  ) {
     throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT');
   }
+  return additions;
 }
 
 function assertRemediationAuthTransition(before, after, {
   logoutSucceeded,
-  requireFreshLogin = true
+  requireFreshLogin = true,
+  allowedNativeEphemera
 } = {}) {
   if (
     before?.format !== AUTH_CERTIFICATE_FORMAT || after?.format !== AUTH_CERTIFICATE_FORMAT ||
@@ -221,13 +233,18 @@ function assertRemediationAuthTransition(before, after, {
       (requireFreshLogin && advanced.length === 0)) {
     throw categoricalError('DEV_REMEDIATION_AUTH_VOLATILITY_INVALID');
   }
-  const maxAdditions = logoutSucceeded === true ? 0 : 1;
-  assertSetPreserved(before.nativeEphemera.sessions, after.nativeEphemera.sessions, maxAdditions);
-  assertSetPreserved(before.nativeEphemera.refreshTokens, after.nativeEphemera.refreshTokens, maxAdditions);
-  if (logoutSucceeded === true && (
-    before.nativeEphemera.sessions.length !== after.nativeEphemera.sessions.length ||
-    before.nativeEphemera.refreshTokens.length !== after.nativeEphemera.refreshTokens.length
-  )) throw categoricalError('DEV_REMEDIATION_AUTH_LOGOUT_NOT_CLEAN');
+  const sessionAdditions = assertSetPreserved(
+    before.nativeEphemera.sessions,
+    after.nativeEphemera.sessions,
+    1,
+    allowedNativeEphemera?.sessions
+  );
+  const refreshTokenAdditions = assertSetPreserved(
+    before.nativeEphemera.refreshTokens,
+    after.nativeEphemera.refreshTokens,
+    1,
+    allowedNativeEphemera?.refreshTokens
+  );
   return {
     stableStateExact: true,
     copiedUsersExact: true,
@@ -236,7 +253,11 @@ function assertRemediationAuthTransition(before, after, {
     ownerRelationshipExact: true,
     approvedVolatileFieldCount: advanced.length,
     boundedEphemera: true,
-    sessionRevoked: logoutSucceeded === true
+    sessionRevoked: logoutSucceeded === true,
+    allowedNativeEphemera: {
+      sessions: sessionAdditions,
+      refreshTokens: refreshTokenAdditions
+    }
   };
 }
 
@@ -257,7 +278,11 @@ async function fetchJson(url, options, code) {
   }
 }
 
-async function runFreshAuthenticationCanary({ preparation, values = process.env } = {}) {
+async function runFreshAuthenticationCanary({
+  preparation,
+  values = process.env,
+  onLifecycle = async () => {}
+} = {}) {
   const disposable = preparation?.mode === 'disposable-managed-local';
   const { authUrl, apiUrl } = assertExactRemediationUrls(values, { disposable });
   const anonKey = asText(values.SUPABASE_ANON_KEY);
@@ -277,21 +302,30 @@ async function runFreshAuthenticationCanary({ preparation, values = process.env 
   let refreshToken = '';
   let sessionRevoked = false;
   let logoutAttempted = false;
+  let lifecycleState = 'CANARY_NOT_STARTED';
+  const transition = async (state) => {
+    await onLifecycle(state);
+    lifecycleState = state;
+  };
   const revokeSession = async () => {
     if (!accessToken || logoutAttempted) return sessionRevoked;
     logoutAttempted = true;
+    await transition('LOGOUT_ATTEMPTED');
     try {
       await fetchJson(`${authUrl}/auth/v1/logout`, {
         method: 'POST',
         headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
       }, 'DEV_REMEDIATION_LOGOUT_FAILED');
       sessionRevoked = true;
+      await transition('LOGOUT_SUCCEEDED');
     } catch {
       sessionRevoked = false;
+      await transition('BOUNDED_EPHEMERA_POSSIBLE');
     }
     return sessionRevoked;
   };
   try {
+    await transition('LOGIN_STARTED');
     const signedIn = (await fetchJson(`${authUrl}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: { apikey: anonKey, 'Content-Type': 'application/json' },
@@ -299,6 +333,7 @@ async function runFreshAuthenticationCanary({ preparation, values = process.env 
     }, 'DEV_REMEDIATION_FRESH_AUTHENTICATION_FAILED')).body;
     accessToken = asText(signedIn.access_token);
     refreshToken = asText(signedIn.refresh_token);
+    if (accessToken) await transition('LOGIN_SUCCEEDED');
     if (!accessToken || asText(signedIn.user?.id).toLowerCase() !== expectedUserId) {
       throw categoricalError('DEV_REMEDIATION_SMOKE_USER_ID_MISMATCH');
     }
@@ -335,10 +370,44 @@ async function runFreshAuthenticationCanary({ preparation, values = process.env 
       ephemeralSessionException: !sessionRevoked
     };
   } finally {
-    await revokeSession();
-    accessToken = '';
-    refreshToken = '';
+    try {
+      await revokeSession();
+      if (lifecycleState === 'LOGIN_STARTED') {
+        await transition('BOUNDED_EPHEMERA_POSSIBLE');
+      }
+      if (lifecycleState !== 'CANARY_COMPLETE') await transition('CANARY_COMPLETE');
+    } finally {
+      accessToken = '';
+      refreshToken = '';
+    }
   }
+}
+
+async function fetchAuthAuditStoragePosture({ preparation, values = process.env } = {}) {
+  if (preparation?.mode === 'disposable-managed-local') {
+    return {
+      format: AUTH_AUDIT_POSTURE_FORMAT,
+      source: 'disposable-auth-provider-config',
+      postgresStorage: 'disabled',
+      prerequisiteExact: true
+    };
+  }
+  const accessToken = asText(values.SUPABASE_ACCESS_TOKEN);
+  if (!accessToken) throw categoricalError('DEV_REMEDIATION_AUTH_AUDIT_POSTURE_UNAVAILABLE');
+  const result = await fetchJson(
+    `https://api.supabase.com/v1/projects/${DEV_PROJECT_REF}/config/auth`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'DEV_REMEDIATION_AUTH_AUDIT_POSTURE_READ_FAILED'
+  );
+  if (result.body?.audit_log_disable_postgres !== true) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_AUDIT_POSTURE_UNSAFE');
+  }
+  return {
+    format: AUTH_AUDIT_POSTURE_FORMAT,
+    source: 'supabase-management-auth-config',
+    postgresStorage: 'disabled',
+    prerequisiteExact: true
+  };
 }
 
 async function captureQuietWindowFromClient(client) {
@@ -464,6 +533,7 @@ async function fetchFreshEdgeIdentity({ preparation, values = process.env } = {}
 }
 
 export {
+  AUTH_AUDIT_POSTURE_FORMAT,
   AUTH_CERTIFICATE_FORMAT,
   LIVE_EDGE_API_BASE,
   LIVE_SUPABASE_ORIGIN,
@@ -473,5 +543,6 @@ export {
   captureRemediationAuthCertificateFromClient,
   captureRuntimeSideEffectPostureFromClient,
   fetchFreshEdgeIdentity,
+  fetchAuthAuditStoragePosture,
   runFreshAuthenticationCanary
 };

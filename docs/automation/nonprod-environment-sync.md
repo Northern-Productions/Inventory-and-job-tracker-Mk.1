@@ -159,6 +159,21 @@ to copied users. Preparation, precheck, post-Y2 verification, and post-R3 verifi
 organization, role, warehouse, and read-only API assertions. Credential-bearing requests use exact
 origins and fail on redirects.
 
+Every remediation Auth canary has its own attempt- and contract-bound append-only signed lifecycle:
+`CANARY_NOT_STARTED`, `LOGIN_STARTED`, `LOGIN_SUCCEEDED`, `LOGOUT_ATTEMPTED`,
+`LOGOUT_SUCCEEDED` or `BOUNDED_EPHEMERA_POSSIBLE`, and `CANARY_COMPLETE`. No credential or token is
+stored. Recovery derives session revocation conservatively from that journal, so a process loss after
+login cannot be mistaken for a clean logout. A successful logout may still leave at most the exact
+canary-owned session and refresh token until provider cleanup catches up; those rows may disappear but
+cannot be replaced or multiplied.
+
+Managed execution also requires the official Auth configuration field
+`audit_log_disable_postgres=true` before preparation, remediation, and recovery verification. The
+certificate is read-only and target-bound. With that prerequisite, `auth.audit_log_entries` is stable
+and exact; an absent, renamed, false, or non-Boolean field stops the run. The disposable Auth provider
+reproduces the disabled-storage contract. Provider-side Auth logs remain outside PostgreSQL and outside
+the application restore plane.
+
 The remediation executes the real database quiet-window census at precheck and immediately before the
 boundary. It also rechecks public Edge health, exact management version/status/JWT metadata, the
 private deployed-body size and SHA-256 identity, and the signed zero cron/network/webhook/
@@ -193,6 +208,13 @@ stages are `REMEDIATION_PRECHECK`, `CURRENT_Y2_PARITY`, `R3_CAPTURE`, `R3_VALIDA
 A post-boundary failure becomes `REMEDIATION_RECOVERY_REQUIRED` and cannot resume or retry the
 remediation; only the separately authorized one-shot R3 recovery command may run.
 
+The operation inventory therefore contains exactly 11 signed stages. `R3_VALIDATED` authenticates and
+strictly target-validates both immutable packages against the current guarded DEV connection before
+the remediation marker: the R3 fallback package and the original-Y2 remediation package. Their exact
+digests, artifact inventories, Auth-preservation modes, managed-target compatibility results, and
+stage bindings are frozen into R3 state, the marker, and the destructive boundary. The original-Y2
+stage rejects any package that is not byte-identical to its prevalidated package.
+
 Preparation freshness is phase-aware. The signed preparation and contract must remain inside their
 two-hour window at invocation, throughout all pre-boundary stages, and immediately before marker
 publication. The marker and boundary then freeze the exact preparation, contract, inventory, worker,
@@ -200,7 +222,15 @@ tooling commit/tree, attempt, R3 component, R3 stage, and prevalidated recovery-
 After the boundary, elapsed wall-clock time alone cannot strand that exact destructive lifecycle.
 An expired preparation is accepted by the recovery command only after the authenticated boundary is
 reconciled to durable `REMEDIATION_RECOVERY_REQUIRED` state and every frozen binding agrees. It cannot
-start or restart ordinary remediation. A published recovery marker remains permanently one-shot.
+start or restart ordinary remediation. Recovery precheck first publishes the permanent exact-attempt
+authorization marker. A process loss before the separate recovery database boundary may continue only
+that same attempt after full precheck reconciliation. Immediately before R3 execution, the command
+publishes the destructive recovery boundary. From that point, absent positive commit evidence,
+database execution cannot resume. A known R3 commit is durably recorded before functional checks and
+advances to `REMEDIATION_RECOVERY_VERIFICATION_PENDING`; only bound, read-only Auth/API verification
+may then be repeated. It cannot rerun the database stage or change the package. Successful functional
+verification advances through `REMEDIATION_RECOVERY_VERIFIED` to `REMEDIATION_RECOVERED`. A published
+recovery marker remains permanently one-shot.
 
 Restore execution retains authenticated categorical evidence for restore start, database/session
 identity, transaction start, mutation application, commit/rollback/ambiguity, post-commit state,
@@ -213,7 +243,7 @@ The signed operation inventory pins every stage's absolute executable and script
 Managed remediation preparation requires the guarded DEV database URL, `SUPABASE_URL`,
 `EDGE_API_BASE_URL`, `SUPABASE_ANON_KEY`, `SMOKE_USER_EMAIL`, `SMOKE_USER_PASSWORD`, and
 `SUPABASE_ACCESS_TOKEN`. The management token is mandatory only for managed preparation and the two
-child stages that reverify Edge management metadata/body identity. Disposable loopback preparation
+Edge-identity stages plus the two Auth-runtime stages that reverify database-audit storage posture. Disposable loopback preparation
 does not require it. The preparation command also requires the private authority key, original signed
 contract/preparation/inventory, failed state directory and exact attempt/Y2 bindings, side-effect and
 Edge certificates, a new private output directory, and PostgreSQL 18 tooling resolved from the
@@ -229,12 +259,12 @@ The signed least-privilege stage environment census is:
 | `R3_CAPTURE` | none | Repeatable-read exported snapshot; private encrypted artifacts only |
 | `R3_VALIDATED` | `EDGE_API_BASE_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_URL` | Live read-only DB, local disposable restore, Edge/management reads |
 | `RESTORE_ORIGINAL_Y2` | none | Serializable managed application/schema overlay preserving target-native Auth |
-| `AUTH_RUNTIME_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and four Edge reads |
+| `AUTH_RUNTIME_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus exact audit posture, fresh Auth session lifecycle, and four Edge reads |
 | `APPLICATION_RUNTIME_VERIFIED` | none | Validates prior signed stage state only |
 | `FINAL_Y2_PARITY` | none | Read-only DB |
 | `REMEDIATION_RECOVERY_PRECHECK` | `EDGE_API_BASE_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_URL` | Repeatable-read read-only target/R3/package/quiet-window/recoverable-plane and Edge posture proof; no recovery marker yet |
 | `REMEDIATION_RECOVERY_DATABASE` | none | Serializable managed R3 overlay preserving target-native Auth |
-| `REMEDIATION_RECOVERY_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus fresh Auth session lifecycle and four Edge reads |
+| `REMEDIATION_RECOVERY_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus exact audit posture, fresh Auth session lifecycle, and four Edge reads |
 
 The four functional reads are `/auth/context`, `/film-data/catalog`, `/boxes/search` with an
 all-warehouse no-match query, and `/jobs/list` with a one-row limit. They perform no business
@@ -243,20 +273,54 @@ an absent or non-string field is invalid. The full stage census, including priva
 calls, expected state, failure disposition, and R3 dependency, is machine-readable in the remediation
 contract module and is covered by focused and disposable child-process tests.
 
-`R3_VALIDATED` durably retains the exact already-generated R3 recovery package, including every
-private referenced artifact's size and digest, Auth-preservation mode, target compatibility, ACL and
-default-ACL contracts, source-component binding, and generated SQL. The fallback precheck authenticates
-that retained package before publishing its marker; `REMEDIATION_RECOVERY_DATABASE` authenticates it
-again and executes those exact bytes. Recovery never regenerates a package from an uncertain target.
+`R3_VALIDATED` durably retains the exact already-generated R3 recovery package and the original-Y2
+remediation package, including every private referenced artifact's size and digest, Auth-preservation
+mode, target compatibility, ACL and default-ACL contracts, source-component binding, and generated
+SQL. The fallback precheck authenticates the retained R3 package before publishing its marker;
+`REMEDIATION_RECOVERY_DATABASE` authenticates it again and executes those exact bytes. Recovery never
+regenerates a package from an uncertain target.
 The recovery precheck also requires zero active clients, idle transactions, lock waiters, and
 write-shaped activity, unchanged Edge/side-effect posture, and exact recoverable-plane continuity.
 
 Immediately before remediation marker publication, `R3_VALIDATED` recaptures semantic Auth evidence:
 active Owner membership, both target-native Smoke markers, provider/credential-bearing stable digests,
-selected organization, canonical empty default warehouse, and exact copied/quarantined users and
+selected organization, the exact signed preparation default warehouse (empty or nonempty), and exact copied/quarantined users and
 identities. Final remediation and R3 recovery parity consume the authenticated runtime logout result.
 A failed logout permits only the certified bounded native-Smoke session/refresh-token residue; copied
 users and identities receive no exception.
+
+All exact Auth table evidence orders PostgreSQL JSONB text by its UTF-8 bytes using
+`convert_to(to_jsonb(row)::text, 'UTF8')`. JSON content is unchanged. The remediation package,
+semantic certificate, precheck, canary, and final parity share this 23-table no-DML classification:
+
+| Auth table | State contract | Recovery DML | Recovery-owned |
+| --- | --- | --- | --- |
+| `audit_log_entries` | stable exact; requires disabled PostgreSQL audit storage | none | no |
+| `custom_oauth_providers` | stable exact | none | no |
+| `flow_state` | stable exact | none | no |
+| `identities` | copied rows exact; native-Smoke approved timestamps volatile | none | no |
+| `instances` | stable exact | none | no |
+| `mfa_amr_claims` | stable exact | none | no |
+| `mfa_challenges` | stable exact | none | no |
+| `mfa_factors` | stable exact | none | no |
+| `oauth_authorizations` | stable exact | none | no |
+| `oauth_client_states` | stable exact | none | no |
+| `oauth_clients` | stable exact | none | no |
+| `oauth_consents` | stable exact | none | no |
+| `one_time_tokens` | stable exact | none | no |
+| `refresh_tokens` | bounded exact native-Smoke canary ephemera | none | no |
+| `saml_providers` | stable exact | none | no |
+| `saml_relay_states` | stable exact | none | no |
+| `schema_migrations` | stable exact | none | no |
+| `sessions` | bounded exact native-Smoke canary ephemera | none | no |
+| `sso_domains` | stable exact | none | no |
+| `sso_providers` | stable exact | none | no |
+| `users` | copied rows exact; native-Smoke approved timestamps volatile | none | no |
+| `webauthn_challenges` | stable exact | none | no |
+| `webauthn_credentials` | stable exact | none | no |
+
+The entire Auth schema, including `auth.schema_migrations`, remains outside the remediation
+recovery-owned plane. No Auth-table DML is authorized.
 
 Preparation enumerates exactly `PRECHECK`, `QUIET_WINDOW`, `Y2_CAPTURE`, `Y2_VALIDATED`, `SIDE_EFFECTS_QUARANTINED`, `DATABASE_CUTOVER`, `DATABASE_VERIFIED`, `AUTH_RUNTIME`, `EDGE_RUNTIME`, `WORKFLOW_CERTIFICATION`, `FIXTURE_CLEANUP`, `FINAL_PARITY`, `RECOVERY_DATABASE`, `RECOVERY_AUTH_RUNTIME`, and `RECOVERY_VERIFIED`. Every entry resolves to the production stage worker and its exact digest. `dev-certified-test-worker.mjs` is test-only; preparation, inventory verification, refresh, and recovery all reject its path or digest even when an inventory is otherwise correctly authenticated.
 

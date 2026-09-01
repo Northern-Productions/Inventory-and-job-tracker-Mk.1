@@ -1,4 +1,5 @@
 import { canonicalDigest } from '../readonly-diagnostics.mjs';
+import { readOptionalStageState } from './dev-certified-stage-state.mjs';
 import {
   assertRecoveryRemediationContractFresh,
   assertRecoveryRemediationEvidence,
@@ -10,6 +11,7 @@ import {
   initializeRemediationJournal,
   publishRemediationBoundary,
   publishRemediationMarker,
+  publishRemediationRecoveryBoundary,
   publishRemediationRecoveryMarker,
   readRemediationJournal,
   reconcileRemediationBoundaryInterruption,
@@ -112,6 +114,7 @@ async function runDevRecoveryRemediation({
       r3RecoveryId: evidence.details.r3RecoveryId,
       r3ComponentDigest: evidence.details.r3ComponentDigest,
       r3RecoveryPackageDigest: evidence.details.r3RecoveryPackageDigest,
+      originalY2RecoveryPackageDigest: evidence.details.originalY2RecoveryPackageDigest,
       r3StageBindingDigest: evidence.details.r3StageBindingDigest,
       toolingCommit: contract.candidate.toolingCommit,
       toolingTree: contract.candidate.toolingTree
@@ -210,45 +213,132 @@ async function runDevRecoveryRemediationRecovery({
   contract,
   executor,
   afterRecoveryPrecheck,
-  afterRecoveryMarkerPublished
+  afterRecoveryMarkerPublished,
+  afterRecoveryBoundaryPublished,
+  afterRecoveryDatabaseCommitted,
+  afterRecoveryVerificationCompleted
 } = {}) {
   verifyRecoveryRemediationContract(contract);
   requireExecutor(executor);
-  const frozen = reconcileRemediationBoundaryInterruption(rootDirectory, key, {
+  let journal = reconcileRemediationBoundaryInterruption(rootDirectory, key, {
     contractDigest: contract.contractDigest,
     operationInventoryDigest: contract.operationInventoryDigest,
     toolingCommit: contract.candidate.toolingCommit,
     toolingTree: contract.candidate.toolingTree
   });
   if (
-    remediationRestartDisposition(rootDirectory, key) !== 'REMEDIATION_RECOVERY_REQUIRED' ||
-    frozen.current.contractDigest !== contract.contractDigest ||
-    frozen.marker?.operationInventoryDigest !== contract.operationInventoryDigest ||
-    frozen.marker?.toolingCommit !== contract.candidate.toolingCommit ||
-    frozen.marker?.toolingTree !== contract.candidate.toolingTree
+    journal.current.contractDigest !== contract.contractDigest ||
+    journal.marker?.operationInventoryDigest !== contract.operationInventoryDigest ||
+    journal.marker?.toolingCommit !== contract.candidate.toolingCommit ||
+    journal.marker?.toolingTree !== contract.candidate.toolingTree
   ) {
     throw categoricalError('DEV_REMEDIATION_RECOVERY_NOT_PERMITTED');
   }
-  const context = { rootDirectory: frozen.paths.root, contract };
-  const precheck = await runStage(executor, 'REMEDIATION_RECOVERY_PRECHECK', context);
-  if (typeof afterRecoveryPrecheck === 'function') await afterRecoveryPrecheck();
-  publishRemediationRecoveryMarker(rootDirectory, key);
-  if (typeof afterRecoveryMarkerPublished === 'function') await afterRecoveryMarkerPublished();
-  let journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_STARTED', {
-    evidenceDigest: canonicalDigest({
-      precheck,
-      marker: readRemediationJournal(rootDirectory, key).recovery
-    })
-  });
-  context.rootDirectory = journal.paths.root;
+  const context = { rootDirectory: journal.paths.root, contract };
+  if (journal.current.state === 'REMEDIATION_RECOVERY_REQUIRED' && journal.recovery) {
+    journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_AUTHORIZED', {
+      evidenceDigest: canonicalDigest(journal.recovery)
+    });
+  }
+  let disposition = remediationRestartDisposition(rootDirectory, key);
+  if (!new Set([
+    'REMEDIATION_RECOVERY_REQUIRED',
+    'REMEDIATION_RECOVERY_AUTHORIZED',
+    'REMEDIATION_RECOVERY_DATABASE_BOUNDARY',
+    'REMEDIATION_RECOVERY_DATABASE_COMMITTED',
+    'REMEDIATION_RECOVERY_VERIFICATION_PENDING',
+    'REMEDIATION_RECOVERY_VERIFIED'
+  ]).has(disposition)) throw categoricalError('DEV_REMEDIATION_RECOVERY_NOT_PERMITTED');
   try {
-    journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE');
-    let evidence = await runStage(executor, 'REMEDIATION_RECOVERY_DATABASE', context);
+    if (disposition === 'REMEDIATION_RECOVERY_REQUIRED' ||
+        disposition === 'REMEDIATION_RECOVERY_AUTHORIZED') {
+      const precheck = await runStage(executor, 'REMEDIATION_RECOVERY_PRECHECK', context);
+      if (typeof afterRecoveryPrecheck === 'function') await afterRecoveryPrecheck();
+      journal = readRemediationJournal(rootDirectory, key);
+      if (!journal.recovery) {
+        publishRemediationRecoveryMarker(rootDirectory, key);
+        if (typeof afterRecoveryMarkerPublished === 'function') await afterRecoveryMarkerPublished();
+        journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_AUTHORIZED', {
+          evidenceDigest: canonicalDigest({
+            precheck,
+            marker: readRemediationJournal(rootDirectory, key).recovery
+          })
+        });
+      }
+      journal = readRemediationJournal(rootDirectory, key);
+      if (journal.current.state !== 'REMEDIATION_RECOVERY_AUTHORIZED' || journal.recoveryBoundary) {
+        throw categoricalError('DEV_REMEDIATION_RECOVERY_PREBOUNDARY_STATE_INVALID');
+      }
+      publishRemediationRecoveryBoundary(rootDirectory, key);
+      if (typeof afterRecoveryBoundaryPublished === 'function') await afterRecoveryBoundaryPublished();
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY', {
+        evidenceDigest: canonicalDigest(readRemediationJournal(rootDirectory, key).recoveryBoundary)
+      });
+      const databaseEvidence = await runStage(executor, 'REMEDIATION_RECOVERY_DATABASE', context);
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_COMMITTED', {
+        evidenceDigest: canonicalDigest(databaseEvidence),
+        transactionOutcome: 'committed'
+      });
+      if (typeof afterRecoveryDatabaseCommitted === 'function') await afterRecoveryDatabaseCommitted();
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING', {
+        evidenceDigest: canonicalDigest(databaseEvidence),
+        transactionOutcome: 'committed'
+      });
+    } else if (disposition === 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY') {
+      const committed = readOptionalStageState({
+        rootDirectory,
+        key,
+        attemptId: contract.remediationAttemptId,
+        stage: 'REMEDIATION_RECOVERY_DATABASE'
+      });
+      journal = readRemediationJournal(rootDirectory, key);
+      if (
+        !committed || committed.transactionOutcome !== 'committed' ||
+        committed.retainedPackageDigest !== journal.marker.r3RecoveryPackageDigest
+      ) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_OUTCOME_AMBIGUOUS');
+      if (journal.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED') {
+        journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY', {
+          evidenceDigest: canonicalDigest(journal.recoveryBoundary)
+        });
+      }
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_COMMITTED', {
+        evidenceDigest: canonicalDigest(committed),
+        transactionOutcome: 'committed'
+      });
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING', {
+        evidenceDigest: canonicalDigest(committed),
+        transactionOutcome: 'committed'
+      });
+    } else if (disposition === 'REMEDIATION_RECOVERY_DATABASE_COMMITTED') {
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING', {
+        evidenceDigest: journal.current.evidenceDigest,
+        transactionOutcome: 'committed'
+      });
+    } else if (disposition === 'REMEDIATION_RECOVERY_VERIFICATION_PENDING') {
+      journal = readRemediationJournal(rootDirectory, key);
+    } else if (disposition === 'REMEDIATION_RECOVERY_VERIFIED') {
+      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERED', {
+        evidenceDigest: journal.current.evidenceDigest,
+        transactionOutcome: 'committed'
+      });
+      return {
+        classification: 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED',
+        target: 'dev',
+        recoveryAttemptedOnce: true,
+        transactionOutcome: 'committed',
+        automaticRetry: false
+      };
+    } else {
+      throw categoricalError('DEV_REMEDIATION_RECOVERY_NOT_PERMITTED');
+    }
+    const evidence = await runStage(executor, 'REMEDIATION_RECOVERY_VERIFIED', context);
+    if (typeof afterRecoveryVerificationCompleted === 'function') {
+      await afterRecoveryVerificationCompleted();
+    }
     journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_VERIFIED', {
       evidenceDigest: canonicalDigest(evidence),
       transactionOutcome: 'committed'
     });
-    evidence = await runStage(executor, 'REMEDIATION_RECOVERY_VERIFIED', context);
     journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERED', {
       evidenceDigest: canonicalDigest(evidence),
       transactionOutcome: 'committed'
@@ -262,17 +352,28 @@ async function runDevRecoveryRemediationRecovery({
     };
   } catch (error) {
     const category = safeCategory(error, 'DEV_REMEDIATION_RECOVERY_FAILED');
+    let observed;
     try {
-      const current = readRemediationJournal(rootDirectory, key).current;
-      if (REMEDIATION_TRANSITIONS[current.state]?.includes('REMEDIATION_RECOVERY_FAILED')) {
+      observed = readRemediationJournal(rootDirectory, key);
+      if (REMEDIATION_TRANSITIONS[observed.current.state]?.includes('REMEDIATION_RECOVERY_FAILED')) {
         appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_FAILED', {
           failureCategory: category,
-          transactionOutcome: failureTransactionOutcome(error, true, current.transactionOutcome)
+          transactionOutcome: failureTransactionOutcome(error, true, observed.current.transactionOutcome)
         });
       }
     } catch {
       // The permanent one-shot recovery marker remains authoritative.
     }
+    if (observed?.current.state === 'REMEDIATION_RECOVERY_VERIFICATION_PENDING') {
+      const wrapped = categoricalError('DEV_REMEDIATION_RECOVERY_VERIFICATION_PENDING');
+      wrapped.causeCategory = category;
+      wrapped.transactionOutcome = 'committed';
+      throw wrapped;
+    }
+    if (
+      (observed?.current.state === 'REMEDIATION_RECOVERY_REQUIRED' && !observed.recoveryBoundary) ||
+      (observed?.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED' && !observed.recoveryBoundary)
+    ) throw error;
     const wrapped = categoricalError('DEV_REMEDIATION_RECOVERY_FAILED');
     wrapped.causeCategory = category;
     wrapped.transactionOutcome = failureTransactionOutcome(error, true, 'ambiguous');

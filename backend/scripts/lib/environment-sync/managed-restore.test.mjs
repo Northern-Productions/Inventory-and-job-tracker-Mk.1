@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { CURRENT_AUTH_TABLES } from './constants.mjs';
+import { AUTH_RECOVERY_TABLE_CLASSIFICATION, CURRENT_AUTH_TABLES } from './constants.mjs';
 import {
   prepareRestoreDatabase,
   removeDisposablePostgres,
@@ -36,6 +36,7 @@ import {
   buildManagedOverlaySql,
   buildManagedRestoreManifest,
   canonicalizePsqlRestrictionTokens,
+  captureExactAuthRecoveryEvidence,
   migrationRestoreList,
   normalizeGeneratedSql,
   parsePgRestoreList,
@@ -43,6 +44,109 @@ import {
   verifyAuthPreservationAuthority,
   verifyManagedRestoreManifest
 } from './managed-restore.mjs';
+
+test('all 23 Auth tables have one exact no-DML recovery classification', () => {
+  assert.deepEqual(Object.keys(AUTH_RECOVERY_TABLE_CLASSIFICATION), CURRENT_AUTH_TABLES);
+  assert.equal(Object.values(AUTH_RECOVERY_TABLE_CLASSIFICATION)
+    .every((entry) => entry.dml === 'none' && entry.recoveryOwned === false), true);
+  assert.equal(AUTH_RECOVERY_TABLE_CLASSIFICATION.audit_log_entries.state, 'stable_exact');
+  assert.equal(
+    AUTH_RECOVERY_TABLE_CLASSIFICATION.audit_log_entries.prerequisite,
+    'postgres_audit_storage_disabled'
+  );
+  assert.equal(AUTH_RECOVERY_TABLE_CLASSIFICATION.users.state, 'native_smoke_volatile');
+  assert.equal(AUTH_RECOVERY_TABLE_CLASSIFICATION.identities.state, 'native_smoke_volatile');
+  assert.equal(AUTH_RECOVERY_TABLE_CLASSIFICATION.sessions.state, 'bounded_native_smoke_ephemera');
+  assert.equal(AUTH_RECOVERY_TABLE_CLASSIFICATION.refresh_tokens.state, 'bounded_native_smoke_ephemera');
+  assert.equal(AUTH_RECOVERY_TABLE_CLASSIFICATION.schema_migrations.dml, 'none');
+});
+
+test('exact Auth evidence uses canonical bytewise UTF-8 row ordering', async () => {
+  const statements = [];
+  const emptyDigest = `sha256:${crypto.createHash('sha256').update('').digest('hex')}`;
+  const evidence = await captureExactAuthRecoveryEvidence({
+    async query(sql) {
+      statements.push(sql);
+      return { rows: [{ count: 0, digest: emptyDigest }] };
+    }
+  });
+  assert.equal(evidence.serialization, 'postgres-jsonb-text-lf-bytewise-utf8-v1');
+  assert.equal(statements.length, 23);
+  assert.equal(statements.every((sql) =>
+    /order by pg_catalog\.convert_to\(pg_catalog\.to_jsonb\(t\)::text, 'UTF8'\)/.test(sql)), true);
+});
+
+test('exact Auth evidence round-trips non-ASCII metadata across ICU and C collations', {
+  timeout: 120_000
+}, async (t) => {
+  let tools;
+  try {
+    tools = resolvePostgresTools();
+  } catch {
+    t.skip('Complete PostgreSQL server tooling is unavailable.');
+    return;
+  }
+  const token = crypto.randomBytes(8).toString('hex');
+  const root = path.join(os.tmpdir(), `environment-sync-rehearsal-${token}`);
+  const sourceName = `x_rehearsal_dev_auth_icu_${token}`;
+  const targetName = `x_rehearsal_dev_auth_c_${token}`;
+  const archivePath = path.join(root, 'auth-collation.private.pgdump');
+  let cluster;
+  try {
+    cluster = await startDisposablePostgres({ rootDirectory: root });
+    const targetConnection = await prepareRestoreDatabase(cluster, targetName);
+    await withClient(cluster.connectionString(), (client) => client.query(
+      `create database "${sourceName}" template template0 locale_provider icu icu_locale 'en-US'`
+    ));
+    const sourceConnection = cluster.connectionString(sourceName);
+    await withClient(sourceConnection, (client) => client.query(`
+      drop schema public cascade;
+      create schema extensions;
+      create extension pgcrypto with schema extensions;
+    `));
+    await seedManagedSource(sourceConnection);
+    const sourceEvidence = await withClient(sourceConnection, captureExactAuthRecoveryEvidence);
+    const localeProof = await withClient(cluster.connectionString(), async (client) => (
+      await client.query(`select datname, datlocprovider, datcollate
+        from pg_catalog.pg_database where datname = any($1::text[]) order by datname`, [
+        [sourceName, targetName]
+      ])
+    ).rows);
+    assert.equal(localeProof.length, 2);
+    const sourceLocale = localeProof.find((row) => row.datname === sourceName);
+    const targetLocale = localeProof.find((row) => row.datname === targetName);
+    assert.notDeepEqual(
+      [sourceLocale.datlocprovider, sourceLocale.datcollate],
+      [targetLocale.datlocprovider, targetLocale.datcollate]
+    );
+    execFileSync(tools.pgDump, [
+      '--format=custom',
+      '--schema=auth',
+      '--file', archivePath,
+      '--dbname', new URL(sourceConnection).pathname.slice(1)
+    ], {
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: postgresChildEnvironment(sourceConnection)
+    });
+    execFileSync(tools.pgRestore, [
+      '--exit-on-error',
+      '--dbname', new URL(targetConnection).pathname.slice(1),
+      archivePath
+    ], {
+      shell: false,
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+      env: postgresChildEnvironment(targetConnection)
+    });
+    const restoredEvidence = await withClient(targetConnection, captureExactAuthRecoveryEvidence);
+    assert.deepEqual(restoredEvidence, sourceEvidence);
+    assert.equal(restoredEvidence.serialization, 'postgres-jsonb-text-lf-bytewise-utf8-v1');
+  } finally {
+    if (cluster) await removeDisposablePostgres(cluster);
+  }
+});
 import {
   REPOSITORY_APPLICATION_DEFAULT_ACL_INTENT,
   authenticateApplicationDefaultAclManifest,
@@ -405,7 +509,8 @@ async function seedManagedSource(connectionString) {
         '00000000-0000-0000-0000-000000000000','11111111-1111-1111-1111-111111111111',
         'authenticated','authenticated','synthetic@example.test','$2a$10$synthetic',now(),
         'confirmation','recovery','email-new','new@example.test',
-        '{"provider":"email","providers":["email"]}','{"display":"Synthetic"}',
+        '{"provider":"email","providers":["email"],"locale":"pl-PL"}',
+        '{"display":"Żółć Éclair 한국어"}',
         now(),now(),'+15555550100','pending','phone-token','email-current',0,'reauth',false,false
       );
       insert into auth.identities(provider_id,user_id,identity_data,provider,created_at,updated_at,id)
@@ -581,7 +686,7 @@ test('exact Y2 Auth recovery is authenticated, fixed-table, target-bound, and re
   const evidence = {
     format: 'dev-y2-exact-auth-evidence-v1',
     algorithm: 'sha256',
-    serialization: 'postgres-jsonb-text-lf-ordered-v1',
+    serialization: 'postgres-jsonb-text-lf-bytewise-utf8-v1',
     tables: CURRENT_AUTH_TABLES.map((tableName) => ({ tableName, count: 0, digest }))
   };
   const binding = {
@@ -657,7 +762,7 @@ test('remediation preserve-Auth mode emits no Auth DML and bounds only native-Sm
   const evidence = {
     format: 'dev-y2-exact-auth-evidence-v1',
     algorithm: 'sha256',
-    serialization: 'postgres-jsonb-text-lf-ordered-v1',
+    serialization: 'postgres-jsonb-text-lf-bytewise-utf8-v1',
     tables: CURRENT_AUTH_TABLES.map((tableName) => ({ tableName, count: 0, digest }))
   };
   const binding = {

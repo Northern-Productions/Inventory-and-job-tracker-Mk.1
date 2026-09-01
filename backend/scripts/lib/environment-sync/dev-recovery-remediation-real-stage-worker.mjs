@@ -59,10 +59,17 @@ import {
   captureQuietWindowFromClient,
   captureRemediationAuthCertificateFromClient,
   captureRuntimeSideEffectPostureFromClient,
+  fetchAuthAuditStoragePosture,
   fetchFreshEdgeIdentity,
   runFreshAuthenticationCanary
 } from './dev-recovery-remediation-auth.mjs';
-import { appendRemediationEvent, readRemediationJournal } from './dev-recovery-remediation-state.mjs';
+import {
+  appendRemediationAuthCanaryState,
+  appendRemediationEvent,
+  beginRemediationAuthCanary,
+  readRemediationJournal,
+  remediationAuthCanaryDisposition
+} from './dev-recovery-remediation-state.mjs';
 
 const { Client } = pg;
 const RESULT_FORMAT = 'dev-certified-operation-result-v1';
@@ -153,7 +160,10 @@ function r3StageBinding(value) {
     beforeDigest: value?.before?.digest,
     recoveryPackageDigest: canonicalDigest(value?.recoveryPackage),
     originalY2RecoveryPackageDigest: canonicalDigest(value?.originalY2RecoveryPackage),
-    authMode: value?.recoveryPackage?.authMode,
+    recoveryAuthMode: value?.recoveryPackage?.authMode,
+    originalY2AuthMode: value?.originalY2RecoveryPackage?.authMode,
+    recoveryTargetCompatibilityDigest: canonicalDigest(value?.recoveryPackageAuthentication),
+    originalY2TargetCompatibilityDigest: canonicalDigest(value?.originalY2PackageAuthentication),
     validated: value?.validated === true
   };
 }
@@ -164,11 +174,14 @@ function assertR3StageBinding(value, marker = null) {
   if (
     value?.validated !== true || value?.r3StageBindingDigest !== bindingDigest ||
     value?.r3RecoveryPackageDigest !== binding.recoveryPackageDigest ||
+    value?.originalY2RecoveryPackageDigest !== binding.originalY2RecoveryPackageDigest ||
     value?.recoveryPackage?.authMode !== 'preserve-target-native-auth' ||
+    value?.originalY2RecoveryPackage?.authMode !== 'preserve-target-native-auth' ||
     (marker && (
       marker.r3RecoveryId !== value.recoveryId ||
       marker.r3ComponentDigest !== value.component?.digest ||
       marker.r3RecoveryPackageDigest !== binding.recoveryPackageDigest ||
+      marker.originalY2RecoveryPackageDigest !== binding.originalY2RecoveryPackageDigest ||
       marker.r3StageBindingDigest !== bindingDigest
     ))
   ) throw categoricalError('DEV_REMEDIATION_R3_FROZEN_BINDING_MISMATCH');
@@ -176,14 +189,19 @@ function assertR3StageBinding(value, marker = null) {
 }
 
 function authRuntimeDisposition(context) {
+  const disposition = remediationAuthCanaryDisposition(context.rootDirectory, context.key);
   const state = readOptionalStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
-  if (!state) return { sessionRevoked: true, ephemeralSessionException: false };
-  if (
+  if (state && (
     typeof state.sessionRevoked !== 'boolean' ||
     state.ephemeralSessionException !== !state.sessionRevoked ||
     state.boundedEphemera !== true
-  ) throw categoricalError('DEV_REMEDIATION_AUTH_RUNTIME_DISPOSITION_INVALID');
-  return state;
+  )) throw categoricalError('DEV_REMEDIATION_AUTH_RUNTIME_DISPOSITION_INVALID');
+  return {
+    sessionRevoked: disposition.sessionRevoked,
+    ephemeralSessionException: disposition.boundedEphemeraPossible,
+    canaryCount: disposition.canaryCount,
+    completedCanaryCount: disposition.completedCount
+  };
 }
 
 function disposableLoopbackOverlayGuard() {
@@ -259,14 +277,25 @@ async function freshPreBoundaryPosture(context) {
     await client.query('rollback');
     began = false;
     const edge = await fetchFreshEdgeIdentity({ preparation: context.preparation });
-    return { quietWindow, sideEffects, edge };
+    const auditPosture = await fetchAuthAuditStoragePosture({ preparation: context.preparation });
+    if (canonicalSerialize(auditPosture) !== canonicalSerialize(context.preparation.authHardening.auditPosture)) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_AUDIT_POSTURE_DRIFT');
+    }
+    return { quietWindow, sideEffects, edge, auditPosture };
   } finally {
     if (began) await client.query('rollback').catch(() => {});
     await client.end().catch(() => {});
   }
 }
 
-async function runCertifiedAuthCanary(context, { priorSessionRevoked = true } = {}) {
+async function runCertifiedAuthCanary(context, {
+  priorSessionRevoked = true,
+  purpose = 'AUTH_RUNTIME'
+} = {}) {
+  const auditPosture = await fetchAuthAuditStoragePosture({ preparation: context.preparation });
+  if (canonicalSerialize(auditPosture) !== canonicalSerialize(context.preparation.authHardening.auditPosture)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_AUDIT_POSTURE_DRIFT');
+  }
   const before = await captureRemediationAuthCertificate(context.connectionString, {
     ...identity(context),
     expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
@@ -275,7 +304,13 @@ async function runCertifiedAuthCanary(context, { priorSessionRevoked = true } = 
     logoutSucceeded: priorSessionRevoked,
     requireFreshLogin: false
   });
-  const functional = await runFreshAuthenticationCanary({ preparation: context.preparation });
+  const canary = beginRemediationAuthCanary(context.rootDirectory, context.key, purpose);
+  const functional = await runFreshAuthenticationCanary({
+    preparation: context.preparation,
+    onLifecycle: async (state) => {
+      appendRemediationAuthCanaryState(context.rootDirectory, context.key, canary.canaryId, state);
+    }
+  });
   const after = await captureRemediationAuthCertificate(context.connectionString, {
     ...identity(context),
     expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
@@ -284,7 +319,13 @@ async function runCertifiedAuthCanary(context, { priorSessionRevoked = true } = 
     logoutSucceeded: functional.sessionRevoked,
     requireFreshLogin: true
   });
-  return { functional, parity, certificate: after };
+  return {
+    functional,
+    parity,
+    certificate: after,
+    allowedNativeEphemera: parity.allowedNativeEphemera,
+    auditPosture
+  };
 }
 
 async function runRemediationPrecheck(context) {
@@ -496,6 +537,11 @@ async function runR3Validated(context) {
       packageResult: recovery.packageResult,
       targetGuard: remediationDatabaseOverlayGuard(context, recovery.packageResult)
     });
+    const originalY2PackageAuthentication = verifyManagedOverlayPackageForExecution({
+      connectionString: context.connectionString,
+      packageResult: originalRecovery.packageResult,
+      targetGuard: remediationDatabaseOverlayGuard(context, originalRecovery.packageResult)
+    });
     const preMarkerAuth = await captureRemediationAuthCertificate(context.connectionString, {
       ...identity(context),
       expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
@@ -507,12 +553,14 @@ async function runR3Validated(context) {
     );
     if (
       current.nativeSmoke.ownerMembershipCount !== 1 ||
-      context.preparation.targetSession.smokeDefaultWarehouse !== ''
+      preMarkerAuth.stable.defaultWarehouse !== context.preparation.targetSession.smokeDefaultWarehouse
     ) throw categoricalError('DEV_REMEDIATION_PREMARKER_AUTH_CONTRACT_INVALID');
     const valueWithoutBinding = {
       ...r3,
       recoveryPackage: recovery.packageResult,
       originalY2RecoveryPackage: originalRecovery.packageResult,
+      recoveryPackageAuthentication: packageAuthentication,
+      originalY2PackageAuthentication,
       recoveryExpected: {
         application: recovery.application,
         auth: recovery.auth,
@@ -533,6 +581,7 @@ async function runR3Validated(context) {
     const value = {
       ...valueWithoutBinding,
       r3RecoveryPackageDigest: binding.recoveryPackageDigest,
+      originalY2RecoveryPackageDigest: binding.originalY2RecoveryPackageDigest,
       r3StageBindingDigest: canonicalDigest(binding)
     };
     assertR3StageBinding(value);
@@ -544,6 +593,7 @@ async function runR3Validated(context) {
       r3RecoveryId: r3.recoveryId,
       r3ComponentDigest: r3.component.digest,
       r3RecoveryPackageDigest: value.r3RecoveryPackageDigest,
+      originalY2RecoveryPackageDigest: value.originalY2RecoveryPackageDigest,
       r3StageBindingDigest: value.r3StageBindingDigest,
       digestVerified: true,
       canonicalRestoreTested: true,
@@ -554,13 +604,15 @@ async function runR3Validated(context) {
       freshEdgeRechecked: posture.edge.compatible,
       freshSideEffectsRechecked: posture.sideEffects.safe,
       recoveryPackageAuthenticated: packageAuthentication.authenticated,
+      originalY2PackageAuthenticated: originalY2PackageAuthentication.authenticated,
       finalSemanticAuthExact: preMarkerParity.stableStateExact,
       nativeSmokeActiveOwner: current.nativeSmoke.ownerMembershipCount === 1,
       rawMetadataMarker: true,
       identityMetadataMarker: true,
       providerCredentialDigestsExact: preMarkerParity.nativeStableExact,
       selectedOrganizationExact: preMarkerParity.ownerRelationshipExact,
-      canonicalEmptyDefaultWarehouse: preMarkerAuth.stable.defaultWarehouse === '',
+      signedDefaultWarehouseExact:
+        preMarkerAuth.stable.defaultWarehouse === context.preparation.targetSession.smokeDefaultWarehouse,
       copiedUsersExact: preMarkerParity.copiedUsersExact,
       copiedIdentitiesExact: preMarkerParity.copiedIdentitiesExact
     };
@@ -686,6 +738,17 @@ async function executeKnownRestore(context, {
 async function runRestoreOriginalY2(context) {
   const original = originalState(context);
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
+  const journal = readRemediationJournal(context.rootDirectory, context.key);
+  assertR3StageBinding(r3, journal.marker);
+  const packageAuthentication = verifyManagedOverlayPackageForExecution({
+    connectionString: context.connectionString,
+    packageResult: r3.originalY2RecoveryPackage,
+    targetGuard: remediationDatabaseOverlayGuard(context, r3.originalY2RecoveryPackage)
+  });
+  if (
+    packageAuthentication.authenticated !== true ||
+    canonicalDigest(packageAuthentication) !== canonicalDigest(r3.originalY2PackageAuthentication)
+  ) throw categoricalError('DEV_REMEDIATION_ORIGINAL_Y2_PACKAGE_PREVALIDATION_DRIFT');
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
   assertRecoveryApplicationStateEqual(current, r3.before, 'DEV_REMEDIATION_PRE_BOUNDARY_R3_MISMATCH');
   assertRecoveryApplicationStateEqual(current, original.y2.before, 'DEV_REMEDIATION_PRE_BOUNDARY_Y2_MISMATCH');
@@ -727,6 +790,7 @@ async function runAuthRuntimeVerified(context) {
     boundedEphemera: auth.parity.boundedEphemera,
     copiedUsersExact: auth.parity.copiedUsersExact,
     copiedIdentitiesExact: auth.parity.copiedIdentitiesExact,
+    allowedNativeEphemera: auth.allowedNativeEphemera,
     certificate: auth.certificate,
     ...auth.functional
   };
@@ -766,11 +830,9 @@ async function runFinalY2Parity(context) {
   const auth = readStageState(stateOptions(context, 'AUTH_RUNTIME_VERIFIED'));
   const parity = assertRemediationAuthTransition(context.preparation.authHardening.baseline, authCurrent, {
     logoutSucceeded: auth.sessionRevoked,
-    requireFreshLogin: false
+    requireFreshLogin: false,
+    allowedNativeEphemera: auth.allowedNativeEphemera
   });
-  if (canonicalSerialize(auth.certificate) !== canonicalSerialize(authCurrent)) {
-    throw categoricalError('DEV_REMEDIATION_AUTH_CERTIFICATE_FINAL_DRIFT');
-  }
   const value = {
     current,
     originalY2Exact: true,
@@ -828,7 +890,11 @@ async function recoveryPrecheckSnapshot(context, r3, sessionRevoked) {
     await client.query('rollback');
     began = false;
     const edge = await fetchFreshEdgeIdentity({ preparation: context.preparation });
-    return { quietWindow, sideEffects, current, authParity, edge };
+    const auditPosture = await fetchAuthAuditStoragePosture({ preparation: context.preparation });
+    if (canonicalSerialize(auditPosture) !== canonicalSerialize(context.preparation.authHardening.auditPosture)) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_AUDIT_POSTURE_DRIFT');
+    }
+    return { quietWindow, sideEffects, current, authParity, edge, auditPosture };
   } finally {
     if (began) await client.query('rollback').catch(() => {});
     await client.end().catch(() => {});
@@ -838,9 +904,11 @@ async function recoveryPrecheckSnapshot(context, r3, sessionRevoked) {
 async function runRemediationRecoveryPrecheck(context) {
   originalState(context);
   const journal = readRemediationJournal(context.rootDirectory, context.key);
+  const initial = journal.current.state === 'REMEDIATION_RECOVERY_REQUIRED' && !journal.recovery;
+  const continuing = journal.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED' &&
+    journal.recovery && !journal.recoveryBoundary;
   if (
-    journal.current.state !== 'REMEDIATION_RECOVERY_REQUIRED' ||
-    !journal.marker || !journal.boundary || journal.recovery
+    (!initial && !continuing) || !journal.marker || !journal.boundary
   ) throw categoricalError('DEV_REMEDIATION_RECOVERY_PRECHECK_STATE_INVALID');
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
   assertR3StageBinding(r3, journal.marker);
@@ -854,8 +922,9 @@ async function runRemediationRecoveryPrecheck(context) {
   return {
     targetExact: packageAuthentication.authenticated,
     exactAttemptAndR3Binding: true,
-    recoveryRequiredStateExact: true,
+    recoveryRequiredStateExact: initial || continuing,
     noExistingRecoveryInvocation: true,
+    sameAttemptPreBoundaryContinuation: continuing,
     retainedRecoveryPackageAuthenticated: true,
     realQuietWindow: snapshot.quietWindow.quiet,
     activeClients: snapshot.quietWindow.activeClients,
@@ -875,11 +944,31 @@ async function runRemediationRecoveryDatabase(context) {
   const journal = readRemediationJournal(context.rootDirectory, context.key);
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
   assertR3StageBinding(r3, journal.marker);
+  if (
+    journal.current.state !== 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY' ||
+    !journal.recovery || !journal.recoveryBoundary
+  ) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_BOUNDARY_INVALID');
   verifyManagedOverlayPackageForExecution({
     connectionString: context.connectionString,
     packageResult: r3.recoveryPackage,
     targetGuard: remediationDatabaseOverlayGuard(context, r3.recoveryPackage)
   });
+  const committed = readOptionalStageState(stateOptions(context, 'REMEDIATION_RECOVERY_DATABASE'));
+  if (committed) {
+    if (
+      committed.transactionOutcome !== 'committed' ||
+      committed.retainedPackageDigest !== r3.r3RecoveryPackageDigest
+    ) throw categoricalError('DEV_REMEDIATION_RECOVERY_COMMIT_EVIDENCE_INVALID');
+    const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
+    assertRecoveryApplicationStateEqual(current, r3.before, 'DEV_REMEDIATION_RECOVERY_COMMIT_RECONCILIATION_FAILED');
+    return {
+      r3Restored: true,
+      transactionOutcome: 'committed',
+      retainedPackageUsed: true,
+      commitEvidenceReconciled: true,
+      oldRecoveryStateChanged: false
+    };
+  }
   const restored = await runSubstep('R3_MANAGED_OVERLAY', () => executeKnownRestore(context, {
       stage: 'REMEDIATION_RECOVERY_DATABASE',
       packageResult: r3.recoveryPackage,
@@ -903,19 +992,28 @@ async function runRemediationRecoveryDatabase(context) {
 async function runRemediationRecoveryVerified(context) {
   originalState(context);
   const journal = readRemediationJournal(context.rootDirectory, context.key);
+  if (
+    journal.current.state !== 'REMEDIATION_RECOVERY_VERIFICATION_PENDING' ||
+    !journal.recovery || !journal.recoveryBoundary
+  ) throw categoricalError('DEV_REMEDIATION_RECOVERY_VERIFICATION_STATE_INVALID');
   const r3 = readStageState(stateOptions(context, 'R3_VALIDATED'));
   assertR3StageBinding(r3, journal.marker);
   const current = await captureRecoveryOwnedState(context.connectionString, identity(context));
   assertRecoveryApplicationStateEqual(current, r3.before, 'DEV_REMEDIATION_RECOVERY_R3_MISMATCH');
   const priorDisposition = authRuntimeDisposition(context);
   const auth = await runCertifiedAuthCanary(context, {
-    priorSessionRevoked: priorDisposition.sessionRevoked
+    priorSessionRevoked: priorDisposition.sessionRevoked,
+    purpose: 'RECOVERY_VERIFICATION'
   });
   const sessionRevoked = priorDisposition.sessionRevoked && auth.functional.sessionRevoked;
   const finalParity = assertRemediationAuthTransition(
     context.preparation.authHardening.baseline,
     auth.certificate,
-    { logoutSucceeded: sessionRevoked, requireFreshLogin: false }
+    {
+      logoutSucceeded: sessionRevoked,
+      requireFreshLogin: false,
+      allowedNativeEphemera: auth.allowedNativeEphemera
+    }
   );
   return {
     r3Exact: true,

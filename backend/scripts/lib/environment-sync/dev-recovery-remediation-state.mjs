@@ -16,7 +16,19 @@ const REMEDIATION_JOURNAL_FORMAT = 'dev-recovery-remediation-journal-v1';
 const REMEDIATION_MARKER_FORMAT = 'dev-recovery-remediation-attempt-v1';
 const REMEDIATION_BOUNDARY_FORMAT = 'dev-recovery-remediation-boundary-v1';
 const REMEDIATION_RECOVERY_MARKER_FORMAT = 'dev-recovery-remediation-recovery-attempt-v1';
+const REMEDIATION_RECOVERY_BOUNDARY_FORMAT = 'dev-recovery-remediation-recovery-boundary-v1';
 const REMEDIATION_EVENT_FORMAT = 'dev-recovery-remediation-operation-event-v1';
+const REMEDIATION_AUTH_CANARY_FORMAT = 'dev-recovery-remediation-auth-canary-v1';
+
+const AUTH_CANARY_TRANSITIONS = Object.freeze({
+  CANARY_NOT_STARTED: ['LOGIN_STARTED'],
+  LOGIN_STARTED: ['LOGIN_SUCCEEDED', 'BOUNDED_EPHEMERA_POSSIBLE'],
+  LOGIN_SUCCEEDED: ['LOGOUT_ATTEMPTED', 'BOUNDED_EPHEMERA_POSSIBLE'],
+  LOGOUT_ATTEMPTED: ['LOGOUT_SUCCEEDED', 'BOUNDED_EPHEMERA_POSSIBLE'],
+  LOGOUT_SUCCEEDED: ['CANARY_COMPLETE'],
+  BOUNDED_EPHEMERA_POSSIBLE: ['CANARY_COMPLETE'],
+  CANARY_COMPLETE: []
+});
 
 const REMEDIATION_TRANSITIONS = Object.freeze({
   PRECHECK: ['CURRENT_Y2_PARITY', 'FAILED_PRE_MUTATION'],
@@ -31,10 +43,12 @@ const REMEDIATION_TRANSITIONS = Object.freeze({
   FINAL_Y2_PARITY: ['REMEDIATION_COMPLETE', 'REMEDIATION_RECOVERY_REQUIRED'],
   REMEDIATION_COMPLETE: [],
   FAILED_PRE_MUTATION: [],
-  REMEDIATION_RECOVERY_REQUIRED: ['REMEDIATION_RECOVERY_STARTED'],
-  REMEDIATION_RECOVERY_STARTED: ['REMEDIATION_RECOVERY_DATABASE', 'REMEDIATION_RECOVERY_FAILED'],
-  REMEDIATION_RECOVERY_DATABASE: ['REMEDIATION_RECOVERY_VERIFIED', 'REMEDIATION_RECOVERY_FAILED'],
-  REMEDIATION_RECOVERY_VERIFIED: ['REMEDIATION_RECOVERED', 'REMEDIATION_RECOVERY_FAILED'],
+  REMEDIATION_RECOVERY_REQUIRED: ['REMEDIATION_RECOVERY_AUTHORIZED'],
+  REMEDIATION_RECOVERY_AUTHORIZED: ['REMEDIATION_RECOVERY_DATABASE_BOUNDARY'],
+  REMEDIATION_RECOVERY_DATABASE_BOUNDARY: ['REMEDIATION_RECOVERY_DATABASE_COMMITTED', 'REMEDIATION_RECOVERY_FAILED'],
+  REMEDIATION_RECOVERY_DATABASE_COMMITTED: ['REMEDIATION_RECOVERY_VERIFICATION_PENDING'],
+  REMEDIATION_RECOVERY_VERIFICATION_PENDING: ['REMEDIATION_RECOVERY_VERIFIED'],
+  REMEDIATION_RECOVERY_VERIFIED: ['REMEDIATION_RECOVERED'],
   REMEDIATION_RECOVERED: [],
   REMEDIATION_RECOVERY_FAILED: []
 });
@@ -66,6 +80,8 @@ function statePaths(rootDirectory) {
     marker: privateArtifactPath(root, 'remediation-attempt.private.json'),
     boundary: privateArtifactPath(root, 'remediation-boundary.private.json'),
     recovery: privateArtifactPath(root, 'remediation-recovery-attempt.private.json'),
+    recoveryBoundary: privateArtifactPath(root, 'remediation-recovery-boundary.private.json'),
+    authCanaries: path.join(root, 'auth-canaries-private'),
     events: path.join(root, 'operation-events-private')
   };
 }
@@ -143,7 +159,12 @@ function readRemediationJournal(rootDirectory, key, { verifyProtection = true } 
   const recovery = fs.existsSync(paths.recovery)
     ? verifySignedRecord(readPrivateJson(paths.recovery, verifyProtection), key, REMEDIATION_RECOVERY_MARKER_FORMAT)
     : null;
-  for (const sidecar of [marker, boundary, recovery].filter(Boolean)) {
+  const recoveryBoundary = fs.existsSync(paths.recoveryBoundary)
+    ? verifySignedRecord(
+      readPrivateJson(paths.recoveryBoundary, verifyProtection), key, REMEDIATION_RECOVERY_BOUNDARY_FORMAT
+    )
+    : null;
+  for (const sidecar of [marker, boundary, recovery, recoveryBoundary].filter(Boolean)) {
     if (
       sidecar.remediationAttemptId !== records[0].remediationAttemptId ||
       sidecar.contractDigest !== records[0].contractDigest ||
@@ -157,6 +178,7 @@ function readRemediationJournal(rootDirectory, key, { verifyProtection = true } 
       marker.stageWorkerDigest,
       marker.r3ComponentDigest,
       marker.r3RecoveryPackageDigest,
+      marker.originalY2RecoveryPackageDigest,
       marker.r3StageBindingDigest
     ]) assertSha256(value, 'DEV_REMEDIATION_MARKER_FROZEN_BINDING_INVALID');
     assertGitIdentity(marker.toolingCommit, 'DEV_REMEDIATION_MARKER_TOOLING_INVALID');
@@ -168,6 +190,7 @@ function readRemediationJournal(rootDirectory, key, { verifyProtection = true } 
     boundary.operationInventoryDigest !== marker.operationInventoryDigest ||
     boundary.stageWorkerDigest !== marker.stageWorkerDigest ||
     boundary.r3RecoveryPackageDigest !== marker.r3RecoveryPackageDigest ||
+    boundary.originalY2RecoveryPackageDigest !== marker.originalY2RecoveryPackageDigest ||
     boundary.r3StageBindingDigest !== marker.r3StageBindingDigest
   )) throw categoricalError('DEV_REMEDIATION_BOUNDARY_FROZEN_BINDING_INVALID');
   if (recovery && (
@@ -175,9 +198,17 @@ function readRemediationJournal(rootDirectory, key, { verifyProtection = true } 
     recovery.boundaryDigest !== canonicalDigest(boundary) ||
     recovery.r3RecoveryId !== marker.r3RecoveryId ||
     recovery.r3RecoveryPackageDigest !== marker.r3RecoveryPackageDigest ||
+    recovery.originalY2RecoveryPackageDigest !== marker.originalY2RecoveryPackageDigest ||
     recovery.r3StageBindingDigest !== marker.r3StageBindingDigest
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_FROZEN_BINDING_INVALID');
-  return { paths, records, current: records.at(-1), marker, boundary, recovery };
+  if (recoveryBoundary && (
+    !recovery || recoveryBoundary.recoveryMarkerDigest !== canonicalDigest(recovery) ||
+    recoveryBoundary.markerDigest !== canonicalDigest(marker) ||
+    recoveryBoundary.r3RecoveryPackageDigest !== marker.r3RecoveryPackageDigest ||
+    recoveryBoundary.originalY2RecoveryPackageDigest !== marker.originalY2RecoveryPackageDigest ||
+    recoveryBoundary.r3StageBindingDigest !== marker.r3StageBindingDigest
+  )) throw categoricalError('DEV_REMEDIATION_RECOVERY_BOUNDARY_FROZEN_BINDING_INVALID');
+  return { paths, records, current: records.at(-1), marker, boundary, recovery, recoveryBoundary };
 }
 
 function initializeRemediationJournal({
@@ -253,6 +284,7 @@ function publishRemediationMarker(rootDirectory, key, {
   r3RecoveryId,
   r3ComponentDigest,
   r3RecoveryPackageDigest,
+  originalY2RecoveryPackageDigest,
   r3StageBindingDigest,
   toolingCommit,
   toolingTree,
@@ -278,6 +310,7 @@ function publishRemediationMarker(rootDirectory, key, {
     r3RecoveryId,
     r3ComponentDigest,
     r3RecoveryPackageDigest,
+    originalY2RecoveryPackageDigest,
     r3StageBindingDigest,
     toolingCommit,
     toolingTree,
@@ -306,6 +339,7 @@ function publishRemediationBoundary(rootDirectory, key, recordedAt = new Date().
     operationInventoryDigest: journal.marker.operationInventoryDigest,
     stageWorkerDigest: journal.marker.stageWorkerDigest,
     r3RecoveryPackageDigest: journal.marker.r3RecoveryPackageDigest,
+    originalY2RecoveryPackageDigest: journal.marker.originalY2RecoveryPackageDigest,
     r3StageBindingDigest: journal.marker.r3StageBindingDigest,
     crossedAt: recordedAt,
     recoveryRequiredOnInterruption: true
@@ -331,12 +365,170 @@ function publishRemediationRecoveryMarker(rootDirectory, key, recordedAt = new D
     boundaryDigest: canonicalDigest(journal.boundary),
     r3RecoveryId: journal.marker.r3RecoveryId,
     r3RecoveryPackageDigest: journal.marker.r3RecoveryPackageDigest,
+    originalY2RecoveryPackageDigest: journal.marker.originalY2RecoveryPackageDigest,
     r3StageBindingDigest: journal.marker.r3StageBindingDigest,
     startedAt: recordedAt,
     retryAllowed: false
   };
   writePrivateJsonExclusive(journal.paths.recovery, signedRecord(payload, key));
   return payload;
+}
+
+function publishRemediationRecoveryBoundary(rootDirectory, key, recordedAt = new Date().toISOString()) {
+  const journal = readRemediationJournal(rootDirectory, key, { verifyProtection: false });
+  if (
+    journal.current.state !== 'REMEDIATION_RECOVERY_AUTHORIZED' || !journal.recovery ||
+    !journal.marker || journal.recoveryBoundary
+  ) throw categoricalError('DEV_REMEDIATION_RECOVERY_BOUNDARY_STATE_INVALID');
+  const payload = {
+    format: REMEDIATION_RECOVERY_BOUNDARY_FORMAT,
+    remediationAttemptId: journal.current.remediationAttemptId,
+    contractDigest: journal.current.contractDigest,
+    originalBindingDigest: journal.current.originalBindingDigest,
+    target: 'dev',
+    projectRef: DEV_PROJECT_REF,
+    markerDigest: canonicalDigest(journal.marker),
+    recoveryMarkerDigest: canonicalDigest(journal.recovery),
+    r3RecoveryPackageDigest: journal.marker.r3RecoveryPackageDigest,
+    originalY2RecoveryPackageDigest: journal.marker.originalY2RecoveryPackageDigest,
+    r3StageBindingDigest: journal.marker.r3StageBindingDigest,
+    crossedAt: recordedAt,
+    resumeDestructiveExecution: false
+  };
+  writePrivateJsonExclusive(journal.paths.recoveryBoundary, signedRecord(payload, key));
+  return payload;
+}
+
+function authCanaryDirectories(root) {
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^\d{3}-[a-z0-9-]+$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+}
+
+function readAuthCanaryDirectory(directory, key, journal) {
+  verifyPrivateDirectoryProtection(directory);
+  const files = fs.readdirSync(directory)
+    .filter((name) => /^\d{3}-[a-z0-9-]+\.private\.json$/.test(name))
+    .sort();
+  if (files.length === 0) throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_EMPTY');
+  const records = [];
+  let previousDigest = '';
+  for (let sequence = 0; sequence < files.length; sequence += 1) {
+    const payload = verifySignedRecord(
+      readPrivateJson(privateArtifactPath(directory, files[sequence])), key, REMEDIATION_AUTH_CANARY_FORMAT
+    );
+    if (
+      payload.sequence !== sequence || payload.previousDigest !== previousDigest ||
+      payload.remediationAttemptId !== journal.current.remediationAttemptId ||
+      payload.contractDigest !== journal.current.contractDigest ||
+      !Object.hasOwn(AUTH_CANARY_TRANSITIONS, payload.state) ||
+      !/^[A-Z][A-Z0-9_]{2,63}$/.test(String(payload.purpose || '')) ||
+      !/^sha256:[0-9a-f]{64}$/.test(String(payload.canaryId || ''))
+    ) throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_INVALID');
+    if (sequence === 0) {
+      if (payload.state !== 'CANARY_NOT_STARTED') throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_INVALID');
+    } else {
+      const prior = records.at(-1);
+      if (!(AUTH_CANARY_TRANSITIONS[prior.state] || []).includes(payload.state) ||
+          payload.canaryId !== prior.canaryId || payload.purpose !== prior.purpose) {
+        throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_TRANSITION_INVALID');
+      }
+    }
+    records.push(payload);
+    previousDigest = canonicalDigest(payload);
+  }
+  return { directory, records, current: records.at(-1), initial: records[0] };
+}
+
+function readRemediationAuthCanaries(rootDirectory, key) {
+  const journal = readRemediationJournal(rootDirectory, key);
+  return authCanaryDirectories(journal.paths.authCanaries)
+    .map((name) => readAuthCanaryDirectory(path.join(journal.paths.authCanaries, name), key, journal));
+}
+
+function beginRemediationAuthCanary(rootDirectory, key, purpose, recordedAt = new Date().toISOString()) {
+  const journal = readRemediationJournal(rootDirectory, key);
+  const normalizedPurpose = String(purpose || '');
+  if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(normalizedPurpose)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_PURPOSE_INVALID');
+  }
+  let canaryRoot = journal.paths.authCanaries;
+  if (!fs.existsSync(canaryRoot)) canaryRoot = createPrivateDirectory(canaryRoot);
+  else verifyPrivateDirectoryProtection(canaryRoot);
+  const ordinal = authCanaryDirectories(canaryRoot).length;
+  const directory = createPrivateDirectory(path.join(
+    canaryRoot, `${String(ordinal).padStart(3, '0')}-${normalizedPurpose.toLowerCase().replaceAll('_', '-')}`
+  ));
+  const canaryId = canonicalDigest({
+    remediationAttemptId: journal.current.remediationAttemptId,
+    contractDigest: journal.current.contractDigest,
+    purpose: normalizedPurpose,
+    ordinal
+  });
+  const payload = {
+    format: REMEDIATION_AUTH_CANARY_FORMAT,
+    sequence: 0,
+    previousDigest: '',
+    remediationAttemptId: journal.current.remediationAttemptId,
+    contractDigest: journal.current.contractDigest,
+    canaryId,
+    purpose: normalizedPurpose,
+    state: 'CANARY_NOT_STARTED',
+    recordedAt
+  };
+  writePrivateJsonExclusive(
+    privateArtifactPath(directory, '000-canary-not-started.private.json'), signedRecord(payload, key)
+  );
+  return { directory, canaryId, purpose: normalizedPurpose };
+}
+
+function appendRemediationAuthCanaryState(rootDirectory, key, canaryId, state, recordedAt = new Date().toISOString()) {
+  if (!Object.hasOwn(AUTH_CANARY_TRANSITIONS, state)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_STATE_INVALID');
+  }
+  const canary = readRemediationAuthCanaries(rootDirectory, key)
+    .find((entry) => entry.current.canaryId === canaryId);
+  if (!canary || !(AUTH_CANARY_TRANSITIONS[canary.current.state] || []).includes(state)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_TRANSITION_INVALID');
+  }
+  const sequence = canary.current.sequence + 1;
+  const payload = {
+    format: REMEDIATION_AUTH_CANARY_FORMAT,
+    sequence,
+    previousDigest: canonicalDigest(canary.current),
+    remediationAttemptId: canary.current.remediationAttemptId,
+    contractDigest: canary.current.contractDigest,
+    canaryId,
+    purpose: canary.current.purpose,
+    state,
+    recordedAt
+  };
+  writePrivateJsonExclusive(
+    privateArtifactPath(
+      canary.directory,
+      `${String(sequence).padStart(3, '0')}-${state.toLowerCase().replaceAll('_', '-')}.private.json`
+    ),
+    signedRecord(payload, key)
+  );
+  return payload;
+}
+
+function remediationAuthCanaryDisposition(rootDirectory, key) {
+  const canaries = readRemediationAuthCanaries(rootDirectory, key);
+  const bounded = canaries.some((entry) =>
+    entry.records.some((record) => record.state === 'BOUNDED_EPHEMERA_POSSIBLE') ||
+    !['CANARY_NOT_STARTED', 'LOGOUT_SUCCEEDED', 'CANARY_COMPLETE'].includes(entry.current.state)
+  );
+  const completed = canaries.filter((entry) => entry.current.state === 'CANARY_COMPLETE');
+  return {
+    canaryCount: canaries.length,
+    completedCount: completed.length,
+    sessionRevoked: !bounded && completed.every((entry) =>
+      entry.records.some((record) => record.state === 'LOGOUT_SUCCEEDED')),
+    boundedEphemeraPossible: bounded
+  };
 }
 
 function appendRemediationEvent(rootDirectory, key, {
@@ -386,7 +578,20 @@ function remediationRestartDisposition(rootDirectory, key) {
   if (journal.current.state === 'REMEDIATION_COMPLETE') return 'REMEDIATION_COMPLETE';
   if (journal.current.state === 'REMEDIATION_RECOVERED') return 'REMEDIATION_RECOVERED';
   if (journal.current.state === 'REMEDIATION_RECOVERY_FAILED') return 'REMEDIATION_RECOVERY_FAILED';
-  if (journal.recovery) return 'REMEDIATION_RECOVERY_FROZEN';
+  if (journal.current.state === 'REMEDIATION_RECOVERY_VERIFICATION_PENDING') {
+    return 'REMEDIATION_RECOVERY_VERIFICATION_PENDING';
+  }
+  if (journal.current.state === 'REMEDIATION_RECOVERY_DATABASE_COMMITTED') {
+    return 'REMEDIATION_RECOVERY_DATABASE_COMMITTED';
+  }
+  if (journal.current.state === 'REMEDIATION_RECOVERY_VERIFIED') {
+    return 'REMEDIATION_RECOVERY_VERIFIED';
+  }
+  if (journal.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED' && !journal.recoveryBoundary) {
+    return 'REMEDIATION_RECOVERY_AUTHORIZED';
+  }
+  if (journal.recoveryBoundary) return 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY';
+  if (journal.recovery) return 'REMEDIATION_RECOVERY_AUTHORIZED';
   if (journal.boundary) return 'REMEDIATION_RECOVERY_REQUIRED';
   if (journal.marker) return 'PRE_MUTATION_REMEDIATION_FROZEN';
   return 'PRE_MUTATION_ABORT_ONLY';
@@ -426,19 +631,26 @@ function reconcileRemediationBoundaryInterruption(rootDirectory, key, {
 }
 
 export {
+  REMEDIATION_AUTH_CANARY_FORMAT,
   REMEDIATION_BOUNDARY_FORMAT,
   REMEDIATION_EVENT_FORMAT,
   REMEDIATION_JOURNAL_FORMAT,
   REMEDIATION_MARKER_FORMAT,
   REMEDIATION_RECOVERY_MARKER_FORMAT,
+  REMEDIATION_RECOVERY_BOUNDARY_FORMAT,
   REMEDIATION_TRANSITIONS,
+  appendRemediationAuthCanaryState,
   appendRemediationEvent,
   appendRemediationState,
+  beginRemediationAuthCanary,
   initializeRemediationJournal,
   publishRemediationBoundary,
   publishRemediationMarker,
   publishRemediationRecoveryMarker,
+  publishRemediationRecoveryBoundary,
+  readRemediationAuthCanaries,
   readRemediationJournal,
   reconcileRemediationBoundaryInterruption,
+  remediationAuthCanaryDisposition,
   remediationRestartDisposition
 };

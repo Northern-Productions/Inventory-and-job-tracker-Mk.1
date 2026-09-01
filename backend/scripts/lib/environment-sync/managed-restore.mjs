@@ -5,7 +5,11 @@ import { execFileSync } from 'node:child_process';
 
 import { canonicalDigest, canonicalSerialize } from '../readonly-diagnostics.mjs';
 import { PROD_PROJECT_REF } from '../target-env-guards.mjs';
-import { AUTH_PURGE_ORDER, CURRENT_AUTH_TABLES } from './constants.mjs';
+import {
+  AUTH_PURGE_ORDER,
+  AUTH_RECOVERY_TABLE_CLASSIFICATION,
+  CURRENT_AUTH_TABLES
+} from './constants.mjs';
 import {
   APPLICATION_ACL_CONTRACT_FORMAT,
   buildApplicationAclConvergenceSql,
@@ -149,7 +153,7 @@ async function captureExactAuthRecoveryEvidence(client) {
       `select count(*)::bigint as count,
               'sha256:' || encode(extensions.digest(
                 convert_to(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, E'\\n'
-                  order by pg_catalog.to_jsonb(t)::text), ''), 'UTF8'),
+                  order by pg_catalog.convert_to(pg_catalog.to_jsonb(t)::text, 'UTF8')), ''), 'UTF8'),
                 'sha256'
               ), 'hex') as digest
          from auth."${tableName}" t`
@@ -163,7 +167,7 @@ async function captureExactAuthRecoveryEvidence(client) {
   return {
     format: 'dev-y2-exact-auth-evidence-v1',
     algorithm: 'sha256',
-    serialization: 'postgres-jsonb-text-lf-ordered-v1',
+    serialization: 'postgres-jsonb-text-lf-bytewise-utf8-v1',
     tables
   };
 }
@@ -193,7 +197,7 @@ function buildExactAuthRecoveryAuthority({
     !/^20\d{12}$/.test(normalizedMigration.tip) ||
     evidence?.format !== 'dev-y2-exact-auth-evidence-v1' ||
     evidence?.algorithm !== 'sha256' ||
-    evidence?.serialization !== 'postgres-jsonb-text-lf-ordered-v1' ||
+    evidence?.serialization !== 'postgres-jsonb-text-lf-bytewise-utf8-v1' ||
     !Array.isArray(evidence?.tables) ||
     evidence.tables.length !== CURRENT_AUTH_TABLES.length
   ) {
@@ -257,7 +261,9 @@ function buildAuthPreservationAuthority({
   const payload = {
     ...Object.fromEntries(Object.entries(exact).filter(([name]) => name !== 'authentication')),
     format: DEV_REMEDIATION_AUTH_PRESERVATION_FORMAT,
-    mode: DEV_REMEDIATION_AUTH_PRESERVATION_MODE
+    mode: DEV_REMEDIATION_AUTH_PRESERVATION_MODE,
+    tableClassificationDigest: canonicalDigest(AUTH_RECOVERY_TABLE_CLASSIFICATION),
+    authTableDml: 'none'
   };
   return authenticateManifest(payload, key);
 }
@@ -1290,7 +1296,7 @@ function exactAuthRecoveryAssertions(authority, tableNames = CURRENT_AUTH_TABLES
   select count(*)::bigint,
          'sha256:' || encode(extensions.digest(
            convert_to(coalesce(string_agg(pg_catalog.to_jsonb(t)::text, E'\\n'
-             order by pg_catalog.to_jsonb(t)::text), ''), 'UTF8'),
+             order by pg_catalog.convert_to(pg_catalog.to_jsonb(t)::text, 'UTF8')), ''), 'UTF8'),
            'sha256'
          ), 'hex')
     into v_auth_count, v_auth_digest
@@ -1301,7 +1307,15 @@ function exactAuthRecoveryAssertions(authority, tableNames = CURRENT_AUTH_TABLES
 }
 
 function authPreservationAssertions(authority) {
-  const volatileTables = new Set(['users', 'identities', 'sessions', 'refresh_tokens']);
+  const classifications = Object.entries(AUTH_RECOVERY_TABLE_CLASSIFICATION);
+  if (
+    classifications.length !== CURRENT_AUTH_TABLES.length ||
+    CURRENT_AUTH_TABLES.some((tableName) => !AUTH_RECOVERY_TABLE_CLASSIFICATION[tableName]) ||
+    classifications.some(([, entry]) => entry.dml !== 'none' || entry.recoveryOwned !== false)
+  ) throw categoricalError('DEV_REMEDIATION_AUTH_TABLE_CLASSIFICATION_INVALID');
+  const volatileTables = new Set(classifications
+    .filter(([, entry]) => entry.state !== 'stable_exact')
+    .map(([tableName]) => tableName));
   const table = (tableName) => authority.authEvidence.tables.find((entry) => entry.tableName === tableName);
   const users = table('users');
   const identities = table('identities');

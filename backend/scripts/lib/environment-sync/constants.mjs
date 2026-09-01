@@ -106,6 +106,32 @@ const CURRENT_AUTH_TABLES = Object.freeze([
   'webauthn_credentials'
 ]);
 
+const AUTH_RECOVERY_TABLE_CLASSIFICATION = Object.freeze({
+  audit_log_entries: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false, prerequisite: 'postgres_audit_storage_disabled' }),
+  custom_oauth_providers: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  flow_state: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  identities: Object.freeze({ state: 'native_smoke_volatile', dml: 'none', recoveryOwned: false }),
+  instances: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  mfa_amr_claims: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  mfa_challenges: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  mfa_factors: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  oauth_authorizations: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  oauth_client_states: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  oauth_clients: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  oauth_consents: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  one_time_tokens: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  refresh_tokens: Object.freeze({ state: 'bounded_native_smoke_ephemera', dml: 'none', recoveryOwned: false }),
+  saml_providers: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  saml_relay_states: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  schema_migrations: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  sessions: Object.freeze({ state: 'bounded_native_smoke_ephemera', dml: 'none', recoveryOwned: false }),
+  sso_domains: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  sso_providers: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  users: Object.freeze({ state: 'native_smoke_volatile', dml: 'none', recoveryOwned: false }),
+  webauthn_challenges: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
+  webauthn_credentials: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false })
+});
+
 const REQUIRED_AUTH_COLUMNS = Object.freeze({
   users: [
     'instance_id',
@@ -226,6 +252,7 @@ const DEFAULT_ALLOWED_NONPROD_EXCEPTIONS = Object.freeze([
 
 export {
   AUTH_PURGE_ORDER,
+  AUTH_RECOVERY_TABLE_CLASSIFICATION,
   AUTH_QUARANTINE_VERSION,
   BASELINE_MANIFEST_FORMAT,
   CANONICAL_APPLICATION_SOURCE_COMMIT,

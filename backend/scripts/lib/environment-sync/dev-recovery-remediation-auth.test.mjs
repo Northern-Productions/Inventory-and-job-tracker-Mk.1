@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   AUTH_CERTIFICATE_FORMAT,
@@ -11,9 +16,19 @@ import {
   assertRemediationAuthTransition,
   captureQuietWindowFromClient,
   captureRemediationAuthCertificateFromClient,
+  fetchAuthAuditStoragePosture,
   fetchFreshEdgeIdentity,
   runFreshAuthenticationCanary
 } from './dev-recovery-remediation-auth.mjs';
+import {
+  initializeRemediationJournal,
+  readRemediationAuthCanaries,
+  remediationAuthCanaryDisposition
+} from './dev-recovery-remediation-state.mjs';
+import { writePrivateBytesExclusive } from './private-artifacts.mjs';
+
+const AUTH_MODULE = fileURLToPath(new URL('./dev-recovery-remediation-auth.mjs', import.meta.url));
+const STATE_MODULE = fileURLToPath(new URL('./dev-recovery-remediation-state.mjs', import.meta.url));
 
 test('recovery quiet-window census rejects each live-like activity category independently', async () => {
   const categories = ['active_clients', 'idle_in_transaction', 'lock_waiters', 'write_shaped'];
@@ -50,6 +65,7 @@ function certificate({
       sessions: { count: 0, digest: 'sessions' },
       refreshTokens: { count: 0, digest: 'refresh' }
     },
+    auditLog: { count: 0, digest: 'audit' },
     nativeUsers: { count: 1, digest: 'native-user' },
     nativeIdentities: { count: 1, digest: 'native-identity' },
     relationshipDigest: 'relationship',
@@ -106,6 +122,21 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   assert.equal(assertRemediationAuthTransition(before, afterFailedLogout, {
     logoutSucceeded: false
   }).boundedEphemera, true);
+  const allowed = assertRemediationAuthTransition(before, afterFailedLogout, {
+    logoutSucceeded: false
+  }).allowedNativeEphemera;
+  assert.equal(assertRemediationAuthTransition(before, before, {
+    logoutSucceeded: true,
+    requireFreshLogin: false,
+    allowedNativeEphemera: allowed
+  }).boundedEphemera, true);
+  assert.throws(() => assertRemediationAuthTransition(before, certificate({
+    lastSignIn: '2026-08-29T10:02:00.000Z', sessions: ['unexplained']
+  }), {
+    logoutSucceeded: false,
+    requireFreshLogin: false,
+    allowedNativeEphemera: allowed
+  }), { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT' });
   assert.throws(() => assertRemediationAuthTransition(before, certificate({
     lastSignIn: '2026-08-29T10:01:00.000Z', copiedDigest: 'changed'
   }), { logoutSucceeded: true }), { code: 'DEV_REMEDIATION_AUTH_STABLE_STATE_DRIFT' });
@@ -125,12 +156,52 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   }
 });
 
+test('Auth audit posture requires the exact disabled provider prerequisite', async () => {
+  assert.equal((await fetchAuthAuditStoragePosture({
+    preparation: { mode: 'disposable-managed-local' },
+    values: {}
+  })).postgresStorage, 'disabled');
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ audit_log_disable_postgres: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const posture = await fetchAuthAuditStoragePosture({
+      preparation: { mode: 'managed-dev' },
+      values: { SUPABASE_ACCESS_TOKEN: 'synthetic-management-token' }
+    });
+    assert.equal(posture.postgresStorage, 'disabled');
+    globalThis.fetch = async () => new Response(JSON.stringify({ audit_log_disable_postgres: false }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    await assert.rejects(fetchAuthAuditStoragePosture({
+      preparation: { mode: 'managed-dev' },
+      values: { SUPABASE_ACCESS_TOKEN: 'synthetic-management-token' }
+    }), { code: 'DEV_REMEDIATION_AUTH_AUDIT_POSTURE_UNSAFE' });
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      security_audit_log_disable_postgres: true
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    await assert.rejects(fetchAuthAuditStoragePosture({
+      preparation: { mode: 'managed-dev' },
+      values: { SUPABASE_ACCESS_TOKEN: 'synthetic-management-token' }
+    }), { code: 'DEV_REMEDIATION_AUTH_AUDIT_POSTURE_UNSAFE' });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('semantic Auth certificate preserves an absent warehouse preference as the exact empty default', async () => {
   const responses = [
     [],
     [{ value: { id: 'native' } }],
     [],
     [{ value: { id: 'identity' } }],
+    [],
     [],
     [],
     [{
@@ -169,6 +240,7 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
   const requests = [];
+  const lifecycle = [];
   const server = http.createServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
     response.setHeader('Content-Type', 'application/json');
@@ -207,7 +279,8 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
         SUPABASE_ANON_KEY: 'local-only',
         SMOKE_USER_EMAIL: 'local@example.invalid',
         SMOKE_USER_PASSWORD: 'local-only'
-      }
+      },
+      onLifecycle: async (state) => { lifecycle.push(state); }
     });
     assert.equal(result.defaultWarehouseExact, true);
     assert.equal(result.filmCatalogReadSucceeded, true);
@@ -220,6 +293,9 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
       'GET /functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH',
       'GET /functions/v1/api?path=%2Fjobs%2Flist&limit=1',
       'POST /auth/v1/logout'
+    ]);
+    assert.deepEqual(lifecycle, [
+      'LOGIN_STARTED', 'LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED', 'LOGOUT_SUCCEEDED', 'CANARY_COMPLETE'
     ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -268,6 +344,7 @@ test('credential-bearing canary attempts logout after a read failure', async () 
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
   const requests = [];
+  const lifecycle = [];
   const server = http.createServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
     response.setHeader('Content-Type', 'application/json');
@@ -301,15 +378,187 @@ test('credential-bearing canary attempts logout after a read failure', async () 
         SUPABASE_ANON_KEY: 'local-only',
         SMOKE_USER_EMAIL: 'local@example.invalid',
         SMOKE_USER_PASSWORD: 'local-only'
-      }
+      },
+      onLifecycle: async (state) => { lifecycle.push(state); }
     }), { code: 'DEV_REMEDIATION_AUTH_CONTEXT_READ_FAILED' });
     assert.deepEqual(requests, [
       'POST /auth/v1/token?grant_type=password',
       'GET /functions/v1/api?path=%2Fauth%2Fcontext',
       'POST /auth/v1/logout'
     ]);
+    assert.deepEqual(lifecycle, [
+      'LOGIN_STARTED', 'LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED', 'LOGOUT_SUCCEEDED', 'CANARY_COMPLETE'
+    ]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('credential-bearing canary records bounded ephemera when logout fails', async () => {
+  const userId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  const lifecycle = [];
+  const server = http.createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    if (request.url.startsWith('/auth/v1/token')) {
+      response.end(JSON.stringify({
+        access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId }
+      }));
+    } else if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
+      response.end(JSON.stringify({ data: {
+        orgId: organizationId, role: 'owner', defaultWarehouse: ''
+      } }));
+    } else if (
+      request.url === '/functions/v1/api?path=%2Ffilm-data%2Fcatalog' ||
+      request.url === '/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH' ||
+      request.url === '/functions/v1/api?path=%2Fjobs%2Flist&limit=1'
+    ) {
+      response.end(JSON.stringify({ data: [] }));
+    } else if (request.url === '/auth/v1/logout') {
+      response.writeHead(503);
+      response.end('{}');
+    } else {
+      response.writeHead(404);
+      response.end('{}');
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const result = await runFreshAuthenticationCanary({
+      preparation: {
+        mode: 'disposable-managed-local',
+        targetSession: {
+          smokeUserId: userId,
+          smokeOrganizationId: organizationId,
+          smokeDefaultWarehouse: ''
+        }
+      },
+      values: {
+        SUPABASE_URL: origin,
+        EDGE_API_BASE_URL: `${origin}/functions/v1/api`,
+        SUPABASE_ANON_KEY: 'local-only',
+        SMOKE_USER_EMAIL: 'local@example.invalid',
+        SMOKE_USER_PASSWORD: 'local-only'
+      },
+      onLifecycle: async (state) => { lifecycle.push(state); }
+    });
+    assert.equal(result.sessionRevoked, false);
+    assert.equal(result.ephemeralSessionException, true);
+    assert.deepEqual(lifecycle, [
+      'LOGIN_STARTED', 'LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED',
+      'BOUNDED_EPHEMERA_POSSIBLE', 'CANARY_COMPLETE'
+    ]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('a real child killed after token issuance leaves durable bounded-ephemera evidence', async () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-remediation-canary-kill-'));
+  const stateRoot = path.join(temporary, 'state-private');
+  const key = crypto.randomBytes(32);
+  const attemptId = 'dev-recovery-remediation-child-kill';
+  const contractDigest = `sha256:${'1'.repeat(64)}`;
+  const originalBindingDigest = `sha256:${'2'.repeat(64)}`;
+  const userId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  const server = http.createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    if (request.url.startsWith('/auth/v1/token')) {
+      response.end(JSON.stringify({
+        access_token: 'synthetic-process-local-access',
+        refresh_token: 'synthetic-process-local-refresh',
+        user: { id: userId }
+      }));
+      return;
+    }
+    response.writeHead(500);
+    response.end('{}');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const keyPath = path.join(temporary, 'authority.private.bin');
+  const inputPath = path.join(temporary, 'input.private.json');
+  const childPath = path.join(temporary, 'child.private.mjs');
+  try {
+    initializeRemediationJournal({
+      rootDirectory: stateRoot,
+      key,
+      remediationAttemptId: attemptId,
+      contractDigest,
+      originalBindingDigest
+    });
+    writePrivateBytesExclusive(keyPath, key);
+    writePrivateBytesExclusive(inputPath, Buffer.from(JSON.stringify({
+      preparation: {
+        mode: 'disposable-managed-local',
+        targetSession: {
+          smokeUserId: userId,
+          smokeOrganizationId: organizationId,
+          smokeDefaultWarehouse: ''
+        }
+      },
+      values: {
+        SUPABASE_URL: origin,
+        EDGE_API_BASE_URL: `${origin}/functions/v1/api`,
+        SUPABASE_ANON_KEY: 'synthetic-local-only',
+        SMOKE_USER_EMAIL: 'synthetic@example.invalid',
+        SMOKE_USER_PASSWORD: 'synthetic-local-only'
+      }
+    }), 'utf8'));
+    const childSource = `
+      import fs from 'node:fs';
+      import { runFreshAuthenticationCanary } from ${JSON.stringify(pathToFileURL(AUTH_MODULE).href)};
+      import { beginRemediationAuthCanary, appendRemediationAuthCanaryState } from ${JSON.stringify(pathToFileURL(STATE_MODULE).href)};
+      const [root, keyPath, inputPath] = process.argv.slice(2);
+      const key = fs.readFileSync(keyPath);
+      const input = JSON.parse(fs.readFileSync(inputPath, 'utf8'));
+      const canary = beginRemediationAuthCanary(root, key, 'AUTH_RUNTIME');
+      await runFreshAuthenticationCanary({ ...input, onLifecycle: async (state) => {
+        appendRemediationAuthCanaryState(root, key, canary.canaryId, state);
+        if (state === 'LOGIN_SUCCEEDED') {
+          process.stdout.write('LOGIN_SUCCEEDED\\n');
+          await new Promise(() => {});
+        }
+      }});
+    `;
+    writePrivateBytesExclusive(childPath, Buffer.from(childSource, 'utf8'));
+    const child = spawn(process.execPath, [childPath, stateRoot, keyPath, inputPath], {
+      shell: false,
+      cwd: temporary,
+      windowsHide: true,
+      env: {
+        SystemRoot: process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows',
+        WINDIR: process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows',
+        TEMP: temporary,
+        TMP: temporary
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('CHILD_LOGIN_SIGNAL_TIMEOUT')), 15_000);
+      child.stdout.on('data', (chunk) => {
+        if (chunk.toString('utf8').includes('LOGIN_SUCCEEDED')) {
+          clearTimeout(timeout);
+          child.kill();
+          resolve();
+        }
+      });
+      child.once('error', reject);
+    });
+    await new Promise((resolve) => child.once('exit', resolve));
+    assert.equal(readRemediationAuthCanaries(stateRoot, key)[0].current.state, 'LOGIN_SUCCEEDED');
+    assert.deepEqual(remediationAuthCanaryDisposition(stateRoot, key), {
+      canaryCount: 1,
+      completedCount: 0,
+      sessionRevoked: false,
+      boundedEphemeraPossible: true
+    });
+  } finally {
+    key.fill(0);
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 

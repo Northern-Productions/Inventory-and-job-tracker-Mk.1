@@ -120,13 +120,14 @@ const REMEDIATION_STAGE_INPUT_CENSUS = freezeStageInputCensus({
   },
   AUTH_RUNTIME_VERIFIED: {
     managedEnvironmentNames: [
-      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ACCESS_TOKEN',
+      'SUPABASE_ANON_KEY', 'SUPABASE_URL'
     ],
     disposableEnvironmentNames: [
       'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
     ],
     privateInputs: ['signed-preparation', 'authority-key-fd', 'failed-recovery-artifacts'],
-    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes'],
+    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes', 'supabase-management-api'],
     databaseMode: 'read-only',
     expectedTargetState: 'original-y2-with-target-native-auth',
     mutationCapability: 'auth-session-lifecycle-only',
@@ -166,33 +167,37 @@ const REMEDIATION_STAGE_INPUT_CENSUS = freezeStageInputCensus({
     databaseMode: 'repeatable-read-read-only',
     expectedTargetState: 'recovery-required-exact-r3-recoverable-plane',
     mutationCapability: 'none',
-    failureDisposition: 'recovery-required-without-recovery-marker',
+    failureDisposition: 'same-attempt-pre-database-boundary-continuation-only',
     recoveryDependency: 'validated-preboundary-r3-package'
   },
   REMEDIATION_RECOVERY_DATABASE: {
     managedEnvironmentNames: [],
     disposableEnvironmentNames: [],
-    privateInputs: ['signed-preparation', 'authority-key-fd', 'validated-r3-stage-state', 'r3-capture-artifacts'],
+    privateInputs: [
+      'signed-preparation', 'authority-key-fd', 'validated-r3-stage-state',
+      'r3-capture-artifacts', 'recovery-marker', 'recovery-database-boundary'
+    ],
     externalCalls: ['dev-postgresql', 'psql'],
     databaseMode: 'serializable-managed-overlay',
     expectedTargetState: 'restore-r3-preserve-target-native-auth',
     mutationCapability: 'managed-app-schema-restore-preserve-target-native-auth',
-    failureDisposition: 'terminal-recovery-failed-on-unknown-or-failure',
+    failureDisposition: 'no-destructive-resume-after-boundary',
     recoveryDependency: 'validated-r3'
   },
   REMEDIATION_RECOVERY_VERIFIED: {
     managedEnvironmentNames: [
-      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
+      'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ACCESS_TOKEN',
+      'SUPABASE_ANON_KEY', 'SUPABASE_URL'
     ],
     disposableEnvironmentNames: [
       'EDGE_API_BASE_URL', 'SMOKE_USER_EMAIL', 'SMOKE_USER_PASSWORD', 'SUPABASE_ANON_KEY', 'SUPABASE_URL'
     ],
     privateInputs: ['signed-preparation', 'authority-key-fd', 'validated-r3-stage-state'],
-    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes'],
+    externalCalls: ['dev-postgresql', 'dev-auth', 'dev-edge-read-routes', 'supabase-management-api'],
     databaseMode: 'read-only',
     expectedTargetState: 'exact-r3-with-target-native-auth',
     mutationCapability: 'auth-session-lifecycle-only',
-    failureDisposition: 'terminal-recovery-failed',
+    failureDisposition: 'verification-pending-repeatable-nondestructive-completion',
     recoveryDependency: 'validated-r3'
   }
 });
@@ -550,10 +555,11 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     details.realQuietWindowRechecked !== true || details.freshEdgeRechecked !== true ||
     details.freshSideEffectsRechecked !== true ||
     details.recoveryPackageAuthenticated !== true ||
+    details.originalY2PackageAuthenticated !== true ||
     details.finalSemanticAuthExact !== true || details.nativeSmokeActiveOwner !== true ||
     details.rawMetadataMarker !== true || details.identityMetadataMarker !== true ||
     details.providerCredentialDigestsExact !== true || details.selectedOrganizationExact !== true ||
-    details.canonicalEmptyDefaultWarehouse !== true || details.copiedUsersExact !== true ||
+    details.signedDefaultWarehouseExact !== true || details.copiedUsersExact !== true ||
     details.copiedIdentitiesExact !== true ||
     details.operationInventoryDigest !== contract.operationInventoryDigest ||
     (contract.version === 2 &&
@@ -562,6 +568,7 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
     !/^sha256:[0-9a-f]{64}$/.test(String(details.operationInventoryDigest || '')) ||
     !/^sha256:[0-9a-f]{64}$/.test(String(details.stageWorkerDigest || '')) ||
     !/^sha256:[0-9a-f]{64}$/.test(String(details.r3RecoveryPackageDigest || '')) ||
+    !/^sha256:[0-9a-f]{64}$/.test(String(details.originalY2RecoveryPackageDigest || '')) ||
     !/^sha256:[0-9a-f]{64}$/.test(String(details.r3StageBindingDigest || ''))
   )) throw categoricalError('DEV_REMEDIATION_R3_VALIDATION_INCOMPLETE');
   if (stage === 'RESTORE_ORIGINAL_Y2' && (
