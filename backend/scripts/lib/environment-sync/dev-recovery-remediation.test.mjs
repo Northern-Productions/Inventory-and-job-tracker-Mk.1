@@ -49,7 +49,12 @@ import {
   runDevRecoveryRemediation,
   runDevRecoveryRemediationRecovery
 } from './dev-recovery-remediation-orchestrator.mjs';
-import { runFreshAuthentication } from './dev-recovery-remediation-real-stage-worker.mjs';
+import {
+  disposableLoopbackOverlayGuard,
+  managedDevOverlayGuard,
+  remediationDatabaseOverlayGuard,
+  runFreshAuthentication
+} from './dev-recovery-remediation-real-stage-worker.mjs';
 import {
   REMEDIATION_REAL_STAGE_WORKER,
   assertFreshAuthConfiguration,
@@ -57,6 +62,10 @@ import {
   verifyRemediationPreparation
 } from './dev-recovery-remediation-preparation.mjs';
 import { assertRecoveryOwnedStateEqual } from './dev-recovery-remediation-shared.mjs';
+import {
+  assertOverlayExecutionGuard,
+  executeManagedOverlayPackage
+} from './managed-restore.mjs';
 import {
   appendRemediationEvent,
   readRemediationJournal,
@@ -412,6 +421,63 @@ test('managed preparation requires management authority while disposable prepara
     SUPABASE_URL: 'http://127.0.0.1:54321',
     EDGE_API_BASE_URL: 'http://127.0.0.1:54321/functions/v1/api'
   }, { disposable: true }));
+});
+
+test('remediation overlay guards are selected by the actual mutation destination', async () => {
+  const loopback = 'postgresql://postgres:local@127.0.0.1:5432/postgres?sslmode=disable';
+  const managedDev = `postgresql://postgres:synthetic@db.${DEV_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
+  const managedSandbox = `postgresql://postgres:synthetic@db.${SANDBOX_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
+  const managedProd = `postgresql://postgres:synthetic@db.${PROD_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
+  const packageResult = { targetCompatibility: {} };
+  const localGuard = disposableLoopbackOverlayGuard();
+  const devGuard = managedDevOverlayGuard(packageResult);
+
+  assert.deepEqual(
+    assertOverlayExecutionGuard(loopback, localGuard),
+    { target: 'local', projectRef: '', loopback: true }
+  );
+  assert.equal(assertOverlayExecutionGuard(managedDev, devGuard).target, 'dev');
+  assert.deepEqual(
+    remediationDatabaseOverlayGuard({ preparation: { mode: 'disposable-managed-local' } }, packageResult),
+    localGuard
+  );
+  assert.deepEqual(
+    remediationDatabaseOverlayGuard({ preparation: { mode: 'managed-dev' } }, packageResult),
+    devGuard
+  );
+
+  for (const [connectionString, targetGuard] of [
+    [loopback, devGuard],
+    [managedDev, localGuard],
+    [managedProd, devGuard],
+    [managedProd, localGuard],
+    [managedSandbox, devGuard]
+  ]) {
+    await assert.rejects(executeManagedOverlayPackage({ connectionString, targetGuard }), {
+      code: 'MANAGED_OVERLAY_TARGET_GUARD_REJECTED'
+    });
+  }
+});
+
+test('R3 canonical overlays are loopback-guarded while remediation restores remain target-guarded', () => {
+  const source = fs.readFileSync(REMEDIATION_REAL_STAGE_WORKER, 'utf8');
+  const r3Validation = source.slice(
+    source.indexOf('async function runR3Validated'),
+    source.indexOf('async function databaseSessionEvidence')
+  );
+  assert.equal(
+    r3Validation.match(/targetGuard:\s*disposableLoopbackOverlayGuard\(\)/g)?.length,
+    2
+  );
+  assert.doesNotMatch(r3Validation, /targetGuard:\s*remediationDatabaseOverlayGuard/);
+  const knownRestore = source.slice(
+    source.indexOf('async function executeKnownRestore'),
+    source.indexOf('async function runRestoreOriginalY2')
+  );
+  assert.match(
+    knownRestore,
+    /connectionString:\s*context\.connectionString[\s\S]*targetGuard:\s*remediationDatabaseOverlayGuard\(context, packageResult\)/
+  );
 });
 
 test('historical refresh provenance remains exact while a signed successor bridge binds current execution', () => {

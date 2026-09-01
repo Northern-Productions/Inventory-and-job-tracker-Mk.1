@@ -134,10 +134,11 @@ function identity(context) {
   };
 }
 
-function targetGuard(context, packageResult) {
-  if (context.preparation.mode === 'disposable-managed-local') {
-    return { mode: 'disposable-managed-local', loopback: true };
-  }
+function disposableLoopbackOverlayGuard() {
+  return { mode: 'disposable-managed-local', loopback: true };
+}
+
+function managedDevOverlayGuard(packageResult) {
   return {
     target: 'dev',
     projectRef: DEV_PROJECT_REF,
@@ -145,6 +146,12 @@ function targetGuard(context, packageResult) {
     projectRefMatched: true,
     ...packageResult.targetCompatibility
   };
+}
+
+function remediationDatabaseOverlayGuard(context, packageResult) {
+  return context.preparation.mode === 'disposable-managed-local'
+    ? disposableLoopbackOverlayGuard()
+    : managedDevOverlayGuard(packageResult);
 }
 
 function diagnosticsDirectory(context, name) {
@@ -392,7 +399,7 @@ async function runR3Validated(context) {
       psqlPath: tools.psql,
       connectionString: restoreConnection,
       packageResult: recovery.packageResult,
-      targetGuard: targetGuard(context, recovery.packageResult),
+      targetGuard: disposableLoopbackOverlayGuard(),
       diagnosticDirectory: diagnosticsDirectory(context, 'r3-canonical-test-diagnostics-private')
     });
     const canonicallyRestoredApplication = await captureApplicationPlane(restoreConnection);
@@ -420,7 +427,7 @@ async function runR3Validated(context) {
       psqlPath: tools.psql,
       connectionString: restoreConnection,
       packageResult: originalRecovery.packageResult,
-      targetGuard: targetGuard(context, originalRecovery.packageResult),
+      targetGuard: disposableLoopbackOverlayGuard(),
       diagnosticDirectory: diagnosticsDirectory(context, 'original-y2-canonical-test-diagnostics-private')
     });
     const originalCanonicalApplication = await captureApplicationPlane(restoreConnection);
@@ -530,7 +537,7 @@ async function executeKnownRestore(context, {
       psqlPath: resolvePostgresTools(context.preparation.targetSession.postgresBin || '').psql,
       connectionString: context.connectionString,
       packageResult,
-      targetGuard: targetGuard(context, packageResult),
+      targetGuard: remediationDatabaseOverlayGuard(context, packageResult),
       diagnosticDirectory: diagnosticsDirectory(context, diagnosticName)
     });
   } catch (error) {
@@ -852,4 +859,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
   main().catch(() => { process.exitCode = 1; });
 }
 
-export { runFreshAuthentication, runRemediationStage };
+export {
+  disposableLoopbackOverlayGuard,
+  managedDevOverlayGuard,
+  remediationDatabaseOverlayGuard,
+  runFreshAuthentication,
+  runRemediationStage
+};
