@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 import pg from 'pg';
 
@@ -30,11 +30,15 @@ import {
   runDevRecoveryRemediation,
   runDevRecoveryRemediationRecovery
 } from './dev-recovery-remediation-orchestrator.mjs';
-import { prepareDevRecoveryRemediation } from './dev-recovery-remediation-preparation.mjs';
+import {
+  prepareDevRecoveryRemediation,
+  readPreparationAuthCanary
+} from './dev-recovery-remediation-preparation.mjs';
 import {
   readRemediationAuthCanaries,
   readRemediationEvents,
-  readRemediationJournal
+  readRemediationJournal,
+  remediationAuthCanaryDisposition
 } from './dev-recovery-remediation-state.mjs';
 import {
   createPrivateDirectory,
@@ -47,10 +51,16 @@ const { Client } = pg;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
+const PREPARE_ENTRY = path.join(REPO_ROOT, 'backend', 'scripts', 'environment-prepare-dev-recovery-remediation-certified.mjs');
 const RECOVERY_ENTRY = path.join(REPO_ROOT, 'backend', 'scripts', 'environment-recover-dev-recovery-remediation-certified.mjs');
 
 function temporaryRoot(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function syntheticAccessToken(userId, sessionId) {
+  const encode = (value) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ sub: userId, session_id: sessionId })}.synthetic`;
 }
 
 function readPrivateJson(filePath) {
@@ -137,17 +147,18 @@ function childFailureCategory(result) {
 async function startLocalApplicationHarness() {
   const seen = [];
   let binding = null;
-  let activeSessionId = '';
+  const canarySessionIds = new Set();
   let preexistingSessionId = '';
   let failNextLogout = false;
-  const databaseMutation = async (kind) => {
+  let retainLogoutRows = 0;
+  const databaseMutation = async (kind, exactSessionId = '') => {
     if (!binding) throw new Error('LOCAL_AUTH_BINDING_MISSING');
     const client = new Client({ connectionString: binding.connectionString });
     await client.connect();
     try {
       if (kind === 'login') {
         const sessionId = crypto.randomUUID();
-        activeSessionId = sessionId;
+        canarySessionIds.add(sessionId);
         await client.query("update auth.users set last_sign_in_at=greatest(clock_timestamp(),coalesce(last_sign_in_at,'epoch')+interval '1 second'), updated_at=greatest(clock_timestamp(),updated_at+interval '1 second') where id=$1::uuid", [binding.userId]);
         await client.query("update auth.identities set last_sign_in_at=greatest(clock_timestamp(),coalesce(last_sign_in_at,'epoch')+interval '1 second'), updated_at=greatest(clock_timestamp(),updated_at+interval '1 second') where user_id=$1::uuid", [binding.userId]);
         await client.query('insert into auth.sessions(id,user_id,created_at,updated_at) values ($1::uuid,$2::uuid,clock_timestamp(),clock_timestamp())', [sessionId, binding.userId]);
@@ -155,24 +166,30 @@ async function startLocalApplicationHarness() {
           'insert into auth.refresh_tokens(token,user_id,revoked,created_at,updated_at,session_id) values ($3,$1::text,false,clock_timestamp(),clock_timestamp(),$2::uuid)',
           [binding.userId, sessionId, `local-only-${sessionId}`]
         );
+        return sessionId;
       } else {
-        await client.query('delete from auth.refresh_tokens where session_id=$1::uuid', [activeSessionId]);
-        await client.query('delete from auth.sessions where id=$1::uuid and user_id=$2::uuid', [activeSessionId, binding.userId]);
-        activeSessionId = '';
+        if (!canarySessionIds.has(exactSessionId)) throw new Error('LOCAL_AUTH_SESSION_TARGET_INVALID');
+        await client.query('delete from auth.refresh_tokens where session_id=$1::uuid', [exactSessionId]);
+        await client.query('delete from auth.sessions where id=$1::uuid and user_id=$2::uuid', [exactSessionId, binding.userId]);
+        canarySessionIds.delete(exactSessionId);
       }
     } finally {
       await client.end();
     }
   };
   const server = http.createServer(async (request, response) => {
+    request.on('error', () => {});
+    response.on('error', () => {});
     const requestUrl = new URL(request.url, 'http://localhost');
     seen.push(`${request.method} ${requestUrl.pathname}${requestUrl.search}`);
     response.setHeader('content-type', 'application/json');
     response.setHeader('connection', 'close');
     if (request.url.startsWith('/auth/v1/token')) {
-      await databaseMutation('login');
+      const sessionId = await databaseMutation('login');
       response.end(JSON.stringify({
-        access_token: 'local-access', refresh_token: 'local-refresh', user: { id: binding.userId }
+        access_token: syntheticAccessToken(binding.userId, sessionId),
+        refresh_token: 'local-refresh',
+        user: { id: binding.userId }
       }));
       return;
     }
@@ -183,7 +200,10 @@ async function startLocalApplicationHarness() {
         response.end('{}');
         return;
       }
-      await databaseMutation('logout');
+      const token = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '');
+      const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString('utf8'));
+      if (retainLogoutRows > 0) retainLogoutRows -= 1;
+      else await databaseMutation('logout', String(payload.session_id || ''));
       response.end('{}');
       return;
     }
@@ -199,6 +219,7 @@ async function startLocalApplicationHarness() {
     }
     response.end(JSON.stringify({ data: [] }));
   });
+  server.on('clientError', (_error, socket) => socket.destroy());
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   return {
@@ -206,9 +227,10 @@ async function startLocalApplicationHarness() {
     seen,
     bind(value) {
       binding = value;
-      activeSessionId = '';
+      canarySessionIds.clear();
       preexistingSessionId = '';
       failNextLogout = false;
+      retainLogoutRows = 0;
     },
     async createPreexistingSession() {
       if (!binding || preexistingSessionId) throw new Error('LOCAL_PREEXISTING_SESSION_STATE_INVALID');
@@ -268,7 +290,7 @@ async function startLocalApplicationHarness() {
       }
     },
     async cleanupCurrentCanarySession() {
-      if (activeSessionId) await databaseMutation('logout');
+      for (const sessionId of [...canarySessionIds]) await databaseMutation('logout', sessionId);
     },
     safeTrafficSummary() {
       return Object.fromEntries([...new Set(seen)].sort().map((route) => [
@@ -277,6 +299,7 @@ async function startLocalApplicationHarness() {
       ]));
     },
     failOneLogout() { failNextLogout = true; },
+    retainNextLogoutRows(count = 1) { retainLogoutRows = count; },
     close: () => new Promise((resolve) => server.close(resolve))
   };
 }
@@ -473,6 +496,97 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       return { prepared, contract, executor, inventoryRecord };
     };
 
+    let preparationCliOrdinal = 0;
+    const runPreparationCli = ({ failed, outputDirectory, crashPoint = '' }) => {
+      preparationCliOrdinal += 1;
+      const processRoot = path.join(root, `preparation-cli-${preparationCliOrdinal}`);
+      const home = path.join(processRoot, 'home');
+      const temp = path.join(processRoot, 'temp');
+      fs.mkdirSync(home, { recursive: true });
+      fs.mkdirSync(temp, { recursive: true });
+      const args = [
+        PREPARE_ENTRY,
+        '--env', remediationEnvPath,
+        '--authority-key', keyPath,
+        '--original-contract', failed.contractPath,
+        '--original-preparation', failed.preparationPath,
+        '--failed-state-dir', failed.stateDirectory,
+        '--expected-original-attempt', failed.contract.attemptId,
+        '--expected-original-y2', failed.y2.recoveryId,
+        '--output-dir', outputDirectory,
+        '--side-effect-certificate', failed.preparationPath,
+        '--edge-certificate', failed.preparationPath,
+        '--postgres-bin', postgresBin,
+        '--disposable-local'
+      ];
+      if (crashPoint) args.push('--disposable-canary-crash-point', crashPoint);
+      const child = spawn(process.execPath, args, {
+        cwd: REPO_ROOT,
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        env: {
+          SystemRoot: process.env.SystemRoot || '',
+          WINDIR: process.env.WINDIR || '',
+          PATH: process.env.PATH || '',
+          HOME: home,
+          USERPROFILE: home,
+          TEMP: temp,
+          TMP: temp,
+          RUN_ENV_SYNC_REMEDIATION_E2E: '1',
+          ...(crashPoint
+            ? { RUN_ENV_SYNC_REMEDIATION_PREPARATION_CRASH_POINT: crashPoint }
+            : {})
+        }
+      });
+      return new Promise((resolve) => {
+        let terminationRequested = false;
+        let barrierObserved = false;
+        let finished = false;
+        const terminateChild = () => {
+          if (terminationRequested || finished) return;
+          try {
+            if (process.platform === 'win32') {
+              execFileSync('taskkill.exe', ['/PID', String(child.pid), '/F'], {
+                shell: false,
+                windowsHide: true,
+                stdio: 'ignore'
+              });
+              terminationRequested = true;
+            } else {
+              terminationRequested = child.kill('SIGKILL');
+            }
+          } catch {
+            terminationRequested = child.kill('SIGKILL');
+          }
+        };
+        const crashWatchdog = crashPoint ? setTimeout(terminateChild, 300_000) : null;
+        const limit = 8 * 1024;
+        let stdout = '';
+        let stderr = '';
+        const append = (current, chunk) => `${current}${chunk.toString('utf8')}`.slice(-limit);
+        child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+        child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+        child.on('message', (message) => {
+          if (
+            message?.type === 'DEV_REMEDIATION_PREPARATION_CRASH_BARRIER' &&
+            message.point === crashPoint
+          ) {
+            barrierObserved = true;
+            terminateChild();
+          }
+        });
+        const finish = (status, signal) => {
+          if (finished) return;
+          finished = true;
+          if (crashWatchdog) clearTimeout(crashWatchdog);
+          resolve({ status, signal, stdout, stderr, barrierObserved });
+        };
+        child.once('error', () => finish(1, null));
+        child.once('close', finish);
+      });
+    };
+
     let recoveryCliOrdinal = 0;
     const runRecoveryCli = ({ recovery, stateDirectory, crashPoint = '' }) => {
       recoveryCliOrdinal += 1;
@@ -524,6 +638,72 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     };
 
     const successFailure = await createFailedRecovery('success');
+    const preparationCrashCases = [
+      ['AFTER_CANARY_LOGIN_SUCCEEDED', 'LOGIN_SUCCEEDED', { sessions: 1, refreshTokens: 1 }],
+      ['DURING_CANARY_APPLICATION_READ', 'LOGIN_SUCCEEDED', { sessions: 1, refreshTokens: 1 }],
+      ['DURING_CANARY_LOGOUT', 'LOGOUT_ATTEMPTED', { sessions: 1, refreshTokens: 1 }],
+      ['AFTER_CANARY_LOGOUT_BEFORE_COMPLETE', 'LOGOUT_SUCCEEDED', { sessions: 0, refreshTokens: 0 }]
+    ];
+    for (const [point, expectedState, expectedResidue] of preparationCrashCases) {
+      const outputDirectory = path.join(root, `preparation-kill-${point.toLowerCase()}`);
+      const beforeLogins = harness.seen.filter((entry) =>
+        entry === 'POST /auth/v1/token?grant_type=password').length;
+      const killed = await runPreparationCli({
+        failed: successFailure,
+        outputDirectory,
+        crashPoint: point
+      });
+      assert.equal(killed.barrierObserved, true, `${point}:PREPARATION_BARRIER_NOT_OBSERVED`);
+      assert.ok(killed.status !== 0 || killed.signal, `${point}:PREPARATION_CHILD_DID_NOT_STOP`);
+      const durable = readPreparationAuthCanary(outputDirectory, key);
+      assert.equal(durable.current.state, expectedState, point);
+      assert.ok(durable.allowance);
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), expectedResidue);
+      const blocked = await runPreparationCli({ failed: successFailure, outputDirectory });
+      assert.ok(blocked.status !== 0 || blocked.signal, `${point}:PREPARATION_REUSE_NOT_BLOCKED`);
+      assert.equal(harness.seen.filter((entry) =>
+        entry === 'POST /auth/v1/token?grant_type=password').length, beforeLogins + 1);
+      await harness.cleanupCurrentCanarySession();
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), { sessions: 0, refreshTokens: 0 });
+    }
+      const providerLag = await prepareRemediation('provider-lag', successFailure);
+      const providerLagState = path.join(root, 'provider-lag-preboundary-state');
+      const providerLagExecutor = createOperationExecutor({
+        inventory: providerLag.inventoryRecord,
+        key,
+        contract: providerLag.contract,
+        envFilePath: remediationEnvPath,
+        evidenceDirectory: path.join(root, 'provider-lag-preboundary-evidence'),
+        requiredStages: REMEDIATION_OPERATION_STAGES,
+        assertStageEvidenceFn: assertRecoveryRemediationEvidence
+      });
+      harness.retainNextLogoutRows(1);
+      await assert.rejects(runDevRecoveryRemediation({
+        rootDirectory: providerLagState,
+        key,
+        contract: providerLag.contract,
+        executor: providerLagExecutor
+      }));
+      const providerLagJournal = readRemediationJournal(providerLagState, key);
+      assert.equal(providerLagJournal.current.state, 'FAILED_PRE_MUTATION');
+      assert.equal(providerLagJournal.marker, null);
+      const providerLagDisposition = remediationAuthCanaryDisposition(providerLagState, key);
+      assert.equal(
+        providerLagDisposition.canaryCount,
+        1,
+        providerLagJournal.current.failureCategory
+      );
+      assert.equal(providerLagDisposition.completedCount, 1);
+      assert.equal(providerLagDisposition.sessionRevoked, false);
+      assert.equal(providerLagDisposition.boundedEphemeraPossible, true);
+      assert.equal(providerLagDisposition.unresolvedCount, 1);
+      assert.deepEqual(providerLagDisposition.unresolvedPurposes, ['REMEDIATION_PRECHECK']);
+      assert.equal(providerLagDisposition.unboundCanaryCount, 0);
+      assert.equal(providerLagDisposition.allowedNativeEphemera.sessions.length, 1);
+      assert.equal(providerLagDisposition.allowedNativeEphemera.refreshTokens.length, 1);
+      await harness.cleanupCurrentCanarySession();
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), { sessions: 0, refreshTokens: 0 });
+
       const success = await prepareRemediation('success', successFailure);
       const successState = path.join(root, 'success-remediation-state');
       let completed;
@@ -535,7 +715,6 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
           contract: success.contract,
           executor: {
             async run(stage, context) {
-              if (stage === 'AUTH_RUNTIME_VERIFIED') harness.failOneLogout();
               const started = performance.now();
               try {
                 return await success.executor.run(stage, context);
@@ -559,7 +738,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
         key,
         attemptId: success.contract.remediationAttemptId,
         stage: 'FINAL_Y2_PARITY'
-      }).ephemeralSessionException, true);
+      }).ephemeralSessionException, false);
       assert.equal(directoryByteDigest(successFailure.stateDirectory), successFailure.immutableDigest);
 
     const recoveryFailure = await createFailedRecovery('r3-recovery');
@@ -624,7 +803,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
               }
               writePrivateBytesExclusive(
                 authCrashPath,
-                Buffer.from('AFTER_CANARY_LOGIN_SUCCEEDED\n', 'utf8')
+                Buffer.from('AFTER_CANARY_LOGOUT_BEFORE_COMPLETE\n', 'utf8')
               );
             }
             const started = performance.now();
@@ -772,6 +951,80 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED'
     );
 
+    for (const [point, expectedState, expectedResidueAfterKill, expectedResidueAfterContinuation] of [
+      ['DURING_CANARY_APPLICATION_READ', 'LOGIN_SUCCEEDED', 1, 1],
+      ['DURING_CANARY_LOGOUT', 'LOGOUT_ATTEMPTED', 1, 1],
+      ['AFTER_CANARY_LOGOUT_BEFORE_COMPLETE', 'LOGOUT_SUCCEEDED', 0, 0]
+    ]) {
+      const clone = path.join(root, `recovery-verification-${point.toLowerCase()}-state`);
+      copyPrivateDirectory(recoveryState, clone);
+      const crashPath = path.join(clone, 'disposable-test-crash-point.private.txt');
+      writePrivateBytesExclusive(crashPath, Buffer.from(`${point}\n`, 'utf8'));
+      const packageExecutionsBefore = readRemediationEvents(clone, key).filter((event) =>
+        event.stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+        event.substep === 'RECOVERY_PACKAGE_EXECUTION_STARTED').length;
+      const killed = await runRecoveryCli({ recovery, stateDirectory: clone });
+      fs.rmSync(crashPath, { force: true });
+      assert.ok(killed.status !== 0 || killed.signal, `${point}:RECOVERY_CHILD_DID_NOT_STOP`);
+      assert.equal(readRemediationJournal(clone, key).current.state, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING');
+      const interrupted = readRemediationAuthCanaries(clone, key).at(-1);
+      assert.equal(interrupted.current.purpose, 'RECOVERY_VERIFICATION');
+      assert.equal(interrupted.current.state, expectedState);
+      assert.ok(interrupted.allowance);
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), {
+        sessions: expectedResidueAfterKill,
+        refreshTokens: expectedResidueAfterKill
+      });
+      const continued = await runRecoveryCli({ recovery, stateDirectory: clone });
+      assert.equal(continued.status, 0, childFailureCategory(continued));
+      assert.equal(readRemediationJournal(clone, key).current.state, 'REMEDIATION_RECOVERED');
+      assert.equal(readRemediationEvents(clone, key).filter((event) =>
+        event.stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+        event.substep === 'RECOVERY_PACKAGE_EXECUTION_STARTED').length, packageExecutionsBefore);
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), {
+        sessions: expectedResidueAfterContinuation,
+        refreshTokens: expectedResidueAfterContinuation
+      });
+      assert.equal(await harness.preexistingSessionIntact(), true);
+      await harness.cleanupCurrentCanarySession();
+    }
+
+    const noThirdLoginState = path.join(root, 'recovery-verification-no-third-login-state');
+    copyPrivateDirectory(recoveryState, noThirdLoginState);
+    const noThirdCrashPath = path.join(
+      noThirdLoginState,
+      'disposable-test-crash-point.private.txt'
+    );
+    writePrivateBytesExclusive(
+      noThirdCrashPath,
+      Buffer.from('DURING_CANARY_APPLICATION_READ\n', 'utf8')
+    );
+    const firstOrphan = await runRecoveryCli({
+      recovery,
+      stateDirectory: noThirdLoginState
+    });
+    fs.rmSync(noThirdCrashPath, { force: true });
+    assert.ok(firstOrphan.status !== 0 || firstOrphan.signal);
+    harness.retainNextLogoutRows(1);
+    const secondResidue = await runRecoveryCli({
+      recovery,
+      stateDirectory: noThirdLoginState
+    });
+    assert.notEqual(secondResidue.status, 0);
+    assert.equal(readRemediationJournal(noThirdLoginState, key).current.state, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING');
+    assert.equal(remediationAuthCanaryDisposition(noThirdLoginState, key).unresolvedCount, 2);
+    const loginsBeforeThird = harness.seen.filter((entry) =>
+      entry === 'POST /auth/v1/token?grant_type=password').length;
+    const thirdBlocked = await runRecoveryCli({
+      recovery,
+      stateDirectory: noThirdLoginState
+    });
+    assert.notEqual(thirdBlocked.status, 0);
+    assert.equal(harness.seen.filter((entry) =>
+      entry === 'POST /auth/v1/token?grant_type=password').length, loginsBeforeThird);
+    assert.equal(remediationAuthCanaryDisposition(noThirdLoginState, key).unresolvedCount, 2);
+    await harness.cleanupCurrentCanarySession();
+
     const verificationCrash = await runRecoveryCli({
       recovery,
       stateDirectory: recoveryState,
@@ -834,12 +1087,12 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     assert.equal(await harness.preexistingSessionIntact(), true);
     assert.equal(directoryByteDigest(recoveryFailure.stateDirectory), recoveryFailure.immutableDigest);
     assert.equal(harness.seen.filter((entry) =>
-      entry === 'POST /auth/v1/token?grant_type=password').length, 12);
+      entry === 'POST /auth/v1/token?grant_type=password').length, 26);
     for (const [route, count] of [
-      ['/functions/v1/api?path=%2Fauth%2Fcontext', 11],
-      ['/functions/v1/api?path=%2Ffilm-data%2Fcatalog', 10],
-      ['/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH', 10],
-      ['/functions/v1/api?path=%2Fjobs%2Flist&limit=1', 10]
+      ['/functions/v1/api?path=%2Fauth%2Fcontext', 25],
+      ['/functions/v1/api?path=%2Ffilm-data%2Fcatalog', 21],
+      ['/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH', 21],
+      ['/functions/v1/api?path=%2Fjobs%2Flist&limit=1', 21]
     ]) assert.equal(harness.seen.filter((entry) => entry === `GET ${route}`).length, count);
     assert.ok(harness.seen.every((entry) => /^(?:GET|POST) \//.test(entry)));
 

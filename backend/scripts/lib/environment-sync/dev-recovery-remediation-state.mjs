@@ -488,22 +488,29 @@ function readRemediationAuthCanaries(rootDirectory, key) {
 }
 
 function authCanaryUnresolved(canary) {
-  if (canary.current.state === 'EPHEMERA_RECONCILED') return false;
-  if (canary.current.state !== 'CANARY_COMPLETE') return true;
-  const bounded = canary.records.some((record) => record.state === 'BOUNDED_EPHEMERA_POSSIBLE');
-  if (!bounded) return false;
-  return !canary.allowance || canary.allowance.sessions.length > 0 || canary.allowance.refreshTokens.length > 0;
+  return canary.current.state !== 'EPHEMERA_RECONCILED';
 }
 
-function beginRemediationAuthCanary(rootDirectory, key, purpose, recordedAt = new Date().toISOString()) {
+function beginRemediationAuthCanary(rootDirectory, key, purpose, recordedAt = new Date().toISOString(), {
+  allowRecoveryVerificationContinuation = false
+} = {}) {
   const journal = readRemediationJournal(rootDirectory, key);
   const normalizedPurpose = String(purpose || '');
   if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(normalizedPurpose)) {
     throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_PURPOSE_INVALID');
   }
   const existing = readRemediationAuthCanaries(rootDirectory, key);
-  if (existing.some((entry) => entry.current.purpose === normalizedPurpose && authCanaryUnresolved(entry))) {
-    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_CEILING_REACHED');
+  const samePurpose = existing.filter((entry) => entry.current.purpose === normalizedPurpose);
+  const unresolved = samePurpose.filter(authCanaryUnresolved);
+  if (unresolved.length > 0) {
+    const lockedContinuation = allowRecoveryVerificationContinuation &&
+      normalizedPurpose === 'RECOVERY_VERIFICATION' && unresolved.length === 1 &&
+      unresolved[0].allowance &&
+      unresolved[0].allowance.sessions.length <= 1 && unresolved[0].allowance.refreshTokens.length <= 1 &&
+      samePurpose.at(-1)?.current.canaryId === unresolved[0].current.canaryId;
+    if (!lockedContinuation) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_CEILING_REACHED');
+    }
   }
   let canaryRoot = journal.paths.authCanaries;
   if (!fs.existsSync(canaryRoot)) canaryRoot = createPrivateDirectory(canaryRoot);
@@ -614,7 +621,8 @@ function remediationAuthCanaryDisposition(rootDirectory, key) {
   const canaries = readRemediationAuthCanaries(rootDirectory, key);
   const unresolved = canaries.filter(authCanaryUnresolved);
   const bounded = unresolved.length > 0;
-  const completed = canaries.filter((entry) => entry.current.state === 'CANARY_COMPLETE');
+  const completed = canaries.filter((entry) =>
+    entry.records.some((record) => record.state === 'CANARY_COMPLETE'));
   const allowances = {
     sessions: unresolved.flatMap((entry) => entry.allowance?.sessions || []),
     refreshTokens: unresolved.flatMap((entry) => entry.allowance?.refreshTokens || [])
@@ -622,8 +630,8 @@ function remediationAuthCanaryDisposition(rootDirectory, key) {
   return {
     canaryCount: canaries.length,
     completedCount: completed.length,
-    sessionRevoked: !bounded && completed.every((entry) =>
-      entry.records.some((record) => record.state === 'LOGOUT_SUCCEEDED')),
+    sessionRevoked: canaries.length > 0 && !bounded &&
+      canaries.every((entry) => entry.current.state === 'EPHEMERA_RECONCILED'),
     boundedEphemeraPossible: bounded,
     unresolvedCount: unresolved.length,
     unresolvedPurposes: [...new Set(unresolved.map((entry) => entry.current.purpose))].sort(),
@@ -777,6 +785,7 @@ export {
   appendRemediationEvent,
   appendRemediationState,
   beginRemediationAuthCanary,
+  authCanaryUnresolved,
   freezeRemediationAuthCanaryAllowance,
   initializeRemediationJournal,
   publishRemediationBoundary,

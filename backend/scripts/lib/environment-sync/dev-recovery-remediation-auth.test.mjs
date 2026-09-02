@@ -59,6 +59,10 @@ function certificate({
   lastSignIn = '2026-08-29T10:00:00.000Z',
   sessions = [],
   refreshTokens = [],
+  refreshTokenSessions = refreshTokens.map((refreshTokenId) => ({
+    refreshTokenId,
+    sessionId: sessions.length === 1 ? sessions[0] : ''
+  })),
   copiedDigest = 'copied'
 } = {}) {
   const stable = {
@@ -84,8 +88,13 @@ function certificate({
       identity_last_sign_in_at: lastSignIn,
       identity_updated_at: lastSignIn
     },
-    nativeEphemera: { sessions, refreshTokens }
+    nativeEphemera: { sessions, refreshTokens, refreshTokenSessions }
   };
+}
+
+function syntheticAccessToken(userId, sessionId) {
+  const encode = (value) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ sub: userId, session_id: sessionId })}.synthetic`;
 }
 
 test('exact remediation URL guards reject lookalikes, credentials, paths, ports, queries, and fragments', () => {
@@ -165,6 +174,37 @@ test('semantic Auth parity permits only native login volatility and bounded logo
       logoutSucceeded: true
     }), { code: 'DEV_REMEDIATION_AUTH_STABLE_STATE_DRIFT' });
   }
+});
+
+test('immediate canary discovery binds the exact JWT session to exactly one refresh row', () => {
+  const sessionId = crypto.randomUUID();
+  const before = certificate();
+  const after = certificate({
+    lastSignIn: '2026-08-29T10:01:00.000Z',
+    sessions: [sessionId],
+    refreshTokens: ['1001']
+  });
+  const result = assertRemediationAuthTransition(before, after, {
+    mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
+    logoutSucceeded: false,
+    requireFreshLogin: true,
+    expectedCanarySessionId: sessionId
+  });
+  assert.deepEqual(result.allowedNativeEphemera, {
+    sessions: [sessionId],
+    refreshTokens: ['1001']
+  });
+  assert.throws(() => assertRemediationAuthTransition(before, certificate({
+    lastSignIn: '2026-08-29T10:01:00.000Z',
+    sessions: [sessionId],
+    refreshTokens: ['1001'],
+    refreshTokenSessions: [{ refreshTokenId: '1001', sessionId: crypto.randomUUID() }]
+  }), {
+    mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
+    logoutSucceeded: false,
+    requireFreshLogin: true,
+    expectedCanarySessionId: sessionId
+  }), { code: 'DEV_REMEDIATION_AUTH_CANARY_SESSION_BINDING_MISMATCH' });
 });
 
 test('Auth table classification is complete and strict-clean is the omitted default', () => {
@@ -272,13 +312,14 @@ test('semantic Auth certificate preserves an absent warehouse preference as the 
 test('credential-bearing canary accepts the exact empty warehouse preference without weakening identity checks', async () => {
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
   const requests = [];
   const lifecycle = [];
   const server = http.createServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
     response.setHeader('Content-Type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
-      response.end(JSON.stringify({ access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId } }));
+      response.end(JSON.stringify({ access_token: syntheticAccessToken(userId, sessionId), refresh_token: 'local-refresh', user: { id: userId } }));
     } else if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
       response.end(JSON.stringify({ data: { orgId: organizationId, role: 'owner', defaultWarehouse: '' } }));
     } else if (request.url === '/functions/v1/api?path=%2Ffilm-data%2Fcatalog') {
@@ -319,6 +360,8 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
     assert.equal(result.filmCatalogReadSucceeded, true);
     assert.equal(result.boxSearchReadSucceeded, true);
     assert.equal(result.jobsReadSucceeded, true);
+    assert.equal(result.logoutSucceeded, true);
+    assert.equal(result.sessionRevoked, false);
     assert.deepEqual(requests, [
       'POST /auth/v1/token?grant_type=password',
       'GET /functions/v1/api?path=%2Fauth%2Fcontext',
@@ -373,16 +416,68 @@ test('credential-bearing canary rejects redirects without following them', async
   }
 });
 
+test('credential-bearing canary rejects a token without the exact session identity and still attempts local logout', async () => {
+  const userId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  const requests = [];
+  const encode = (value) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  const invalidAccessToken = `${encode({ alg: 'none' })}.${encode({ sub: userId })}.synthetic`;
+  const server = http.createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    response.setHeader('Content-Type', 'application/json');
+    if (request.url.startsWith('/auth/v1/token')) {
+      response.end(JSON.stringify({
+        access_token: invalidAccessToken,
+        refresh_token: 'synthetic-local-refresh',
+        user: { id: userId }
+      }));
+    } else if (request.url === '/auth/v1/logout?scope=local') {
+      response.end('{}');
+    } else {
+      response.writeHead(404);
+      response.end('{}');
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await assert.rejects(runFreshAuthenticationCanary({
+      preparation: {
+        mode: 'disposable-managed-local',
+        targetSession: {
+          smokeUserId: userId,
+          smokeOrganizationId: organizationId,
+          smokeDefaultWarehouse: ''
+        }
+      },
+      values: {
+        SUPABASE_URL: origin,
+        EDGE_API_BASE_URL: `${origin}/functions/v1/api`,
+        SUPABASE_ANON_KEY: 'local-only',
+        SMOKE_USER_EMAIL: 'local@example.invalid',
+        SMOKE_USER_PASSWORD: 'local-only'
+      }
+    }), { code: 'DEV_REMEDIATION_AUTH_ACCESS_TOKEN_SESSION_INVALID' });
+    assert.deepEqual(requests, [
+      'POST /auth/v1/token?grant_type=password',
+      'POST /auth/v1/logout?scope=local'
+    ]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('credential-bearing canary attempts logout after a read failure', async () => {
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
   const requests = [];
   const lifecycle = [];
   const server = http.createServer((request, response) => {
     requests.push(`${request.method} ${request.url}`);
     response.setHeader('Content-Type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
-      response.end(JSON.stringify({ access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId } }));
+      response.end(JSON.stringify({ access_token: syntheticAccessToken(userId, sessionId), refresh_token: 'local-refresh', user: { id: userId } }));
     } else if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
       response.writeHead(503);
       response.end('{}');
@@ -430,12 +525,13 @@ test('credential-bearing canary attempts logout after a read failure', async () 
 test('credential-bearing canary records bounded ephemera when logout fails', async () => {
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
   const lifecycle = [];
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
       response.end(JSON.stringify({
-        access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId }
+        access_token: syntheticAccessToken(userId, sessionId), refresh_token: 'local-refresh', user: { id: userId }
       }));
     } else if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
       response.end(JSON.stringify({ data: {
@@ -496,11 +592,12 @@ test('a real child killed after token issuance leaves durable bounded-ephemera e
   const originalBindingDigest = `sha256:${'2'.repeat(64)}`;
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
       response.end(JSON.stringify({
-        access_token: 'synthetic-process-local-access',
+        access_token: syntheticAccessToken(userId, sessionId),
         refresh_token: 'synthetic-process-local-refresh',
         user: { id: userId }
       }));

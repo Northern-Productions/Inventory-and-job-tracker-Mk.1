@@ -134,7 +134,9 @@ new recovery-remediation lineage whose purpose is to deliberately restore the or
 a new known outcome without reinterpreting or completing the failed recovery.
 
 Preparation is read-only against DEV business and schema state, with one explicit permanent-smoke
-password login/logout canary as the sole bounded Auth-runtime exception. It binds the exact failed attempt, original Y2, failed recovery
+password login/logout canary as the sole bounded Auth-runtime exception. Before login, preparation durably
+publishes a protected signed canary lifecycle bound to the exact target, preparation run, Smoke user and
+organization, authority identity, output directory, and `PREPARATION_CANARY` purpose. It binds the exact failed attempt, original Y2, failed recovery
 marker and invocation, current tooling commit/tree, canonical application commit, and a fresh observed
 DEV certificate. It requires current DEV to equal original Y2 across every recoverable plane and does
 not capture the remediation fallback. The future destructive command captures a fresh coherent,
@@ -154,8 +156,9 @@ The signed remediation preparation carries a semantic Auth certificate. Copied/q
 identities protect all recovery-significant fields, including credential digests and quarantine state;
 the native smoke identity separately protects stable user/identity metadata, active Owner membership,
 organization, and default warehouse. Only monotonic native login timestamps are generally volatile.
-Preparation and every pre-boundary check require `STRICT_CLEAN`: the canary must complete explicit
-local-session logout and leave no new native-Smoke session or refresh-token row. After a destructive
+Preparation and every pre-boundary check require `STRICT_CLEAN`: provider logout success is transport
+evidence only. A fresh database certificate must also prove the frozen session and refresh-token rows
+absent before authenticated `EPHEMERA_RECONCILED` state can establish revocation. After a destructive
 remediation or recovery database boundary, only exact attempt-owned ephemera frozen by an
 `IMMEDIATE_CANARY_DISCOVERY` comparison may be accepted by `FROZEN_ATTEMPT_PARITY`; it may disappear
 but cannot be replaced or multiplied. The exception never applies to copied users. Preparation,
@@ -166,12 +169,16 @@ Every remediation Auth canary has its own attempt- and contract-bound append-onl
 `CANARY_NOT_STARTED`, `LOGIN_STARTED`, `LOGIN_SUCCEEDED`, `LOGOUT_ATTEMPTED`,
 `LOGOUT_SUCCEEDED` or `BOUNDED_EPHEMERA_POSSIBLE`, `CANARY_COMPLETE`, and, when delayed provider cleanup
 finishes, `EPHEMERA_RECONCILED`. No credential or bearer token is stored. The exact protected session
-and refresh-token identifiers are frozen privately as soon as login-created rows are observed. Recovery
-derives session revocation conservatively from the journal, so process loss after login cannot be
+and refresh-token identifiers are frozen privately as soon as login-created rows are observed. The access
+token is decoded only in memory: its UUID `session_id` must equal the new `auth.sessions` row, and the one
+new refresh-token row must reference that session. Recovery derives session revocation from fresh database
+evidence plus authenticated reconciliation, so process loss after login cannot be
 mistaken for clean logout. Logout uses the provider's explicit current-session contract
 `/auth/v1/logout?scope=local`; unrelated pre-existing Smoke sessions remain untouched. Each attempt and
-purpose permits at most one unresolved canary. A later check must reconcile that allowance or reuse it;
-it cannot create an unbounded sequence of verification logins.
+purpose permits at most one unresolved canary. The sole post-boundary exception is
+`RECOVERY_VERIFICATION`: one frozen orphan allowance may coexist with one clean completion canary. If
+that completion is interrupted or leaves residue, a third login is refused. Pre-boundary residue always
+stops before R3 or a remediation marker.
 
 Managed execution also requires the official Auth configuration field
 `audit_log_disable_postgres=true` before preparation, remediation, and recovery verification. The

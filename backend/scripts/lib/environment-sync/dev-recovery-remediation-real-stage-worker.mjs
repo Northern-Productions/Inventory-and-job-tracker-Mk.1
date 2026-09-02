@@ -250,13 +250,12 @@ function finishInterruptedCanary(context, canary) {
 async function reconcileAuthCanaryState(context) {
   let canaries = readRemediationAuthCanaries(context.rootDirectory, context.key);
   const unbound = canaries.filter((entry) =>
-    entry.current.state !== 'EPHEMERA_RECONCILED' &&
-    (entry.current.state !== 'CANARY_COMPLETE' || entry.records.some((record) =>
-      record.state === 'BOUNDED_EPHEMERA_POSSIBLE')) &&
-    !entry.allowance
+    entry.current.state !== 'EPHEMERA_RECONCILED' && !entry.allowance
   );
   if (unbound.length > 1) throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_ATTRIBUTION_AMBIGUOUS');
-  const boundAllowance = mergeEphemeraAllowances(...canaries.map((entry) => entry.allowance));
+  const boundAllowance = mergeEphemeraAllowances(...canaries
+    .filter((entry) => entry.current.state !== 'EPHEMERA_RECONCILED')
+    .map((entry) => entry.allowance));
   const current = await captureRemediationAuthCertificate(context.connectionString, {
     ...identity(context),
     expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
@@ -269,16 +268,30 @@ async function reconcileAuthCanaryState(context) {
       requireFreshLogin: false,
       allowedNativeEphemera: boundAllowance
     });
+    const discovered = parity.allowedNativeEphemera;
+    if (discovered.sessions.length > 0 || discovered.refreshTokens.length > 0) {
+      if (discovered.sessions.length !== 1 || discovered.refreshTokens.length !== 1) {
+        throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_ATTRIBUTION_AMBIGUOUS');
+      }
+      assertRemediationAuthTransition(context.preparation.authHardening.baseline, current, {
+        mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
+        logoutSucceeded: false,
+        requireFreshLogin: false,
+        allowedNativeEphemera: boundAllowance,
+        expectedCanarySessionId: discovered.sessions[0]
+      });
+    }
     freezeRemediationAuthCanaryAllowance(
       context.rootDirectory,
       context.key,
       unbound[0].current.canaryId,
-      parity.allowedNativeEphemera
+      discovered
     );
-    finishInterruptedCanary(context, unbound[0]);
   }
   canaries = readRemediationAuthCanaries(context.rootDirectory, context.key);
-  let frozenAllowance = mergeEphemeraAllowances(...canaries.map((entry) => entry.allowance));
+  let frozenAllowance = mergeEphemeraAllowances(...canaries
+    .filter((entry) => entry.current.state !== 'EPHEMERA_RECONCILED')
+    .map((entry) => entry.allowance));
   parity = assertRemediationAuthTransition(context.preparation.authHardening.baseline, current, {
     mode: AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY,
     logoutSucceeded: frozenAllowance.sessions.length === 0 && frozenAllowance.refreshTokens.length === 0,
@@ -286,17 +299,28 @@ async function reconcileAuthCanaryState(context) {
     allowedNativeEphemera: frozenAllowance
   });
   for (const canary of canaries) {
-    if (canary.current.state !== 'CANARY_COMPLETE' || !canary.allowance) continue;
+    if (canary.current.state === 'EPHEMERA_RECONCILED' || !canary.allowance) continue;
     const present = ['sessions', 'refreshTokens'].some((name) =>
       canary.allowance[name].some((identifier) => parity.presentAttemptEphemera[name].includes(identifier))
     );
-    if (!present) reconcileRemediationAuthCanary(
-      context.rootDirectory, context.key, canary.current.canaryId
-    );
+    if (!present) {
+      finishInterruptedCanary(context, canary);
+      reconcileRemediationAuthCanary(context.rootDirectory, context.key, canary.current.canaryId);
+    }
   }
   const finalDisposition = remediationAuthCanaryDisposition(context.rootDirectory, context.key);
   frozenAllowance = finalDisposition.allowedNativeEphemera;
-  return { certificate: current, parity, disposition: finalDisposition, frozenAllowance };
+  const finalParity = assertRemediationAuthTransition(
+    context.preparation.authHardening.baseline,
+    current,
+    {
+      mode: AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY,
+      logoutSucceeded: finalDisposition.sessionRevoked,
+      requireFreshLogin: false,
+      allowedNativeEphemera: frozenAllowance
+    }
+  );
+  return { certificate: current, parity: finalParity, disposition: finalDisposition, frozenAllowance };
 }
 
 function disposableLoopbackOverlayGuard() {
@@ -407,11 +431,31 @@ async function runCertifiedAuthCanary(context, {
     requireFreshLogin: false,
     allowedNativeEphemera: reconciled.frozenAllowance
   });
-  const canary = beginRemediationAuthCanary(context.rootDirectory, context.key, purpose);
+  const unresolvedBefore = readRemediationAuthCanaries(context.rootDirectory, context.key)
+    .filter((entry) => entry.current.state !== 'EPHEMERA_RECONCILED');
+  if (requireClean && unresolvedBefore.length > 0) {
+    throw categoricalError('DEV_REMEDIATION_PREBOUNDARY_AUTH_RESIDUE');
+  }
+  const recoveryVerificationContinuation = purpose === 'RECOVERY_VERIFICATION' &&
+    unresolvedBefore.length === 1 &&
+    Boolean(unresolvedBefore[0].allowance) &&
+    (unresolvedBefore[0].allowance.sessions.length > 0 ||
+      unresolvedBefore[0].allowance.refreshTokens.length > 0);
+  if (unresolvedBefore.length > 0 && !recoveryVerificationContinuation) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_CEILING_REACHED');
+  }
+  const originalAllowance = reconciled.frozenAllowance;
+  const canary = beginRemediationAuthCanary(
+    context.rootDirectory,
+    context.key,
+    purpose,
+    new Date().toISOString(),
+    { allowRecoveryVerificationContinuation: recoveryVerificationContinuation }
+  );
   let loginAllowance = null;
   const functional = await runFreshAuthenticationCanary({
     preparation: context.preparation,
-    onLifecycle: async (state) => {
+    onLifecycle: async (state, details) => {
       appendRemediationAuthCanaryState(context.rootDirectory, context.key, canary.canaryId, state);
       if (state === 'LOGIN_SUCCEEDED') {
         const afterLogin = await captureRemediationAuthCertificate(context.connectionString, {
@@ -421,7 +465,8 @@ async function runCertifiedAuthCanary(context, {
         const discovery = assertRemediationAuthTransition(before, afterLogin, {
           mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
           logoutSucceeded: false,
-          requireFreshLogin: true
+          requireFreshLogin: true,
+          expectedCanarySessionId: details?.sessionId
         });
         loginAllowance = discovery.allowedNativeEphemera;
         freezeRemediationAuthCanaryAllowance(
@@ -451,7 +496,7 @@ async function runCertifiedAuthCanary(context, {
   });
   const parity = assertRemediationAuthTransition(before, after, {
     mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
-    logoutSucceeded: functional.sessionRevoked,
+    logoutSucceeded: functional.logoutSucceeded,
     requireFreshLogin: true,
     allowedNativeEphemera: loginAllowance || { sessions: [], refreshTokens: [] }
   });
@@ -472,7 +517,7 @@ async function runCertifiedAuthCanary(context, {
     after,
     {
       mode: AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY,
-      logoutSucceeded: functional.sessionRevoked &&
+      logoutSucceeded: functional.logoutSucceeded &&
         allowedNativeEphemera.sessions.length === 0 && allowedNativeEphemera.refreshTokens.length === 0,
       requireFreshLogin: false,
       allowedNativeEphemera
@@ -480,8 +525,18 @@ async function runCertifiedAuthCanary(context, {
   );
   const settled = await reconcileAuthCanaryState(context);
   const finalAllowance = settled.frozenAllowance;
+  const settledCanary = readRemediationAuthCanaries(context.rootDirectory, context.key)
+    .find((entry) => entry.current.canaryId === canary.canaryId);
+  const currentCanaryReconciled = settledCanary?.current.state === 'EPHEMERA_RECONCILED';
+  if (!currentCanaryReconciled) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_RESIDUE_REMAINS');
+  }
+  if (recoveryVerificationContinuation &&
+      canonicalSerialize(finalAllowance) !== canonicalSerialize(originalAllowance)) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_ALLOWANCE_DRIFT');
+  }
   if (requireClean && (
-    functional.sessionRevoked !== true || finalAllowance.sessions.length !== 0 ||
+    !currentCanaryReconciled || finalAllowance.sessions.length !== 0 ||
     finalAllowance.refreshTokens.length !== 0
   )) throw categoricalError('DEV_REMEDIATION_PREBOUNDARY_AUTH_RESIDUE');
   return {
@@ -1308,7 +1363,7 @@ async function runRemediationRecoveryVerified(context) {
     purpose: 'RECOVERY_VERIFICATION'
   });
   const finalParity = auth.parity;
-  const sessionRevoked = finalParity.sessionRevoked;
+  const sessionRevoked = auth.parity.sessionRevoked;
   return {
     r3Exact: true,
     unexplainedDifferences: 0,
@@ -1324,7 +1379,7 @@ async function runRemediationRecoveryVerified(context) {
     authSemanticParity: finalParity.stableStateExact,
     boundedEphemera: finalParity.boundedEphemera,
     sessionRevoked,
-    ephemeralSessionException: !sessionRevoked
+    ephemeralSessionException: auth.functional.ephemeralSessionException
   };
 }
 

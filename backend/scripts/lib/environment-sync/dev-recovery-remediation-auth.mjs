@@ -98,10 +98,18 @@ async function nativeEphemera(client, userId) {
   const sessions = (await client.query(
     'select id::text as value from auth.sessions where user_id=$1::uuid order by id::text', [userId]
   )).rows.map((row) => String(row.value));
-  const refreshTokens = (await client.query(
-    'select id::text as value from auth.refresh_tokens where user_id=$1::text order by id::text', [userId]
-  )).rows.map((row) => String(row.value));
-  return { sessions, refreshTokens };
+  const refreshRows = (await client.query(
+    `select id::text as value, coalesce(session_id::text, '') as session_id
+       from auth.refresh_tokens where user_id=$1::text order by id::text`, [userId]
+  )).rows;
+  return {
+    sessions,
+    refreshTokens: refreshRows.map((row) => String(row.value)),
+    refreshTokenSessions: refreshRows.map((row) => ({
+      refreshTokenId: String(row.value),
+      sessionId: String(row.session_id || '').toLowerCase()
+    }))
+  };
 }
 
 async function captureRemediationAuthCertificateFromClient(client, {
@@ -217,6 +225,21 @@ function assertIdentifierSet(values) {
   return values;
 }
 
+function assertRefreshTokenSessions(values) {
+  if (!Array.isArray(values) || values.some((entry) =>
+    !entry || typeof entry !== 'object' || Array.isArray(entry) ||
+    typeof entry.refreshTokenId !== 'string' || typeof entry.sessionId !== 'string' ||
+    entry.refreshTokenId.length < 1 || entry.refreshTokenId.length > 256 ||
+    /[\x00-\x1f\x7f]/.test(entry.refreshTokenId) ||
+    (entry.sessionId !== '' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.sessionId))
+  )) throw categoricalError('DEV_REMEDIATION_AUTH_REFRESH_SESSION_BINDING_INVALID');
+  const keys = values.map((entry) => entry.refreshTokenId);
+  if (new Set(keys).size !== keys.length) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_REFRESH_SESSION_BINDING_INVALID');
+  }
+  return values;
+}
+
 function compareEphemeraSet(beforeValues, afterValues, mode, allowedValues = []) {
   assertIdentifierSet(beforeValues);
   assertIdentifierSet(afterValues);
@@ -254,7 +277,8 @@ function assertRemediationAuthTransition(before, after, {
   mode = AUTH_EPHEMERA_MODES.STRICT_CLEAN,
   logoutSucceeded,
   requireFreshLogin = false,
-  allowedNativeEphemera = { sessions: [], refreshTokens: [] }
+  allowedNativeEphemera = { sessions: [], refreshTokens: [] },
+  expectedCanarySessionId = ''
 } = {}) {
   if (
     before?.format !== AUTH_CERTIFICATE_FORMAT || after?.format !== AUTH_CERTIFICATE_FORMAT ||
@@ -279,6 +303,19 @@ function assertRemediationAuthTransition(before, after, {
     mode,
     allowedNativeEphemera.refreshTokens
   );
+  if (expectedCanarySessionId) {
+    const sessionId = assertUuid(
+      expectedCanarySessionId, 'DEV_REMEDIATION_AUTH_CANARY_SESSION_ID_INVALID'
+    );
+    const bindings = assertRefreshTokenSessions(after.nativeEphemera.refreshTokenSessions);
+    const addedBindings = bindings.filter((entry) => refreshTokens.additions.includes(entry.refreshTokenId));
+    if (
+      mode !== AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY ||
+      sessions.additions.length !== 1 || sessions.additions[0].toLowerCase() !== sessionId ||
+      refreshTokens.additions.length !== 1 || addedBindings.length !== 1 ||
+      addedBindings[0].sessionId !== sessionId
+    ) throw categoricalError('DEV_REMEDIATION_AUTH_CANARY_SESSION_BINDING_MISMATCH');
+  }
   return {
     stableStateExact: true,
     copiedUsersExact: true,
@@ -288,7 +325,8 @@ function assertRemediationAuthTransition(before, after, {
     approvedVolatileFieldCount: advanced.length,
     boundedEphemera: true,
     ephemeraMode: mode,
-    sessionRevoked: logoutSucceeded === true,
+    logoutSucceeded: logoutSucceeded === true,
+    sessionRevoked: mode === AUTH_EPHEMERA_MODES.STRICT_CLEAN && logoutSucceeded === true,
     allowedNativeEphemera: {
       sessions: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY
         ? sessions.additions
@@ -302,6 +340,40 @@ function assertRemediationAuthTransition(before, after, {
       refreshTokens: refreshTokens.presentAllowed
     }
   };
+}
+
+function decodeCanaryJwtIdentity(accessToken) {
+  const compact = String(accessToken || '');
+  const segments = compact.split('.');
+  if (compact.length < 1 || compact.length > 16_384 || segments.length !== 3 ||
+      !segments.every((segment) => /^[A-Za-z0-9_-]+$/.test(segment))) {
+    throw categoricalError('DEV_REMEDIATION_AUTH_ACCESS_TOKEN_INVALID');
+  }
+  let payloadBytes;
+  let payloadText = '';
+  try {
+    payloadBytes = Buffer.from(segments[1], 'base64url');
+    if (payloadBytes.length < 2 || payloadBytes.length > 8_192) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_ACCESS_TOKEN_INVALID');
+    }
+    payloadText = new TextDecoder('utf-8', { fatal: true }).decode(payloadBytes);
+    const payload = JSON.parse(payloadText);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_ACCESS_TOKEN_INVALID');
+    }
+    return {
+      userId: assertUuid(payload.sub, 'DEV_REMEDIATION_AUTH_ACCESS_TOKEN_USER_INVALID'),
+      sessionId: assertUuid(
+        payload.session_id, 'DEV_REMEDIATION_AUTH_ACCESS_TOKEN_SESSION_INVALID'
+      )
+    };
+  } catch (error) {
+    if (error?.code) throw error;
+    throw categoricalError('DEV_REMEDIATION_AUTH_ACCESS_TOKEN_INVALID');
+  } finally {
+    if (payloadBytes) payloadBytes.fill(0);
+    payloadText = '';
+  }
 }
 
 async function fetchJson(url, options, code) {
@@ -344,29 +416,31 @@ async function runFreshAuthenticationCanary({
   }
   let accessToken = '';
   let refreshToken = '';
-  let sessionRevoked = false;
+  let logoutSucceeded = false;
   let logoutAttempted = false;
+  let canarySessionId = '';
   let lifecycleState = 'CANARY_NOT_STARTED';
-  const transition = async (state) => {
-    await onLifecycle(state);
+  const transition = async (state, details = undefined) => {
     lifecycleState = state;
+    await onLifecycle(state, details);
   };
   const revokeSession = async () => {
-    if (!accessToken || logoutAttempted) return sessionRevoked;
+    if (!accessToken || logoutAttempted) return logoutSucceeded;
     logoutAttempted = true;
-    await transition('LOGOUT_ATTEMPTED');
+    if (lifecycleState !== 'LOGIN_STARTED') await transition('LOGOUT_ATTEMPTED');
     try {
       await fetchJson(`${authUrl}/auth/v1/logout?scope=local`, {
         method: 'POST',
         headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
       }, 'DEV_REMEDIATION_LOGOUT_FAILED');
-      sessionRevoked = true;
-      await transition('LOGOUT_SUCCEEDED');
+      logoutSucceeded = true;
+      if (lifecycleState === 'LOGIN_STARTED') await transition('BOUNDED_EPHEMERA_POSSIBLE');
+      else await transition('LOGOUT_SUCCEEDED');
     } catch {
-      sessionRevoked = false;
+      logoutSucceeded = false;
       await transition('BOUNDED_EPHEMERA_POSSIBLE');
     }
-    return sessionRevoked;
+    return logoutSucceeded;
   };
   try {
     await transition('LOGIN_STARTED');
@@ -377,10 +451,15 @@ async function runFreshAuthenticationCanary({
     }, 'DEV_REMEDIATION_FRESH_AUTHENTICATION_FAILED')).body;
     accessToken = asText(signedIn.access_token);
     refreshToken = asText(signedIn.refresh_token);
-    if (accessToken) await transition('LOGIN_SUCCEEDED');
-    if (!accessToken || asText(signedIn.user?.id).toLowerCase() !== expectedUserId) {
+    if (!accessToken || !refreshToken || asText(signedIn.user?.id).toLowerCase() !== expectedUserId) {
       throw categoricalError('DEV_REMEDIATION_SMOKE_USER_ID_MISMATCH');
     }
+    const jwtIdentity = decodeCanaryJwtIdentity(accessToken);
+    if (jwtIdentity.userId !== expectedUserId) {
+      throw categoricalError('DEV_REMEDIATION_SMOKE_USER_ID_MISMATCH');
+    }
+    canarySessionId = jwtIdentity.sessionId;
+    await transition('LOGIN_SUCCEEDED', { sessionId: canarySessionId });
     const read = async (route, query, code) => (await fetchJson(logicalApiUrl(apiUrl, route, query), {
       method: 'GET',
       headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
@@ -411,8 +490,9 @@ async function runFreshAuthenticationCanary({
       boxSearchReadSucceeded: true,
       jobsReadSucceeded: true,
       readOnlyApiSucceeded: true,
-      sessionRevoked,
-      ephemeralSessionException: !sessionRevoked
+      logoutSucceeded,
+      sessionRevoked: false,
+      ephemeralSessionException: true
     };
   } finally {
     try {
@@ -424,6 +504,7 @@ async function runFreshAuthenticationCanary({
     } finally {
       accessToken = '';
       refreshToken = '';
+      canarySessionId = '';
     }
   }
 }

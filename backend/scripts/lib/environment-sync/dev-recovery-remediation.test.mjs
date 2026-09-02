@@ -71,6 +71,7 @@ import {
 import {
   appendRemediationAuthCanaryState,
   appendRemediationEvent,
+  authCanaryUnresolved,
   beginRemediationAuthCanary,
   freezeRemediationAuthCanaryAllowance,
   initializeRemediationJournal,
@@ -94,6 +95,11 @@ const REFRESH_SYNTHETIC_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-ce
 
 function digest(value) {
   return `sha256:${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
+}
+
+function syntheticAccessToken(userId, sessionId) {
+  const encode = (value) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ sub: userId, session_id: sessionId })}.synthetic`;
 }
 
 function originalBinding() {
@@ -488,6 +494,28 @@ test('remediation contract is independently authenticated and binds the permanen
   } finally {
     key.fill(0);
   }
+});
+
+test('Auth canary unresolved classification depends only on authenticated reconciliation', () => {
+  for (const state of [
+    'CANARY_NOT_STARTED',
+    'LOGIN_STARTED',
+    'LOGIN_SUCCEEDED',
+    'LOGOUT_ATTEMPTED',
+    'LOGOUT_SUCCEEDED',
+    'BOUNDED_EPHEMERA_POSSIBLE',
+    'CANARY_COMPLETE'
+  ]) {
+    for (const allowance of [
+      null,
+      { sessions: [], refreshTokens: [] },
+      { sessions: ['attempt-owned-session'], refreshTokens: ['attempt-owned-refresh'] }
+    ]) assert.equal(authCanaryUnresolved({ current: { state }, allowance }), true);
+  }
+  assert.equal(authCanaryUnresolved({
+    current: { state: 'EPHEMERA_RECONCILED' },
+    allowance: { sessions: ['historical-private-session'], refreshTokens: [] }
+  }), false);
 });
 
 test('all eleven remediation stages have an exact least-privilege input census', () => {
@@ -1144,6 +1172,106 @@ test('per-purpose Auth canary ceiling blocks accumulation until exact ephemera i
   }
 });
 
+test('completed logout with frozen database rows stays unresolved and recovery verification permits only one continuation', () => {
+  const root = temporaryRoot('dev-remediation-auth-canary-database-derived');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  try {
+    initializeRemediationJournal({
+      rootDirectory: root,
+      key,
+      remediationAttemptId: value.remediationAttemptId,
+      contractDigest: value.contractDigest,
+      originalBindingDigest: canonicalDigest(value.original)
+    });
+    const orphan = beginRemediationAuthCanary(root, key, 'RECOVERY_VERIFICATION');
+    appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGIN_STARTED');
+    appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGIN_SUCCEEDED');
+    freezeRemediationAuthCanaryAllowance(root, key, orphan.canaryId, {
+      sessions: ['attempt-owned-session'],
+      refreshTokens: ['attempt-owned-refresh']
+    });
+    appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGOUT_ATTEMPTED');
+    appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGOUT_SUCCEEDED');
+    appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'CANARY_COMPLETE');
+    const unresolved = remediationAuthCanaryDisposition(root, key);
+    assert.equal(unresolved.sessionRevoked, false);
+    assert.equal(unresolved.unresolvedCount, 1);
+    assert.deepEqual(unresolved.allowedNativeEphemera, {
+      sessions: ['attempt-owned-session'],
+      refreshTokens: ['attempt-owned-refresh']
+    });
+    const continuation = beginRemediationAuthCanary(
+      root,
+      key,
+      'RECOVERY_VERIFICATION',
+      new Date().toISOString(),
+      { allowRecoveryVerificationContinuation: true }
+    );
+    assert.notEqual(continuation.canaryId, orphan.canaryId);
+    assert.throws(() => beginRemediationAuthCanary(
+      root,
+      key,
+      'RECOVERY_VERIFICATION',
+      new Date().toISOString(),
+      { allowRecoveryVerificationContinuation: true }
+    ), { code: 'DEV_REMEDIATION_AUTH_CANARY_CEILING_REACHED' });
+  } finally {
+    key.fill(0);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('authenticated Auth allowances reject tampering and overlap across canaries', () => {
+  const tamperedRoot = temporaryRoot('dev-remediation-auth-canary-tamper');
+  const overlapRoot = temporaryRoot('dev-remediation-auth-canary-overlap');
+  const key = crypto.randomBytes(32);
+  const value = contract();
+  const initialize = (root) => initializeRemediationJournal({
+    rootDirectory: root,
+    key,
+    remediationAttemptId: value.remediationAttemptId,
+    contractDigest: value.contractDigest,
+    originalBindingDigest: canonicalDigest(value.original)
+  });
+  const bind = (root, purpose, session, refreshToken) => {
+    const canary = beginRemediationAuthCanary(root, key, purpose);
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'LOGIN_STARTED');
+    appendRemediationAuthCanaryState(root, key, canary.canaryId, 'LOGIN_SUCCEEDED');
+    freezeRemediationAuthCanaryAllowance(root, key, canary.canaryId, {
+      sessions: [session],
+      refreshTokens: [refreshToken]
+    });
+    return canary;
+  };
+  try {
+    initialize(tamperedRoot);
+    const canary = bind(tamperedRoot, 'AUTH_RUNTIME', 'private-session-a', 'private-refresh-a');
+    const allowancePath = path.join(canary.directory, 'ephemera-allowance.private.json');
+    const bytes = fs.readFileSync(allowancePath);
+    try {
+      const changed = Buffer.from(bytes.toString('utf8').replace('private-session-a', 'private-session-b'), 'utf8');
+      fs.writeFileSync(allowancePath, changed);
+      changed.fill(0);
+    } finally {
+      bytes.fill(0);
+    }
+    assert.throws(() => readRemediationAuthCanaries(tamperedRoot, key));
+
+    initialize(overlapRoot);
+    bind(overlapRoot, 'AUTH_RUNTIME', 'overlap-session', 'overlap-refresh');
+    bind(overlapRoot, 'RECOVERY_VERIFICATION', 'overlap-session', 'overlap-refresh');
+    assert.throws(
+      () => remediationAuthCanaryDisposition(overlapRoot, key),
+      { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_ALLOWANCE_OVERLAP' }
+    );
+  } finally {
+    key.fill(0);
+    fs.rmSync(tamperedRoot, { recursive: true, force: true });
+    fs.rmSync(overlapRoot, { recursive: true, force: true });
+  }
+});
+
 test('a real post-login child kill reaches recovery-required and permits stored-package R3 recovery', async () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-remediation-child-r3-'));
   const root = path.join(temporary, 'state-private');
@@ -1152,6 +1280,7 @@ test('a real post-login child kill reaches recovery-required and permits stored-
   const preparationRecord = remediationPreparationRecord(value, key);
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
   const keyPath = path.join(temporary, 'authority.private.bin');
   const inputPath = path.join(temporary, 'input.private.json');
   const childPath = path.join(temporary, 'child.private.mjs');
@@ -1159,7 +1288,7 @@ test('a real post-login child kill reaches recovery-required and permits stored-
     response.setHeader('Content-Type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
       response.end(JSON.stringify({
-        access_token: 'synthetic-process-local-access',
+        access_token: syntheticAccessToken(userId, sessionId),
         refresh_token: 'synthetic-process-local-refresh',
         user: { id: userId }
       }));
@@ -1766,13 +1895,14 @@ test('fresh authentication uses only the guarded endpoint and performs read-only
   const seen = [];
   const userId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
   const server = http.createServer(async (request, response) => {
     const observedUrl = new URL(request.url, 'http://localhost');
     seen.push(`${request.method} ${observedUrl.pathname}${observedUrl.search}`);
     response.setHeader('content-type', 'application/json');
     if (request.url.startsWith('/auth/v1/token')) {
       response.end(JSON.stringify({
-        access_token: 'local-access', refresh_token: 'local-refresh', user: { id: userId }
+        access_token: syntheticAccessToken(userId, sessionId), refresh_token: 'local-refresh', user: { id: userId }
       }));
       return;
     }
@@ -1819,7 +1949,8 @@ test('fresh authentication uses only the guarded endpoint and performs read-only
     assert.equal(result.boxSearchReadSucceeded, true);
     assert.equal(result.jobsReadSucceeded, true);
     assert.equal(result.readOnlyApiSucceeded, true);
-    assert.equal(result.sessionRevoked, true);
+    assert.equal(result.logoutSucceeded, true);
+    assert.equal(result.sessionRevoked, false);
     assert.deepEqual(seen, [
       'POST /auth/v1/token?grant_type=password', 'GET /functions/v1/api?path=%2Fauth%2Fcontext',
       'GET /functions/v1/api?path=%2Ffilm-data%2Fcatalog',

@@ -51,9 +51,10 @@ import {
   createPrivateDirectory,
   privateArtifactPath,
   verifyPrivateArtifactProtection,
+  verifyPrivateDirectoryProtection,
   writePrivateJsonExclusive
 } from './private-artifacts.mjs';
-import { signPayload } from './dev-certified-state.mjs';
+import { signPayload, signedRecord, verifySignedRecord } from './dev-certified-state.mjs';
 import { readRemediationJournal } from './dev-recovery-remediation-state.mjs';
 
 const REMEDIATION_PREPARATION_FORMAT = 'dev-recovery-remediation-preparation-v1';
@@ -63,6 +64,18 @@ const REMEDIATION_REAL_STAGE_WORKER = fileURLToPath(
 const REFRESH_SYNTHETIC_WORKER = fileURLToPath(new URL('./dev-certified-test-worker.mjs', import.meta.url));
 const REFRESH_SYNTHETIC_WORKER_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-certified-test-worker.mjs';
 const PREPARATION_TTL_MS = 2 * 60 * 60 * 1000;
+const PREPARATION_AUTH_CANARY_FORMAT = 'dev-recovery-remediation-preparation-auth-canary-v1';
+const PREPARATION_AUTH_ALLOWANCE_FORMAT = 'dev-recovery-remediation-preparation-auth-allowance-v1';
+const PREPARATION_AUTH_TRANSITIONS = Object.freeze({
+  CANARY_NOT_STARTED: ['LOGIN_STARTED'],
+  LOGIN_STARTED: ['LOGIN_SUCCEEDED', 'BOUNDED_EPHEMERA_POSSIBLE'],
+  LOGIN_SUCCEEDED: ['LOGOUT_ATTEMPTED', 'BOUNDED_EPHEMERA_POSSIBLE'],
+  LOGOUT_ATTEMPTED: ['LOGOUT_SUCCEEDED', 'BOUNDED_EPHEMERA_POSSIBLE'],
+  LOGOUT_SUCCEEDED: ['CANARY_COMPLETE'],
+  BOUNDED_EPHEMERA_POSSIBLE: ['CANARY_COMPLETE'],
+  CANARY_COMPLETE: ['EPHEMERA_RECONCILED'],
+  EPHEMERA_RECONCILED: []
+});
 
 function categoricalError(code) {
   const error = new Error(code);
@@ -104,6 +117,170 @@ function readPrivateJson(filePath) {
     return JSON.parse(bytes.toString('utf8'));
   } finally {
     bytes.fill(0);
+  }
+}
+
+function preparationCanaryPaths(outputDirectory) {
+  const root = path.join(path.resolve(outputDirectory), 'preparation-auth-canary-private');
+  return {
+    root,
+    binding: privateArtifactPath(root, 'binding.private.json'),
+    allowancePath: privateArtifactPath(root, 'ephemera-allowance.private.json')
+  };
+}
+
+function preparationCanaryStateName(sequence, state) {
+  if (!Object.hasOwn(PREPARATION_AUTH_TRANSITIONS, state)) {
+    throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_CANARY_STATE_INVALID');
+  }
+  return `${String(sequence).padStart(3, '0')}-${state.toLowerCase().replaceAll('_', '-')}.private.json`;
+}
+
+function readPreparationAuthCanary(outputDirectory, key) {
+  const paths = preparationCanaryPaths(outputDirectory);
+  verifyPrivateDirectoryProtection(paths.root);
+  const binding = verifySignedRecord(
+    readPrivateJson(paths.binding), key, PREPARATION_AUTH_CANARY_FORMAT
+  );
+  const names = fs.readdirSync(paths.root)
+    .filter((name) => /^\d{3}-[a-z0-9-]+\.private\.json$/.test(name)).sort();
+  const records = names.map((name) => verifySignedRecord(
+    readPrivateJson(privateArtifactPath(paths.root, name)), key, PREPARATION_AUTH_CANARY_FORMAT
+  ));
+  let previousDigest = '';
+  for (let sequence = 0; sequence < records.length; sequence += 1) {
+    const record = records[sequence];
+    if (
+      record.sequence !== sequence || record.previousDigest !== previousDigest ||
+      record.preparationRunId !== binding.preparationRunId ||
+      record.bindingDigest !== canonicalDigest(binding) ||
+      record.purpose !== 'PREPARATION_CANARY' ||
+      (sequence === 0 && record.state !== 'CANARY_NOT_STARTED') ||
+      (sequence > 0 && !(PREPARATION_AUTH_TRANSITIONS[records[sequence - 1].state] || []).includes(record.state))
+    ) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_CANARY_INVALID');
+    previousDigest = canonicalDigest(record);
+  }
+  if (records.length === 0) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_CANARY_INVALID');
+  const allowance = fs.existsSync(paths.allowancePath)
+    ? verifySignedRecord(readPrivateJson(paths.allowancePath), key, PREPARATION_AUTH_ALLOWANCE_FORMAT)
+    : null;
+  if (allowance && (
+    allowance.preparationRunId !== binding.preparationRunId ||
+    allowance.bindingDigest !== canonicalDigest(binding) ||
+    allowance.purpose !== 'PREPARATION_CANARY' ||
+    !Array.isArray(allowance.sessions) || !Array.isArray(allowance.refreshTokens) ||
+    allowance.sessions.length > 1 || allowance.refreshTokens.length > 1 ||
+    new Set(allowance.sessions).size !== allowance.sessions.length ||
+    new Set(allowance.refreshTokens).size !== allowance.refreshTokens.length ||
+    [...allowance.sessions, ...allowance.refreshTokens].some((value) =>
+      typeof value !== 'string' || value.length < 1 || value.length > 256 ||
+      /[\x00-\x1f\x7f]/.test(value)) ||
+    allowance.allowanceDigest !== canonicalDigest({
+      sessions: allowance.sessions,
+      refreshTokens: allowance.refreshTokens
+    })
+  )) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_ALLOWANCE_INVALID');
+  return { ...paths, binding, records, current: records.at(-1), allowance };
+}
+
+function initializePreparationAuthCanary(outputDirectory, key, {
+  preparationRunId,
+  identity,
+  mode
+}) {
+  const paths = preparationCanaryPaths(outputDirectory);
+  createPrivateDirectory(paths.root);
+  const binding = {
+    format: PREPARATION_AUTH_CANARY_FORMAT,
+    preparationRunId,
+    target: { environment: 'dev', projectRef: DEV_PROJECT_REF, mode },
+    smokeUserId: identity.userId,
+    smokeOrganizationId: identity.organizationId,
+    authorityIdentity: sha256Bytes(key),
+    outputDirectoryDigest: canonicalDigest(path.resolve(outputDirectory)),
+    purpose: 'PREPARATION_CANARY'
+  };
+  writePrivateJsonExclusive(paths.binding, signedRecord(binding, key));
+  const initial = {
+    format: PREPARATION_AUTH_CANARY_FORMAT,
+    sequence: 0,
+    previousDigest: '',
+    preparationRunId,
+    bindingDigest: canonicalDigest(binding),
+    purpose: 'PREPARATION_CANARY',
+    state: 'CANARY_NOT_STARTED',
+    recordedAt: new Date().toISOString()
+  };
+  writePrivateJsonExclusive(
+    privateArtifactPath(paths.root, preparationCanaryStateName(0, initial.state)),
+    signedRecord(initial, key)
+  );
+  return readPreparationAuthCanary(outputDirectory, key);
+}
+
+function appendPreparationAuthCanaryState(outputDirectory, key, state) {
+  const canary = readPreparationAuthCanary(outputDirectory, key);
+  if (!(PREPARATION_AUTH_TRANSITIONS[canary.current.state] || []).includes(state)) {
+    throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_CANARY_TRANSITION_INVALID');
+  }
+  const record = {
+    format: PREPARATION_AUTH_CANARY_FORMAT,
+    sequence: canary.current.sequence + 1,
+    previousDigest: canonicalDigest(canary.current),
+    preparationRunId: canary.binding.preparationRunId,
+    bindingDigest: canonicalDigest(canary.binding),
+    purpose: 'PREPARATION_CANARY',
+    state,
+    recordedAt: new Date().toISOString()
+  };
+  writePrivateJsonExclusive(
+    privateArtifactPath(canary.root, preparationCanaryStateName(record.sequence, state)),
+    signedRecord(record, key)
+  );
+  return record;
+}
+
+function freezePreparationAuthAllowance(outputDirectory, key, allowance) {
+  const canary = readPreparationAuthCanary(outputDirectory, key);
+  if (canary.allowance || !['LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED', 'LOGOUT_SUCCEEDED'].includes(canary.current.state)) {
+    throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_ALLOWANCE_STATE_INVALID');
+  }
+  for (const name of ['sessions', 'refreshTokens']) {
+    if (!Array.isArray(allowance?.[name]) || allowance[name].length !== 1 ||
+        new Set(allowance[name]).size !== allowance[name].length) {
+      throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_ALLOWANCE_INVALID');
+    }
+  }
+  const payload = {
+    format: PREPARATION_AUTH_ALLOWANCE_FORMAT,
+    preparationRunId: canary.binding.preparationRunId,
+    bindingDigest: canonicalDigest(canary.binding),
+    purpose: 'PREPARATION_CANARY',
+    sessions: [...allowance.sessions],
+    refreshTokens: [...allowance.refreshTokens],
+    allowanceDigest: canonicalDigest({
+      sessions: allowance.sessions,
+      refreshTokens: allowance.refreshTokens
+    }),
+    recordedAt: new Date().toISOString()
+  };
+  writePrivateJsonExclusive(canary.allowancePath, signedRecord(payload, key));
+  return payload;
+}
+
+async function maybePausePreparationCanary(disposable, configuredPoint, point) {
+  if (!disposable || configuredPoint !== point) return;
+  if (typeof process.send !== 'function') {
+    throw categoricalError('DEV_REMEDIATION_PREPARATION_CRASH_CHANNEL_MISSING');
+  }
+  await new Promise((resolve, reject) => {
+    process.send({ type: 'DEV_REMEDIATION_PREPARATION_CRASH_BARRIER', point }, (error) => {
+      if (error) reject(categoricalError('DEV_REMEDIATION_PREPARATION_CRASH_CHANNEL_FAILED'));
+      else resolve();
+    });
+  });
+  while (true) {
+    // The disposable parent process terminates this exact child after reading the durable checkpoint.
   }
 }
 
@@ -322,8 +499,12 @@ async function prepareDevRecoveryRemediation({
   sideEffectCertificatePath = '',
   edgeCertificatePath = '',
   postgresBin = '',
-  disposable = false
+  disposable = false,
+  disposableCanaryCrashPoint = ''
 } = {}) {
+  const effectiveCanaryCrashPoint = disposable && process.env.RUN_ENV_SYNC_REMEDIATION_E2E === '1'
+    ? String(process.env.RUN_ENV_SYNC_REMEDIATION_PREPARATION_CRASH_POINT || disposableCanaryCrashPoint || '')
+    : '';
   const root = path.resolve(repoRoot);
   const output = createPrivateDirectory(path.resolve(outputDirectory));
   const key = readAuthorityKey(authorityKeyPath);
@@ -383,6 +564,12 @@ async function prepareDevRecoveryRemediation({
       userId: original.preparation.fixtureAuthority.smokeActorId,
       organizationId: original.preparation.fixtureAuthority.primaryOrganizationId
     };
+    const preparationRunId = `preparation-canary-${new Date().toISOString().replace(/\D/g, '').slice(0, 17)}-${crypto.randomBytes(8).toString('hex')}`;
+    initializePreparationAuthCanary(output, key, {
+      preparationRunId,
+      identity,
+      mode: disposable ? 'disposable-managed-local' : 'managed-dev'
+    });
     const beforeCanary = await captureRemediationAuthCertificate(connectionString, identity);
     const auditPosture = await fetchAuthAuditStoragePosture({
       preparation: { mode: disposable ? 'disposable-managed-local' : 'managed-dev' },
@@ -397,17 +584,72 @@ async function prepareDevRecoveryRemediation({
         smokeDefaultWarehouse
       }
     };
-    const canary = await runFreshAuthenticationCanary({ preparation: canaryPreparation, values: loaded.values });
+    let loginAllowance = null;
+    const canary = await runFreshAuthenticationCanary({
+      preparation: canaryPreparation,
+      values: loaded.values,
+      onLifecycle: async (state, details) => {
+        appendPreparationAuthCanaryState(output, key, state);
+        if (state === 'LOGIN_SUCCEEDED') {
+          let afterLogin;
+          try {
+            afterLogin = await captureRemediationAuthCertificate(connectionString, {
+              ...identity,
+              expectedDefaultWarehouse: smokeDefaultWarehouse
+            });
+          } catch {
+            throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_LOGIN_CERTIFICATE_FAILED');
+          }
+          let discovery;
+          try {
+            discovery = assertRemediationAuthTransition(beforeCanary, afterLogin, {
+              mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
+              logoutSucceeded: false,
+              requireFreshLogin: true,
+              expectedCanarySessionId: details?.sessionId
+            });
+          } catch {
+            throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_LOGIN_BINDING_FAILED');
+          }
+          loginAllowance = discovery.allowedNativeEphemera;
+          try {
+            freezePreparationAuthAllowance(output, key, loginAllowance);
+          } catch {
+            throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_ALLOWANCE_FREEZE_FAILED');
+          }
+          await maybePausePreparationCanary(
+            disposable, effectiveCanaryCrashPoint, 'AFTER_CANARY_LOGIN_SUCCEEDED'
+          );
+        }
+        if (state === 'LOGOUT_ATTEMPTED') {
+          await maybePausePreparationCanary(
+            disposable, effectiveCanaryCrashPoint, 'DURING_CANARY_LOGOUT'
+          );
+        }
+        if (state === 'LOGOUT_SUCCEEDED') {
+          await maybePausePreparationCanary(
+            disposable, effectiveCanaryCrashPoint, 'AFTER_CANARY_LOGOUT_BEFORE_COMPLETE'
+          );
+        }
+      },
+      onCheckpoint: async (checkpoint) => {
+        if (checkpoint === 'APPLICATION_READ_STARTED') {
+          await maybePausePreparationCanary(
+            disposable, effectiveCanaryCrashPoint, 'DURING_CANARY_APPLICATION_READ'
+          );
+        }
+      }
+    });
     const afterCanary = await captureRemediationAuthCertificate(connectionString, {
       ...identity, expectedDefaultWarehouse: smokeDefaultWarehouse
     });
     const authTransition = assertRemediationAuthTransition(beforeCanary, afterCanary, {
       mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
-      logoutSucceeded: canary.sessionRevoked,
+      logoutSucceeded: canary.logoutSucceeded,
       requireFreshLogin: true
     });
     if (
-      canary.sessionRevoked !== true ||
+      canary.logoutSucceeded !== true ||
       authTransition.allowedNativeEphemera.sessions.length !== 0 ||
       authTransition.allowedNativeEphemera.refreshTokens.length !== 0
     ) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_RESIDUE');
@@ -416,6 +658,14 @@ async function prepareDevRecoveryRemediation({
       logoutSucceeded: true,
       requireFreshLogin: false
     });
+    const preparationCanary = readPreparationAuthCanary(output, key);
+    if (
+      preparationCanary.current.state !== 'CANARY_COMPLETE' || !preparationCanary.allowance ||
+      canonicalSerialize(preparationCanary.allowance.sessions) !== canonicalSerialize(loginAllowance?.sessions) ||
+      canonicalSerialize(preparationCanary.allowance.refreshTokens) !==
+        canonicalSerialize(loginAllowance?.refreshTokens)
+    ) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_CANARY_INVALID');
+    appendPreparationAuthCanaryState(output, key, 'EPHEMERA_RECONCILED');
     const currentCore = await captureRecoveryOwnedState(connectionString, identity);
     assertRecoveryApplicationStateEqual(currentCore, original.y2.before);
     const sideEffects = disposable
@@ -447,7 +697,14 @@ async function prepareDevRecoveryRemediation({
     const authHardening = {
       format: 'dev-recovery-remediation-auth-hardening-v1',
       baseline: afterCanary,
-      canary: { ...canary, ...authTransition },
+      canary: {
+        ...canary,
+        ...authTransition,
+        sessionRevoked: true,
+        ephemeralSessionException: false,
+        preparationCanaryReconciled: true,
+        preparationRunId
+      },
       auditPosture,
       readiness: {
         realQuietWindow: freshDatabasePosture.quietWindow.quiet,
@@ -585,6 +842,7 @@ export {
   assertFreshAuthConfiguration,
   authenticateRemediationPreparation,
   prepareDevRecoveryRemediation,
+  readPreparationAuthCanary,
   verifyFrozenRemediationPreparation,
   verifyRemediationPreparation
 };

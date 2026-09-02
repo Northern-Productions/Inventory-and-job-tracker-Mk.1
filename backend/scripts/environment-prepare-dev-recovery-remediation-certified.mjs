@@ -37,6 +37,13 @@ function parse(argv) {
   return result;
 }
 
+const DISPOSABLE_CANARY_CRASH_POINTS = new Set([
+  'AFTER_CANARY_LOGIN_SUCCEEDED',
+  'DURING_CANARY_APPLICATION_READ',
+  'DURING_CANARY_LOGOUT',
+  'AFTER_CANARY_LOGOUT_BEFORE_COMPLETE'
+]);
+
 async function main() {
   const argv = process.argv.slice(2);
   if (preparse(argv).help) {
@@ -44,6 +51,18 @@ async function main() {
     return;
   }
   const options = parse(argv);
+  const disposable = options['disposable-local'] === true;
+  const disposableCanaryCrashPoint = String(options['disposable-canary-crash-point'] || '');
+  if (
+    (disposable && process.env.RUN_ENV_SYNC_REMEDIATION_E2E !== '1') ||
+    (disposableCanaryCrashPoint &&
+      (!disposable || !DISPOSABLE_CANARY_CRASH_POINTS.has(disposableCanaryCrashPoint)))
+  ) throw Object.assign(new Error('DEV_REMEDIATION_PREPARATION_DISPOSABLE_GUARD_FAILED'), {
+    code: 'DEV_REMEDIATION_PREPARATION_DISPOSABLE_GUARD_FAILED'
+  });
+  if (disposableCanaryCrashPoint) {
+    process.env.RUN_ENV_SYNC_REMEDIATION_PREPARATION_CRASH_POINT = disposableCanaryCrashPoint;
+  }
   const { prepareDevRecoveryRemediation } = await import('./lib/environment-sync/dev-recovery-remediation-preparation.mjs');
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const result = await prepareDevRecoveryRemediation({
@@ -58,7 +77,9 @@ async function main() {
     outputDirectory: path.resolve(String(options['output-dir'])),
     sideEffectCertificatePath: options['side-effect-certificate'] || '',
     edgeCertificatePath: options['edge-certificate'] || '',
-    postgresBin: options['postgres-bin'] || ''
+    postgresBin: options['postgres-bin'] || '',
+    disposable,
+    disposableCanaryCrashPoint
   });
   console.log(JSON.stringify({
     classification: result.classification,
