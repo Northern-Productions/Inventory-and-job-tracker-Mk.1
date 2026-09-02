@@ -171,16 +171,16 @@ const REMEDIATION_STAGE_INPUT_CENSUS = freezeStageInputCensus({
     recoveryDependency: 'validated-preboundary-r3-package'
   },
   REMEDIATION_RECOVERY_DATABASE: {
-    managedEnvironmentNames: [],
-    disposableEnvironmentNames: [],
+    managedEnvironmentNames: ['EDGE_API_BASE_URL', 'SUPABASE_ACCESS_TOKEN', 'SUPABASE_URL'],
+    disposableEnvironmentNames: ['EDGE_API_BASE_URL', 'SUPABASE_URL'],
     privateInputs: [
       'signed-preparation', 'authority-key-fd', 'validated-r3-stage-state',
       'r3-capture-artifacts', 'recovery-marker', 'recovery-database-boundary'
     ],
-    externalCalls: ['dev-postgresql', 'psql'],
-    databaseMode: 'serializable-managed-overlay',
-    expectedTargetState: 'restore-r3-preserve-target-native-auth',
-    mutationCapability: 'managed-app-schema-restore-preserve-target-native-auth',
+    externalCalls: ['dev-postgresql', 'psql', 'conditional-read-only-dev-edge-and-management'],
+    databaseMode: 'serializable-managed-overlay-or-read-only-exact-r3-reconciliation',
+    expectedTargetState: 'restore-r3-or-prove-exact-r3-preserve-target-native-auth',
+    mutationCapability: 'execute-once-managed-app-schema-restore-or-read-only-reconciliation',
     failureDisposition: 'no-destructive-resume-after-boundary',
     recoveryDependency: 'validated-r3'
   },
@@ -607,7 +607,10 @@ function assertRecoveryRemediationEvidence(evidence = {}, { contract, stage } = 
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_PRECHECK_INCOMPLETE');
   if (stage === 'REMEDIATION_RECOVERY_DATABASE' && (
     details.r3Restored !== true || details.transactionOutcome !== 'committed' ||
-    details.retainedPackageUsed !== true
+    details.retainedPackageUsed !== true ||
+    typeof details.databaseStateReconciled !== 'boolean' ||
+    typeof details.commitDirectlyObserved !== 'boolean' ||
+    details.databaseStateReconciled === details.commitDirectlyObserved
   )) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_INCOMPLETE');
   if (stage === 'REMEDIATION_RECOVERY_VERIFIED' && (
     details.r3Exact !== true || details.unexplainedDifferences !== 0 ||

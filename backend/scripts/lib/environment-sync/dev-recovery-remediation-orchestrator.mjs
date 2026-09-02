@@ -7,6 +7,7 @@ import {
 } from './dev-recovery-remediation-contract.mjs';
 import {
   REMEDIATION_TRANSITIONS,
+  appendRemediationEvent,
   appendRemediationState,
   initializeRemediationJournal,
   publishRemediationBoundary,
@@ -47,7 +48,7 @@ async function notify(callback, journal) {
 }
 
 function safeCategory(error, fallback) {
-  return String(error?.code || error?.message || fallback)
+  return String(error?.operationFailure?.category || error?.code || error?.message || fallback)
     .toUpperCase().replace(/[^A-Z0-9_]+/g, '_').slice(0, 160);
 }
 
@@ -216,7 +217,8 @@ async function runDevRecoveryRemediationRecovery({
   afterRecoveryMarkerPublished,
   afterRecoveryBoundaryPublished,
   afterRecoveryDatabaseCommitted,
-  afterRecoveryVerificationCompleted
+  afterRecoveryVerificationCompleted,
+  afterRecoveryVerifiedPublished
 } = {}) {
   verifyRecoveryRemediationContract(contract);
   requireExecutor(executor);
@@ -246,6 +248,7 @@ async function runDevRecoveryRemediationRecovery({
     'REMEDIATION_RECOVERY_AUTHORIZED',
     'REMEDIATION_RECOVERY_DATABASE_BOUNDARY',
     'REMEDIATION_RECOVERY_DATABASE_COMMITTED',
+    'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED',
     'REMEDIATION_RECOVERY_VERIFICATION_PENDING',
     'REMEDIATION_RECOVERY_VERIFIED'
   ]).has(disposition)) throw categoricalError('DEV_REMEDIATION_RECOVERY_NOT_PERMITTED');
@@ -274,7 +277,16 @@ async function runDevRecoveryRemediationRecovery({
       journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY', {
         evidenceDigest: canonicalDigest(readRemediationJournal(rootDirectory, key).recoveryBoundary)
       });
-      const databaseEvidence = await runStage(executor, 'REMEDIATION_RECOVERY_DATABASE', context);
+      appendRemediationEvent(rootDirectory, key, {
+        stage: 'REMEDIATION_RECOVERY_DATABASE',
+        substep: 'RECOVERY_PACKAGE_EXECUTION_DISPATCHED',
+        transactionOutcome: 'ambiguous',
+        details: { executionOnce: true, retainedPackageDigest: journal.marker.r3RecoveryPackageDigest }
+      });
+      const databaseEvidence = await runStage(executor, 'REMEDIATION_RECOVERY_DATABASE', {
+        ...context,
+        recoveryDatabaseMode: 'EXECUTE_ONCE'
+      });
       journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_COMMITTED', {
         evidenceDigest: canonicalDigest(databaseEvidence),
         transactionOutcome: 'committed'
@@ -292,24 +304,48 @@ async function runDevRecoveryRemediationRecovery({
         stage: 'REMEDIATION_RECOVERY_DATABASE'
       });
       journal = readRemediationJournal(rootDirectory, key);
-      if (
-        !committed || committed.transactionOutcome !== 'committed' ||
-        committed.retainedPackageDigest !== journal.marker.r3RecoveryPackageDigest
-      ) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_OUTCOME_AMBIGUOUS');
       if (journal.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED') {
         journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY', {
           evidenceDigest: canonicalDigest(journal.recoveryBoundary)
         });
       }
-      journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_DATABASE_COMMITTED', {
-        evidenceDigest: canonicalDigest(committed),
-        transactionOutcome: 'committed'
-      });
+      let databaseEvidence = committed;
+      if (!committed) {
+        databaseEvidence = await runStage(executor, 'REMEDIATION_RECOVERY_DATABASE', {
+          ...context,
+          recoveryDatabaseMode: 'RECONCILE_ONLY'
+        });
+      }
+      const databaseOutcome = committed
+        ? committed.transactionOutcome
+        : databaseEvidence?.details?.transactionOutcome;
+      if (
+        !databaseEvidence || databaseOutcome !== 'committed' ||
+        (committed && committed.retainedPackageDigest !== journal.marker.r3RecoveryPackageDigest)
+      ) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_OUTCOME_AMBIGUOUS');
+      const stateReconciled = committed
+        ? committed.commitEvidenceMode === 'state_reconciled'
+        : databaseEvidence.details?.databaseStateReconciled === true;
+      journal = appendRemediationState(
+        rootDirectory,
+        key,
+        stateReconciled
+          ? 'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED'
+          : 'REMEDIATION_RECOVERY_DATABASE_COMMITTED',
+        {
+          evidenceDigest: canonicalDigest(databaseEvidence),
+          transactionOutcome: 'committed'
+        }
+      );
+      if (typeof afterRecoveryDatabaseCommitted === 'function') await afterRecoveryDatabaseCommitted();
       journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING', {
-        evidenceDigest: canonicalDigest(committed),
+        evidenceDigest: canonicalDigest(databaseEvidence),
         transactionOutcome: 'committed'
       });
-    } else if (disposition === 'REMEDIATION_RECOVERY_DATABASE_COMMITTED') {
+    } else if (
+      disposition === 'REMEDIATION_RECOVERY_DATABASE_COMMITTED' ||
+      disposition === 'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED'
+    ) {
       journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_VERIFICATION_PENDING', {
         evidenceDigest: journal.current.evidenceDigest,
         transactionOutcome: 'committed'
@@ -339,6 +375,7 @@ async function runDevRecoveryRemediationRecovery({
       evidenceDigest: canonicalDigest(evidence),
       transactionOutcome: 'committed'
     });
+    if (typeof afterRecoveryVerifiedPublished === 'function') await afterRecoveryVerifiedPublished();
     journal = appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERED', {
       evidenceDigest: canonicalDigest(evidence),
       transactionOutcome: 'committed'
@@ -353,9 +390,22 @@ async function runDevRecoveryRemediationRecovery({
   } catch (error) {
     const category = safeCategory(error, 'DEV_REMEDIATION_RECOVERY_FAILED');
     let observed;
+    let databaseBoundaryAmbiguous = false;
     try {
       observed = readRemediationJournal(rootDirectory, key);
-      if (REMEDIATION_TRANSITIONS[observed.current.state]?.includes('REMEDIATION_RECOVERY_FAILED')) {
+      databaseBoundaryAmbiguous =
+        observed.recoveryBoundary &&
+        new Set([
+          'REMEDIATION_RECOVERY_AUTHORIZED',
+          'REMEDIATION_RECOVERY_DATABASE_BOUNDARY'
+        ]).has(observed.current.state) &&
+        ![
+          'DEV_REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILIATION_MISMATCH',
+          'DEV_REMEDIATION_RECOVERY_PACKAGE_REPLAY_REJECTED',
+          'DEV_REMEDIATION_RECOVERY_COMMIT_EVIDENCE_INVALID'
+        ].includes(category);
+      if (!databaseBoundaryAmbiguous &&
+          REMEDIATION_TRANSITIONS[observed.current.state]?.includes('REMEDIATION_RECOVERY_FAILED')) {
         appendRemediationState(rootDirectory, key, 'REMEDIATION_RECOVERY_FAILED', {
           failureCategory: category,
           transactionOutcome: failureTransactionOutcome(error, true, observed.current.transactionOutcome)
@@ -368,6 +418,12 @@ async function runDevRecoveryRemediationRecovery({
       const wrapped = categoricalError('DEV_REMEDIATION_RECOVERY_VERIFICATION_PENDING');
       wrapped.causeCategory = category;
       wrapped.transactionOutcome = 'committed';
+      throw wrapped;
+    }
+    if (databaseBoundaryAmbiguous) {
+      const wrapped = categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_OUTCOME_AMBIGUOUS');
+      wrapped.causeCategory = category;
+      wrapped.transactionOutcome = 'ambiguous';
       throw wrapped;
     }
     if (

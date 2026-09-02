@@ -380,7 +380,12 @@ function createOperationExecutor({
       const args = operation.runtime === 'node'
         ? [operation.script, ...operation.args]
         : operation.args;
-      const env = minimalEnvironment(loaded.values, operation.environmentNames, {
+      const recoveryDatabaseMode = String(context.recoveryDatabaseMode || '');
+      const environmentNames = stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+        recoveryDatabaseMode === 'EXECUTE_ONCE'
+        ? []
+        : operation.environmentNames;
+      const env = minimalEnvironment(loaded.values, environmentNames, {
         DEV_REFRESH_TARGET: 'dev',
         DEV_REFRESH_PROJECT_REF: DEV_PROJECT_REF,
         DEV_REFRESH_ATTEMPT_ID: contract.attemptId,
@@ -389,7 +394,10 @@ function createOperationExecutor({
         DEV_REFRESH_OPERATION_INVENTORY_DIGEST: verified.inventoryDigest,
         DEV_REFRESH_RESULT_FD: '3',
         DEV_REFRESH_AUTHORITY_KEY_FD: '4',
-        DEV_REFRESH_STATE_DIR: path.resolve(String(context.rootDirectory || ''))
+        DEV_REFRESH_STATE_DIR: path.resolve(String(context.rootDirectory || '')),
+        ...(recoveryDatabaseMode
+          ? { DEV_REFRESH_RECOVERY_DATABASE_MODE: recoveryDatabaseMode }
+          : {})
       });
       const { descriptor } = openPrivateFileExclusive(resultPath);
       let operationFailed = false;

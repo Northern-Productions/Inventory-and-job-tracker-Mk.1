@@ -38,6 +38,7 @@ import {
   withReadOnlySnapshot
 } from './dev-recovery-remediation-shared.mjs';
 import {
+  AUTH_EPHEMERA_MODES,
   assertExactRemediationUrls,
   assertRemediationAuthTransition,
   captureQuietWindowFromClient,
@@ -207,6 +208,11 @@ function verifyRemediationPreparationStructure(record, key, expectedAttemptId = 
     preparation.authHardening?.baseline?.format !== 'dev-recovery-remediation-semantic-auth-v1' ||
     preparation.authHardening?.canary?.freshAuthentication !== true ||
     preparation.authHardening?.canary?.stableStateExact !== true ||
+    preparation.authHardening?.canary?.sessionRevoked !== true ||
+    preparation.authHardening?.canary?.ephemeralSessionException !== false ||
+    preparation.authHardening?.canary?.ephemeraMode !== AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY ||
+    preparation.authHardening?.canary?.allowedNativeEphemera?.sessions?.length !== 0 ||
+    preparation.authHardening?.canary?.allowedNativeEphemera?.refreshTokens?.length !== 0 ||
     preparation.authHardening?.auditPosture?.format !== 'dev-recovery-remediation-auth-audit-posture-v1' ||
     preparation.authHardening?.auditPosture?.postgresStorage !== 'disabled' ||
     preparation.authHardening?.auditPosture?.prerequisiteExact !== true ||
@@ -230,7 +236,15 @@ function verifyRemediationPreparation(record, key, expectedAttemptId = '', { now
 }
 
 const FROZEN_STAGE_STATES = Object.freeze({
-  RECOVERY_CLI: Object.freeze(['REMEDIATION_RECOVERY_REQUIRED']),
+  RECOVERY_CLI: Object.freeze([
+    'REMEDIATION_RECOVERY_REQUIRED',
+    'REMEDIATION_RECOVERY_AUTHORIZED',
+    'REMEDIATION_RECOVERY_DATABASE_BOUNDARY',
+    'REMEDIATION_RECOVERY_DATABASE_COMMITTED',
+    'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED',
+    'REMEDIATION_RECOVERY_VERIFICATION_PENDING',
+    'REMEDIATION_RECOVERY_VERIFIED'
+  ]),
   RESTORE_ORIGINAL_Y2: Object.freeze(['RESTORE_ORIGINAL_Y2']),
   AUTH_RUNTIME_VERIFIED: Object.freeze(['AUTH_RUNTIME_VERIFIED']),
   APPLICATION_RUNTIME_VERIFIED: Object.freeze(['APPLICATION_RUNTIME_VERIFIED']),
@@ -265,6 +279,17 @@ function verifyFrozenRemediationPreparation(record, key, {
     Boolean(journal.recovery) && Boolean(journal.recoveryBoundary);
   const recoveryVerification = stage === 'REMEDIATION_RECOVERY_VERIFIED' &&
     Boolean(journal.recovery) && Boolean(journal.recoveryBoundary);
+  const recoveryCli = stage === 'RECOVERY_CLI' && (
+    (journal.current.state === 'REMEDIATION_RECOVERY_REQUIRED' && !journal.recoveryBoundary) ||
+    (journal.current.state === 'REMEDIATION_RECOVERY_AUTHORIZED' && Boolean(journal.recovery)) ||
+    ([
+      'REMEDIATION_RECOVERY_DATABASE_BOUNDARY',
+      'REMEDIATION_RECOVERY_DATABASE_COMMITTED',
+      'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED',
+      'REMEDIATION_RECOVERY_VERIFICATION_PENDING',
+      'REMEDIATION_RECOVERY_VERIFIED'
+    ].includes(journal.current.state) && Boolean(journal.recovery) && Boolean(journal.recoveryBoundary))
+  );
   if (
     !expectedStates.includes(journal.current.state) || !marker || !boundary ||
     marker.preparationDigest !== canonicalDigest(preparation) ||
@@ -275,7 +300,7 @@ function verifyFrozenRemediationPreparation(record, key, {
     marker.toolingCommit !== preparation.candidate.toolingCommit ||
     marker.toolingTree !== preparation.candidate.toolingTree ||
     marker.remediationAttemptId !== preparation.remediationAttemptId ||
-    (stage === 'RECOVERY_CLI' && (journal.recovery || journal.recoveryBoundary)) ||
+    (stage === 'RECOVERY_CLI' && !recoveryCli) ||
     (stage === 'REMEDIATION_RECOVERY_PRECHECK' &&
       !initialRecoveryPrecheck && !continuingRecoveryPrecheck) ||
     (stage === 'REMEDIATION_RECOVERY_DATABASE' && !recoveryDatabase) ||
@@ -377,8 +402,19 @@ async function prepareDevRecoveryRemediation({
       ...identity, expectedDefaultWarehouse: smokeDefaultWarehouse
     });
     const authTransition = assertRemediationAuthTransition(beforeCanary, afterCanary, {
+      mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
       logoutSucceeded: canary.sessionRevoked,
       requireFreshLogin: true
+    });
+    if (
+      canary.sessionRevoked !== true ||
+      authTransition.allowedNativeEphemera.sessions.length !== 0 ||
+      authTransition.allowedNativeEphemera.refreshTokens.length !== 0
+    ) throw categoricalError('DEV_REMEDIATION_PREPARATION_AUTH_RESIDUE');
+    assertRemediationAuthTransition(beforeCanary, afterCanary, {
+      mode: AUTH_EPHEMERA_MODES.STRICT_CLEAN,
+      logoutSucceeded: true,
+      requireFreshLogin: false
     });
     const currentCore = await captureRecoveryOwnedState(connectionString, identity);
     assertRecoveryApplicationStateEqual(currentCore, original.y2.before);

@@ -107,10 +107,10 @@ const CURRENT_AUTH_TABLES = Object.freeze([
 ]);
 
 const AUTH_RECOVERY_TABLE_CLASSIFICATION = Object.freeze({
-  audit_log_entries: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false, prerequisite: 'postgres_audit_storage_disabled' }),
+  audit_log_entries: Object.freeze({ state: 'stable_exact', category: 'provider_audit_state', dml: 'none', recoveryOwned: false, prerequisite: 'postgres_audit_storage_disabled' }),
   custom_oauth_providers: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   flow_state: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
-  identities: Object.freeze({ state: 'native_smoke_volatile', dml: 'none', recoveryOwned: false }),
+  identities: Object.freeze({ state: 'native_smoke_volatile', copiedState: 'stable_exact', nativeStableState: 'stable_exact', nativeVolatileState: 'monotonic_volatile', dml: 'none', recoveryOwned: false }),
   instances: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   mfa_amr_claims: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   mfa_challenges: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
@@ -120,14 +120,14 @@ const AUTH_RECOVERY_TABLE_CLASSIFICATION = Object.freeze({
   oauth_clients: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   oauth_consents: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   one_time_tokens: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
-  refresh_tokens: Object.freeze({ state: 'bounded_native_smoke_ephemera', dml: 'none', recoveryOwned: false }),
+  refresh_tokens: Object.freeze({ state: 'bounded_native_smoke_ephemera', binding: 'exact_attempt_owned_allowance', dml: 'none', recoveryOwned: false }),
   saml_providers: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   saml_relay_states: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
-  schema_migrations: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
-  sessions: Object.freeze({ state: 'bounded_native_smoke_ephemera', dml: 'none', recoveryOwned: false }),
+  schema_migrations: Object.freeze({ state: 'stable_exact', plane: 'outside_remediation_owned_plane', dml: 'none', recoveryOwned: false }),
+  sessions: Object.freeze({ state: 'bounded_native_smoke_ephemera', binding: 'exact_attempt_owned_allowance', dml: 'none', recoveryOwned: false }),
   sso_domains: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   sso_providers: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
-  users: Object.freeze({ state: 'native_smoke_volatile', dml: 'none', recoveryOwned: false }),
+  users: Object.freeze({ state: 'native_smoke_volatile', copiedState: 'stable_exact', nativeStableState: 'stable_exact', nativeVolatileState: 'monotonic_volatile', dml: 'none', recoveryOwned: false }),
   webauthn_challenges: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false }),
   webauthn_credentials: Object.freeze({ state: 'stable_exact', dml: 'none', recoveryOwned: false })
 });

@@ -153,19 +153,25 @@ not silently change the Golden-X refresh design.
 The signed remediation preparation carries a semantic Auth certificate. Copied/quarantined users and
 identities protect all recovery-significant fields, including credential digests and quarantine state;
 the native smoke identity separately protects stable user/identity metadata, active Owner membership,
-organization, and default warehouse. Only monotonic native login timestamps and at most one
-smoke-owned session/refresh-token pair from a failed logout are permitted. The exception never applies
-to copied users. Preparation, precheck, post-Y2 verification, and post-R3 verification use exact user,
-organization, role, warehouse, and read-only API assertions. Credential-bearing requests use exact
-origins and fail on redirects.
+organization, and default warehouse. Only monotonic native login timestamps are generally volatile.
+Preparation and every pre-boundary check require `STRICT_CLEAN`: the canary must complete explicit
+local-session logout and leave no new native-Smoke session or refresh-token row. After a destructive
+remediation or recovery database boundary, only exact attempt-owned ephemera frozen by an
+`IMMEDIATE_CANARY_DISCOVERY` comparison may be accepted by `FROZEN_ATTEMPT_PARITY`; it may disappear
+but cannot be replaced or multiplied. The exception never applies to copied users. Preparation,
+precheck, post-Y2 verification, and post-R3 verification use exact user, organization, role, warehouse,
+and read-only API assertions. Credential-bearing requests use exact origins and fail on redirects.
 
 Every remediation Auth canary has its own attempt- and contract-bound append-only signed lifecycle:
 `CANARY_NOT_STARTED`, `LOGIN_STARTED`, `LOGIN_SUCCEEDED`, `LOGOUT_ATTEMPTED`,
-`LOGOUT_SUCCEEDED` or `BOUNDED_EPHEMERA_POSSIBLE`, and `CANARY_COMPLETE`. No credential or token is
-stored. Recovery derives session revocation conservatively from that journal, so a process loss after
-login cannot be mistaken for a clean logout. A successful logout may still leave at most the exact
-canary-owned session and refresh token until provider cleanup catches up; those rows may disappear but
-cannot be replaced or multiplied.
+`LOGOUT_SUCCEEDED` or `BOUNDED_EPHEMERA_POSSIBLE`, `CANARY_COMPLETE`, and, when delayed provider cleanup
+finishes, `EPHEMERA_RECONCILED`. No credential or bearer token is stored. The exact protected session
+and refresh-token identifiers are frozen privately as soon as login-created rows are observed. Recovery
+derives session revocation conservatively from the journal, so process loss after login cannot be
+mistaken for clean logout. Logout uses the provider's explicit current-session contract
+`/auth/v1/logout?scope=local`; unrelated pre-existing Smoke sessions remain untouched. Each attempt and
+purpose permits at most one unresolved canary. A later check must reconcile that allowance or reuse it;
+it cannot create an unbounded sequence of verification logins.
 
 Managed execution also requires the official Auth configuration field
 `audit_log_disable_postgres=true` before preparation, remediation, and recovery verification. The
@@ -223,12 +229,20 @@ After the boundary, elapsed wall-clock time alone cannot strand that exact destr
 An expired preparation is accepted by the recovery command only after the authenticated boundary is
 reconciled to durable `REMEDIATION_RECOVERY_REQUIRED` state and every frozen binding agrees. It cannot
 start or restart ordinary remediation. Recovery precheck first publishes the permanent exact-attempt
-authorization marker. A process loss before the separate recovery database boundary may continue only
-that same attempt after full precheck reconciliation. Immediately before R3 execution, the command
-publishes the destructive recovery boundary. From that point, absent positive commit evidence,
-database execution cannot resume. A known R3 commit is durably recorded before functional checks and
-advances to `REMEDIATION_RECOVERY_VERIFICATION_PENDING`; only bound, read-only Auth/API verification
-may then be repeated. It cannot rerun the database stage or change the package. Successful functional
+authorization marker. The same top-level recovery command recognizes only the exact bound continuation
+states `REMEDIATION_RECOVERY_REQUIRED`, `REMEDIATION_RECOVERY_AUTHORIZED`,
+`REMEDIATION_RECOVERY_DATABASE_BOUNDARY`, `REMEDIATION_RECOVERY_DATABASE_COMMITTED`,
+`REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED`, `REMEDIATION_RECOVERY_VERIFICATION_PENDING`, and
+`REMEDIATION_RECOVERY_VERIFIED`. Terminal, tampered, cross-attempt, or mismatched artifact combinations
+are rejected. A process loss before the separate recovery database boundary may continue only that same
+attempt after full precheck reconciliation. Immediately before R3 execution, the command publishes the
+destructive recovery boundary. From that point, absent positive commit evidence, database execution
+cannot resume. If the worker committed but died before publishing accepted stage evidence, the next
+invocation runs a read-only exact-R3 comparison across every recovery-owned plane. Exact equality is
+recorded distinctly as `REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED`; any mismatch fails closed and
+the package is never replayed. A directly observed or reconciled R3 result advances to
+`REMEDIATION_RECOVERY_VERIFICATION_PENDING`; only bound, non-destructive Auth/API verification may then
+be repeated. It cannot rerun the database stage or change the package. Successful functional
 verification advances through `REMEDIATION_RECOVERY_VERIFIED` to `REMEDIATION_RECOVERED`. A published
 recovery marker remains permanently one-shot.
 
@@ -263,7 +277,7 @@ The signed least-privilege stage environment census is:
 | `APPLICATION_RUNTIME_VERIFIED` | none | Validates prior signed stage state only |
 | `FINAL_Y2_PARITY` | none | Read-only DB |
 | `REMEDIATION_RECOVERY_PRECHECK` | `EDGE_API_BASE_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_URL` | Repeatable-read read-only target/R3/package/quiet-window/recoverable-plane and Edge posture proof; no recovery marker yet |
-| `REMEDIATION_RECOVERY_DATABASE` | none | Serializable managed R3 overlay preserving target-native Auth |
+| `REMEDIATION_RECOVERY_DATABASE` | First execution: none. Reconciliation only: `EDGE_API_BASE_URL`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_URL` (disposable omits the management token) | First execution: serializable managed R3 overlay preserving target-native Auth. Ambiguous post-boundary continuation: read-only exact-R3 reconciliation only |
 | `REMEDIATION_RECOVERY_VERIFIED` | `EDGE_API_BASE_URL`, smoke email/password, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_ANON_KEY`, `SUPABASE_URL` | Read-only DB plus exact audit posture, fresh Auth session lifecycle, and four Edge reads |
 
 The four functional reads are `/auth/context`, `/film-data/catalog`, `/boxes/search` with an
@@ -284,10 +298,11 @@ write-shaped activity, unchanged Edge/side-effect posture, and exact recoverable
 
 Immediately before remediation marker publication, `R3_VALIDATED` recaptures semantic Auth evidence:
 active Owner membership, both target-native Smoke markers, provider/credential-bearing stable digests,
-selected organization, the exact signed preparation default warehouse (empty or nonempty), and exact copied/quarantined users and
-identities. Final remediation and R3 recovery parity consume the authenticated runtime logout result.
-A failed logout permits only the certified bounded native-Smoke session/refresh-token residue; copied
-users and identities receive no exception.
+selected organization, the exact signed preparation default warehouse (empty or nonempty), and exact
+copied/quarantined users and identities. Preparation, remediation precheck, and the final pre-marker
+comparison require `STRICT_CLEAN`; a failed logout stops before R3 capture or marker publication. Final
+remediation and R3 recovery parity consume the authenticated runtime logout result and the exact frozen
+post-boundary allowance. Copied users and identities receive no exception.
 
 All exact Auth table evidence orders PostgreSQL JSONB text by its UTF-8 bytes using
 `convert_to(to_jsonb(row)::text, 'UTF8')`. JSON content is unchanged. The remediation package,
@@ -311,7 +326,7 @@ semantic certificate, precheck, canary, and final parity share this 23-table no-
 | `refresh_tokens` | bounded exact native-Smoke canary ephemera | none | no |
 | `saml_providers` | stable exact | none | no |
 | `saml_relay_states` | stable exact | none | no |
-| `schema_migrations` | stable exact | none | no |
+| `schema_migrations` | observed exact; outside the remediation-owned plane | none | no |
 | `sessions` | bounded exact native-Smoke canary ephemera | none | no |
 | `sso_domains` | stable exact | none | no |
 | `sso_providers` | stable exact | none | no |

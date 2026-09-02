@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 
 import pg from 'pg';
 
@@ -30,8 +31,15 @@ import {
   runDevRecoveryRemediationRecovery
 } from './dev-recovery-remediation-orchestrator.mjs';
 import { prepareDevRecoveryRemediation } from './dev-recovery-remediation-preparation.mjs';
-import { readRemediationJournal } from './dev-recovery-remediation-state.mjs';
-import { writePrivateBytesExclusive } from './private-artifacts.mjs';
+import {
+  readRemediationAuthCanaries,
+  readRemediationEvents,
+  readRemediationJournal
+} from './dev-recovery-remediation-state.mjs';
+import {
+  createPrivateDirectory,
+  writePrivateBytesExclusive
+} from './private-artifacts.mjs';
 import { applyManagedAuthPrivilegeProfile } from './managed-restore-rehearsal.mjs';
 import { verifyManagedOverlayPackageForExecution } from './managed-restore.mjs';
 
@@ -39,6 +47,7 @@ const { Client } = pg;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..', '..');
+const RECOVERY_ENTRY = path.join(REPO_ROOT, 'backend', 'scripts', 'environment-recover-dev-recovery-remediation-certified.mjs');
 
 function temporaryRoot(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -71,6 +80,38 @@ function directoryByteDigest(root) {
   return `sha256:${hash.digest('hex')}`;
 }
 
+function copyPrivateDirectory(sourceRoot, targetRoot) {
+  createPrivateDirectory(targetRoot);
+  const copyEntries = (sourceDirectory, targetDirectory) => {
+    for (const entry of fs.readdirSync(sourceDirectory, { withFileTypes: true })) {
+      const sourcePath = path.join(sourceDirectory, entry.name);
+      const targetPath = path.join(targetDirectory, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw Object.assign(new Error('PRIVATE_ARTIFACT_LINK_UNSUPPORTED'), {
+          code: 'PRIVATE_ARTIFACT_LINK_UNSUPPORTED'
+        });
+      }
+      if (entry.isDirectory()) {
+        createPrivateDirectory(targetPath);
+        copyEntries(sourcePath, targetPath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw Object.assign(new Error('PRIVATE_ARTIFACT_TYPE_UNSUPPORTED'), {
+          code: 'PRIVATE_ARTIFACT_TYPE_UNSUPPORTED'
+        });
+      }
+      const bytes = fs.readFileSync(sourcePath);
+      try {
+        writePrivateBytesExclusive(targetPath, bytes);
+      } finally {
+        bytes.fill(0);
+      }
+    }
+  };
+  copyEntries(sourceRoot, targetRoot);
+}
+
 function replacePrivateBytesDurably(filePath, bytes) {
   const descriptor = fs.openSync(filePath, 'r+');
   try {
@@ -83,10 +124,21 @@ function replacePrivateBytesDurably(filePath, bytes) {
   fs.chmodSync(filePath, 0o600);
 }
 
+function childFailureCategory(result) {
+  const diagnostic = `${String(result?.stderr || '')}\n${String(result?.stdout || '')}`;
+  const category = diagnostic.match(/\b(?:DEV|MANAGED|PRIVATE|AUTH|R3)_[A-Z0-9_]{2,156}\b/)?.[0];
+  if (category) return category;
+  if (result?.signal) {
+    return `SIGNAL_${String(result.signal).replace(/[^A-Z0-9_]/gi, '_').toUpperCase()}`;
+  }
+  return `EXIT_${Number.isInteger(result?.status) ? result.status : 'UNKNOWN'}`;
+}
+
 async function startLocalApplicationHarness() {
   const seen = [];
   let binding = null;
   let activeSessionId = '';
+  let preexistingSessionId = '';
   let failNextLogout = false;
   const databaseMutation = async (kind) => {
     if (!binding) throw new Error('LOCAL_AUTH_BINDING_MISSING');
@@ -116,6 +168,7 @@ async function startLocalApplicationHarness() {
     const requestUrl = new URL(request.url, 'http://localhost');
     seen.push(`${request.method} ${requestUrl.pathname}${requestUrl.search}`);
     response.setHeader('content-type', 'application/json');
+    response.setHeader('connection', 'close');
     if (request.url.startsWith('/auth/v1/token')) {
       await databaseMutation('login');
       response.end(JSON.stringify({
@@ -123,7 +176,7 @@ async function startLocalApplicationHarness() {
       }));
       return;
     }
-    if (request.url === '/auth/v1/logout') {
+    if (request.url === '/auth/v1/logout?scope=local') {
       if (failNextLogout) {
         failNextLogout = false;
         response.statusCode = 503;
@@ -151,7 +204,78 @@ async function startLocalApplicationHarness() {
   return {
     origin: `http://127.0.0.1:${address.port}`,
     seen,
-    bind(value) { binding = value; },
+    bind(value) {
+      binding = value;
+      activeSessionId = '';
+      preexistingSessionId = '';
+      failNextLogout = false;
+    },
+    async createPreexistingSession() {
+      if (!binding || preexistingSessionId) throw new Error('LOCAL_PREEXISTING_SESSION_STATE_INVALID');
+      preexistingSessionId = crypto.randomUUID();
+      const client = new Client({ connectionString: binding.connectionString });
+      await client.connect();
+      try {
+        await client.query(
+          'insert into auth.sessions(id,user_id,created_at,updated_at) values ($1::uuid,$2::uuid,clock_timestamp(),clock_timestamp())',
+          [preexistingSessionId, binding.userId]
+        );
+        await client.query(
+          'insert into auth.refresh_tokens(token,user_id,revoked,created_at,updated_at,session_id) values ($3,$1::text,false,clock_timestamp(),clock_timestamp(),$2::uuid)',
+          [binding.userId, preexistingSessionId, `local-preexisting-${preexistingSessionId}`]
+        );
+      } finally {
+        await client.end();
+      }
+    },
+    async preexistingSessionIntact() {
+      const client = new Client({ connectionString: binding.connectionString });
+      await client.connect();
+      try {
+        const row = (await client.query(
+          `select
+             count(*) filter (where s.id=$1::uuid)::integer as sessions,
+             count(r.*) filter (where s.id=$1::uuid)::integer as refresh_tokens
+           from auth.sessions s
+           left join auth.refresh_tokens r on r.session_id=s.id
+          where s.user_id=$2::uuid`,
+          [preexistingSessionId, binding.userId]
+        )).rows[0];
+        return Number(row?.sessions || 0) === 1 && Number(row?.refresh_tokens || 0) === 1;
+      } finally {
+        await client.end();
+      }
+    },
+    async taskOwnedEphemeraCounts() {
+      const client = new Client({ connectionString: binding.connectionString });
+      await client.connect();
+      try {
+        const row = (await client.query(
+          `select
+             count(*) filter (where s.id<>$1::uuid)::integer as sessions,
+             count(r.*) filter (where s.id<>$1::uuid)::integer as refresh_tokens
+           from auth.sessions s
+           left join auth.refresh_tokens r on r.session_id=s.id
+          where s.user_id=$2::uuid`,
+          [preexistingSessionId, binding.userId]
+        )).rows[0];
+        return {
+          sessions: Number(row?.sessions || 0),
+          refreshTokens: Number(row?.refresh_tokens || 0)
+        };
+      } finally {
+        await client.end();
+      }
+    },
+    async cleanupCurrentCanarySession() {
+      if (activeSessionId) await databaseMutation('logout');
+    },
+    safeTrafficSummary() {
+      return Object.fromEntries([...new Set(seen)].sort().map((route) => [
+        route,
+        seen.filter((entry) => entry === route).length
+      ]));
+    },
     failOneLogout() { failNextLogout = true; },
     close: () => new Promise((resolve) => server.close(resolve))
   };
@@ -295,6 +419,7 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
           organizationId: preparation.fixtureAuthority.primaryOrganizationId,
           defaultWarehouse: String(preference?.default_warehouse || '')
         });
+        await harness.createPreexistingSession();
       } finally {
         await client.end();
       }
@@ -345,76 +470,222 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
         requiredStages: REMEDIATION_OPERATION_STAGES,
         assertStageEvidenceFn: assertRecoveryRemediationEvidence
       });
-      return { prepared, contract, executor };
+      return { prepared, contract, executor, inventoryRecord };
+    };
+
+    let recoveryCliOrdinal = 0;
+    const runRecoveryCli = ({ recovery, stateDirectory, crashPoint = '' }) => {
+      recoveryCliOrdinal += 1;
+      const processRoot = path.join(root, `recovery-cli-${recoveryCliOrdinal}`);
+      const home = path.join(processRoot, 'home');
+      const temp = path.join(processRoot, 'temp');
+      fs.mkdirSync(home, { recursive: true });
+      fs.mkdirSync(temp, { recursive: true });
+      const child = spawn(process.execPath, [
+        RECOVERY_ENTRY,
+        '--apply',
+        '--quiet-window-active',
+        '--remediation-recovery-authorized',
+        '--disposable-local',
+        '--env', remediationEnvPath,
+        '--authority-key', keyPath,
+        '--preparation', recovery.prepared.output.preparationPath,
+        '--contract', recovery.prepared.output.contractPath,
+        '--operation-inventory', recovery.prepared.output.inventoryPath,
+        '--state-dir', stateDirectory,
+        '--evidence-dir', path.join(processRoot, 'evidence-private')
+      ], {
+        cwd: REPO_ROOT,
+        shell: false,
+        windowsHide: true,
+        encoding: 'utf8',
+        env: {
+          SystemRoot: process.env.SystemRoot || '',
+          WINDIR: process.env.WINDIR || '',
+          PATH: process.env.PATH || '',
+          HOME: home,
+          USERPROFILE: home,
+          TEMP: temp,
+          TMP: temp,
+          RUN_ENV_SYNC_REMEDIATION_E2E: '1',
+          ...(crashPoint ? { DEV_REMEDIATION_DISPOSABLE_CLI_CRASH_POINT: crashPoint } : {})
+        }
+      });
+      return new Promise((resolve) => {
+        const limit = 8 * 1024;
+        let stdout = '';
+        let stderr = '';
+        const append = (current, chunk) => `${current}${chunk.toString('utf8')}`.slice(-limit);
+        child.stdout.on('data', (chunk) => { stdout = append(stdout, chunk); });
+        child.stderr.on('data', (chunk) => { stderr = append(stderr, chunk); });
+        child.once('error', () => resolve({ status: 1, signal: null, stdout, stderr }));
+        child.once('close', (status, signal) => resolve({ status, signal, stdout, stderr }));
+      });
     };
 
     const successFailure = await createFailedRecovery('success');
-    const success = await prepareRemediation('success', successFailure);
-    const successState = path.join(root, 'success-remediation-state');
-    let completed;
-    const remediationStarted = performance.now();
-    try {
-      completed = await runDevRecoveryRemediation({
-        rootDirectory: successState,
-        key,
-        contract: success.contract,
-        executor: {
-          async run(stage, context) {
-            if (stage === 'AUTH_RUNTIME_VERIFIED') harness.failOneLogout();
-            const started = performance.now();
-            try {
-              return await success.executor.run(stage, context);
-            } finally {
-              if (stage === 'R3_CAPTURE') timings.r3Capture.push(performance.now() - started);
-              if (stage === 'R3_VALIDATED') timings.r3Validated.push(performance.now() - started);
+      const success = await prepareRemediation('success', successFailure);
+      const successState = path.join(root, 'success-remediation-state');
+      let completed;
+      const remediationStarted = performance.now();
+      try {
+        completed = await runDevRecoveryRemediation({
+          rootDirectory: successState,
+          key,
+          contract: success.contract,
+          executor: {
+            async run(stage, context) {
+              if (stage === 'AUTH_RUNTIME_VERIFIED') harness.failOneLogout();
+              const started = performance.now();
+              try {
+                return await success.executor.run(stage, context);
+              } finally {
+                if (stage === 'R3_CAPTURE') timings.r3Capture.push(performance.now() - started);
+                if (stage === 'R3_VALIDATED') timings.r3Validated.push(performance.now() - started);
+              }
             }
           }
-        }
-      });
-    } catch (error) {
-      throw Object.assign(new Error(
-        `DISPOSABLE_SUCCESS_REMEDIATION_${error?.failedStage || 'UNKNOWN'}_${error?.causeCategory || error?.code || 'UNKNOWN'}`
-      ), { code: 'DISPOSABLE_SUCCESS_REMEDIATION_FAILED' });
-    }
-    timings.remediation.push(performance.now() - remediationStarted);
-    assert.equal(completed.classification, 'DEV_RECOVERY_REMEDIATION_COMPLETE');
-    assert.equal(readRemediationJournal(successState, key).current.state, 'REMEDIATION_COMPLETE');
-    assert.equal(readStageState({
-      rootDirectory: successState,
-      key,
-      attemptId: success.contract.remediationAttemptId,
-      stage: 'FINAL_Y2_PARITY'
-    }).ephemeralSessionException, true);
-    assert.equal(directoryByteDigest(successFailure.stateDirectory), successFailure.immutableDigest);
+        });
+      } catch (error) {
+        throw Object.assign(new Error(
+          `DISPOSABLE_SUCCESS_REMEDIATION_${error?.failedStage || 'UNKNOWN'}_${error?.causeCategory || error?.code || 'UNKNOWN'}_TRAFFIC_${JSON.stringify(harness.safeTrafficSummary())}`
+        ), { code: 'DISPOSABLE_SUCCESS_REMEDIATION_FAILED' });
+      }
+      timings.remediation.push(performance.now() - remediationStarted);
+      assert.equal(completed.classification, 'DEV_RECOVERY_REMEDIATION_COMPLETE');
+      assert.equal(readRemediationJournal(successState, key).current.state, 'REMEDIATION_COMPLETE');
+      assert.equal(readStageState({
+        rootDirectory: successState,
+        key,
+        attemptId: success.contract.remediationAttemptId,
+        stage: 'FINAL_Y2_PARITY'
+      }).ephemeralSessionException, true);
+      assert.equal(directoryByteDigest(successFailure.stateDirectory), successFailure.immutableDigest);
 
     const recoveryFailure = await createFailedRecovery('r3-recovery');
     const recovery = await prepareRemediation('r3-recovery', recoveryFailure);
     const recoveryState = path.join(root, 'r3-recovery-remediation-state');
+    const authCrashPath = path.join(recoveryState, 'disposable-test-crash-point.private.txt');
+    let authKillVariantsComplete = false;
+    let authKillVariantPoint = 'NOT_STARTED';
+    const runAuthKillVariant = async (point, expectedState, expectedResidue) => {
+      authKillVariantPoint = point;
+      const clone = path.join(root, `auth-kill-${point.toLowerCase()}-state`);
+      copyPrivateDirectory(recoveryState, clone);
+      const crashPath = path.join(clone, 'disposable-test-crash-point.private.txt');
+      writePrivateBytesExclusive(crashPath, Buffer.from(`${point}\n`, 'utf8'));
+      const variantExecutor = createOperationExecutor({
+        inventory: recovery.inventoryRecord,
+        key,
+        contract: recovery.contract,
+        envFilePath: remediationEnvPath,
+        evidenceDirectory: path.join(root, `auth-kill-${point.toLowerCase()}-evidence`),
+        requiredStages: REMEDIATION_OPERATION_STAGES,
+        assertStageEvidenceFn: assertRecoveryRemediationEvidence
+      });
+      await assert.rejects(variantExecutor.run('AUTH_RUNTIME_VERIFIED', {
+        rootDirectory: clone,
+        contract: recovery.contract
+      }));
+      fs.rmSync(crashPath, { force: true });
+      const canary = readRemediationAuthCanaries(clone, key).at(-1);
+      assert.equal(canary.current.state, expectedState);
+      assert.ok(canary.allowance);
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), expectedResidue);
+      await harness.cleanupCurrentCanarySession();
+      assert.deepEqual(await harness.taskOwnedEphemeraCounts(), { sessions: 0, refreshTokens: 0 });
+    };
+    let interruptedRemediationError;
     await assert.rejects(runDevRecoveryRemediation({
       rootDirectory: recoveryState,
       key,
       contract: recovery.contract,
         executor: {
           async run(stage, context) {
+            if (stage === 'AUTH_RUNTIME_VERIFIED') {
+              if (!authKillVariantsComplete) {
+                await runAuthKillVariant(
+                  'DURING_CANARY_APPLICATION_READ',
+                  'LOGIN_SUCCEEDED',
+                  { sessions: 1, refreshTokens: 1 }
+                );
+                await runAuthKillVariant(
+                  'DURING_CANARY_LOGOUT',
+                  'LOGOUT_ATTEMPTED',
+                  { sessions: 1, refreshTokens: 1 }
+                );
+                await runAuthKillVariant(
+                  'AFTER_CANARY_LOGOUT_BEFORE_COMPLETE',
+                  'LOGOUT_SUCCEEDED',
+                  { sessions: 0, refreshTokens: 0 }
+                );
+                authKillVariantsComplete = true;
+                authKillVariantPoint = 'COMPLETE';
+              }
+              writePrivateBytesExclusive(
+                authCrashPath,
+                Buffer.from('AFTER_CANARY_LOGIN_SUCCEEDED\n', 'utf8')
+              );
+            }
             const started = performance.now();
-            let evidence;
             try {
-              evidence = await recovery.executor.run(stage, context);
+              return await recovery.executor.run(stage, context);
             } finally {
+              if (stage === 'AUTH_RUNTIME_VERIFIED' && fs.existsSync(authCrashPath)) {
+                fs.rmSync(authCrashPath, { force: true });
+              }
               if (stage === 'R3_CAPTURE') timings.r3Capture.push(performance.now() - started);
               if (stage === 'R3_VALIDATED') timings.r3Validated.push(performance.now() - started);
             }
-            if (stage === 'AUTH_RUNTIME_VERIFIED') {
-            throw Object.assign(new Error('DISPOSABLE_POST_COMMIT_FAILURE'), {
-              code: 'DISPOSABLE_POST_COMMIT_FAILURE', transactionOutcome: 'not_started'
-            });
           }
-          return evidence;
-        }
       }
-    }), (error) => error.code === 'DEV_REMEDIATION_RECOVERY_REQUIRED' &&
-      error.transactionOutcome === 'committed');
+    }), (error) => {
+      interruptedRemediationError = error;
+      return error.code === 'DEV_REMEDIATION_RECOVERY_REQUIRED' &&
+        error.transactionOutcome === 'committed';
+    });
+    assert.equal(
+      interruptedRemediationError.failedStage,
+      'AUTH_RUNTIME_VERIFIED',
+      `${interruptedRemediationError.failedStage}:${interruptedRemediationError.causeCategory}`
+    );
     assert.equal(readRemediationJournal(recoveryState, key).current.state, 'REMEDIATION_RECOVERY_REQUIRED');
+    const interruptedCanaries = readRemediationAuthCanaries(recoveryState, key);
+    assert.equal(
+      authKillVariantsComplete,
+      true,
+      `${authKillVariantPoint}:${interruptedRemediationError.causeCategory}`
+    );
+    assert.ok(interruptedCanaries.some((canary) =>
+      canary.current.purpose === 'REMEDIATION_PRECHECK' &&
+      canary.current.state === 'EPHEMERA_RECONCILED'
+    ));
+    const directRecoveryState = path.join(root, 'r3-direct-recovery-remediation-state');
+    copyPrivateDirectory(recoveryState, directRecoveryState);
+    const mismatchRecoveryState = path.join(root, 'r3-mismatch-recovery-remediation-state');
+    copyPrivateDirectory(recoveryState, mismatchRecoveryState);
+    const tamperedRecoveryState = path.join(root, 'r3-tampered-recovery-remediation-state');
+    copyPrivateDirectory(recoveryState, tamperedRecoveryState);
+    const tamperedJournalPath = path.join(
+      tamperedRecoveryState,
+      fs.readdirSync(tamperedRecoveryState).filter((name) => /^\d{3}-/.test(name)).sort()[0]
+    );
+    const tamperedJournalBytes = fs.readFileSync(tamperedJournalPath);
+    try {
+      const changed = Buffer.from(
+        tamperedJournalBytes.toString('utf8').replace('"target": "dev"', '"target": "bad"'),
+        'utf8'
+      );
+      assert.notEqual(changed.compare(tamperedJournalBytes), 0);
+      replacePrivateBytesDurably(tamperedJournalPath, changed);
+      changed.fill(0);
+    } finally {
+      tamperedJournalBytes.fill(0);
+    }
+    assert.notEqual((await runRecoveryCli({
+      recovery,
+      stateDirectory: tamperedRecoveryState
+    })).status, 0);
     const r3 = readStageState({
       rootDirectory: recoveryState,
       key,
@@ -458,42 +729,162 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
     }
     assert.equal(verifyManagedOverlayPackageForExecution(packageVerification).authenticated, true);
     const recoveryStarted = performance.now();
-    let recovered;
-    try {
-      recovered = await runDevRecoveryRemediationRecovery({
-        rootDirectory: recoveryState,
-        key,
-        contract: recovery.contract,
-        executor: {
-          async run(stage, context) {
-            try {
-              return await recovery.executor.run(stage, context);
-            } catch (error) {
-              const category = error?.operationFailure?.category;
-              if (category) throw Object.assign(new Error(category), { code: category });
-              throw error;
-            }
-          }
-        }
-      });
-    } catch (error) {
-      throw Object.assign(new Error(
-        `DISPOSABLE_R3_RECOVERY_${error?.causeCategory || error?.code || 'UNKNOWN'}`
-      ), { code: 'DISPOSABLE_R3_RECOVERY_FAILED' });
-    }
+    const markerCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: recoveryState,
+      crashPoint: 'AFTER_RECOVERY_MARKER'
+    });
+    assert.notEqual(markerCrash.status, 0);
+    const markerCrashJournal = readRemediationJournal(recoveryState, key);
+    assert.ok(
+      markerCrashJournal.recovery,
+      `${childFailureCategory(markerCrash)}:${markerCrashJournal.current.state}`
+    );
+    assert.equal(markerCrashJournal.recoveryBoundary, null);
+
+    const databaseCrashPath = path.join(
+      recoveryState,
+      'disposable-test-crash-point.private.txt'
+    );
+    writePrivateBytesExclusive(
+      databaseCrashPath,
+      Buffer.from('AFTER_RECOVERY_DATABASE_COMMIT_BEFORE_STATE\n', 'utf8')
+    );
+    const commitWindowCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: recoveryState
+    });
+    fs.rmSync(databaseCrashPath, { force: true });
+    assert.notEqual(commitWindowCrash.status, 0);
+    assert.equal(
+      readRemediationJournal(recoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_DATABASE_BOUNDARY'
+    );
+
+    const reconciledCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: recoveryState,
+      crashPoint: 'AFTER_DATABASE_COMMITTED'
+    });
+    assert.notEqual(reconciledCrash.status, 0);
+    assert.equal(
+      readRemediationJournal(recoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_DATABASE_STATE_RECONCILED'
+    );
+
+    const verificationCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: recoveryState,
+      crashPoint: 'AFTER_VERIFICATION_COMPLETED'
+    });
+    assert.notEqual(verificationCrash.status, 0);
+    assert.equal(
+      readRemediationJournal(recoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_VERIFICATION_PENDING'
+    );
+
+    const verifiedCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: recoveryState,
+      crashPoint: 'AFTER_VERIFIED_PUBLISHED'
+    });
+    assert.notEqual(verifiedCrash.status, 0);
+    assert.equal(
+      readRemediationJournal(recoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_VERIFIED'
+    );
+
+    const completedRecovery = await runRecoveryCli({ recovery, stateDirectory: recoveryState });
+    assert.equal(completedRecovery.status, 0, completedRecovery.stderr);
+    const recovered = JSON.parse(completedRecovery.stdout.trim());
     timings.recovery.push(performance.now() - recoveryStarted);
     assert.equal(recovered.classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
     assert.equal(readRemediationJournal(recoveryState, key).current.state, 'REMEDIATION_RECOVERED');
+    assert.equal(readRemediationEvents(recoveryState, key).filter((event) =>
+      event.stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+      event.substep === 'RECOVERY_PACKAGE_EXECUTION_STARTED').length, 1);
+    const terminalReplay = await runRecoveryCli({ recovery, stateDirectory: recoveryState });
+    assert.notEqual(terminalReplay.status, 0);
+
+    const directCommitCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: directRecoveryState,
+      crashPoint: 'AFTER_DATABASE_COMMITTED'
+    });
+    assert.notEqual(directCommitCrash.status, 0);
+    assert.equal(
+      readRemediationJournal(directRecoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_DATABASE_COMMITTED'
+    );
+    assert.equal(readRemediationEvents(directRecoveryState, key).filter((event) =>
+      event.stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+      event.substep === 'RECOVERY_PACKAGE_EXECUTION_STARTED').length, 1);
+    const directRecovery = await runRecoveryCli({ recovery, stateDirectory: directRecoveryState });
+    assert.equal(directRecovery.status, 0, directRecovery.stderr);
+    assert.equal(JSON.parse(directRecovery.stdout.trim()).classification, 'DEV_RECOVERY_REMEDIATION_R3_RECOVERED');
+    assert.equal(readStageState({
+      rootDirectory: directRecoveryState,
+      key,
+      attemptId: recovery.contract.remediationAttemptId,
+      stage: 'REMEDIATION_RECOVERY_DATABASE'
+    }).commitEvidenceMode, 'directly_observed');
+    assert.equal(readRemediationEvents(directRecoveryState, key).filter((event) =>
+      event.stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+      event.substep === 'RECOVERY_PACKAGE_EXECUTION_STARTED').length, 1);
+    assert.equal(await harness.preexistingSessionIntact(), true);
     assert.equal(directoryByteDigest(recoveryFailure.stateDirectory), recoveryFailure.immutableDigest);
     assert.equal(harness.seen.filter((entry) =>
-      entry === 'POST /auth/v1/token?grant_type=password').length, 7);
-    for (const route of [
-      '/functions/v1/api?path=%2Fauth%2Fcontext',
-      '/functions/v1/api?path=%2Ffilm-data%2Fcatalog',
-      '/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH',
-      '/functions/v1/api?path=%2Fjobs%2Flist&limit=1'
-    ]) assert.equal(harness.seen.filter((entry) => entry === `GET ${route}`).length, 7);
+      entry === 'POST /auth/v1/token?grant_type=password').length, 12);
+    for (const [route, count] of [
+      ['/functions/v1/api?path=%2Fauth%2Fcontext', 11],
+      ['/functions/v1/api?path=%2Ffilm-data%2Fcatalog', 10],
+      ['/functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH', 10],
+      ['/functions/v1/api?path=%2Fjobs%2Flist&limit=1', 10]
+    ]) assert.equal(harness.seen.filter((entry) => entry === `GET ${route}`).length, count);
     assert.ok(harness.seen.every((entry) => /^(?:GET|POST) \//.test(entry)));
+
+    const mismatchCrashPath = path.join(
+      mismatchRecoveryState,
+      'disposable-test-crash-point.private.txt'
+    );
+    writePrivateBytesExclusive(
+      mismatchCrashPath,
+      Buffer.from('BEFORE_RECOVERY_DATABASE_COMMIT\n', 'utf8')
+    );
+    const precommitCrash = await runRecoveryCli({
+      recovery,
+      stateDirectory: mismatchRecoveryState
+    });
+    fs.rmSync(mismatchCrashPath, { force: true });
+    assert.notEqual(precommitCrash.status, 0);
+    assert.equal(
+      readRemediationJournal(mismatchRecoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_DATABASE_BOUNDARY'
+    );
+    const mismatchClient = new Client({
+      connectionString: recoveryFailure.preparation.targetBefore.session.connectionString
+    });
+    await mismatchClient.connect();
+    try {
+      await mismatchClient.query(
+        "update app.organizations set name=name || ' local-negative-test' where id=$1::uuid",
+        [recoveryFailure.preparation.fixtureAuthority.primaryOrganizationId]
+      );
+    } finally {
+      await mismatchClient.end();
+    }
+    const mismatchResult = await runRecoveryCli({
+      recovery,
+      stateDirectory: mismatchRecoveryState
+    });
+    assert.notEqual(mismatchResult.status, 0);
+    assert.equal(
+      readRemediationJournal(mismatchRecoveryState, key).current.state,
+      'REMEDIATION_RECOVERY_FAILED'
+    );
+    assert.equal(readRemediationEvents(mismatchRecoveryState, key).filter((event) =>
+      event.stage === 'REMEDIATION_RECOVERY_DATABASE' &&
+      event.substep === 'RECOVERY_PACKAGE_EXECUTION_STARTED').length, 1);
     const measured = {
       r3CaptureMs: Math.max(...timings.r3Capture),
       r3ValidatedMs: Math.max(...timings.r3Validated),

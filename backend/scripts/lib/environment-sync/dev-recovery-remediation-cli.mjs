@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { canonicalSerialize } from '../readonly-diagnostics.mjs';
 import { buildMutationTargetReport, loadEnvFile } from '../target-env-guards.mjs';
+import { assertExactRemediationUrls } from './dev-recovery-remediation-auth.mjs';
 import { DEV_PROJECT_REF, verifyRepositoryLineage } from './dev-certified-contract.mjs';
 import { createOperationExecutor } from './dev-certified-operation-executor.mjs';
 import { readAuthorityKey } from './dev-certified-preparation.mjs';
@@ -65,6 +66,13 @@ function assertRemediationCliGuards(options, envFilePath) {
   }
   verifyPrivateArtifactProtection(envFilePath);
   const loaded = loadEnvFile(envFilePath);
+  if (options['disposable-local'] === true) {
+    if (process.env.RUN_ENV_SYNC_REMEDIATION_E2E !== '1') {
+      throw categoricalError('DEV_REMEDIATION_DISPOSABLE_LOCAL_REJECTED');
+    }
+    assertExactRemediationUrls(loaded.values, { disposable: true });
+    return { ok: true, expected: { target: 'dev', ref: DEV_PROJECT_REF }, disposableLocal: true };
+  }
   const report = buildMutationTargetReport({
     envPath: loaded.path,
     envValues: loaded.values,
@@ -77,6 +85,15 @@ function assertRemediationCliGuards(options, envFilePath) {
     throw categoricalError('DEV_REMEDIATION_TARGET_GUARD_FAILED');
   }
   return report;
+}
+
+function disposableCrashCallback(preparation, point) {
+  if (
+    preparation.mode !== 'disposable-managed-local' ||
+    process.env.RUN_ENV_SYNC_REMEDIATION_E2E !== '1' ||
+    process.env.DEV_REMEDIATION_DISPOSABLE_CLI_CRASH_POINT !== point
+  ) return undefined;
+  return async () => { process.kill(process.pid, 'SIGKILL'); };
 }
 
 async function runDevRecoveryRemediationCli(mode, argv, repoRoot, testOnlyRuntime = {}) {
@@ -93,6 +110,7 @@ async function runDevRecoveryRemediationCli(mode, argv, repoRoot, testOnlyRuntim
   const allowed = new Set([
     'apply', 'quiet-window-active', 'env', 'authority-key', 'preparation', 'contract',
     'operation-inventory', 'state-dir', 'evidence-dir',
+    'disposable-local',
     ...(mode === 'recover' ? ['remediation-recovery-authorized'] : ['remediation-authorized'])
   ]);
   if (Object.keys(options).some((name) => !allowed.has(name))) {
@@ -134,6 +152,10 @@ async function runDevRecoveryRemediationCli(mode, argv, repoRoot, testOnlyRuntim
           stage: 'RECOVERY_CLI'
         })
       : verifyRemediationPreparation(preparationRecord, key, contract.remediationAttemptId);
+    if ((options['disposable-local'] === true) !==
+        (preparation.mode === 'disposable-managed-local')) {
+      throw categoricalError('DEV_REMEDIATION_DISPOSABLE_PREPARATION_MISMATCH');
+    }
     if (
       preparation.currentObserved.certificateDigest !== contract.observedDevCertificateDigest ||
       preparation.original.binding.failedJournalDigest !== contract.original.failedJournalDigest ||
@@ -164,7 +186,16 @@ async function runDevRecoveryRemediationCli(mode, argv, repoRoot, testOnlyRuntim
     }
     if (mode === 'recover') {
       if (!fs.existsSync(stateDirectory)) throw categoricalError('DEV_REMEDIATION_STATE_DIRECTORY_MISSING');
-      return await runRecoveryFn({ rootDirectory: stateDirectory, key, contract, executor });
+      return await runRecoveryFn({
+        rootDirectory: stateDirectory,
+        key,
+        contract,
+        executor,
+        afterRecoveryMarkerPublished: disposableCrashCallback(preparation, 'AFTER_RECOVERY_MARKER'),
+        afterRecoveryDatabaseCommitted: disposableCrashCallback(preparation, 'AFTER_DATABASE_COMMITTED'),
+        afterRecoveryVerificationCompleted: disposableCrashCallback(preparation, 'AFTER_VERIFICATION_COMPLETED'),
+        afterRecoveryVerifiedPublished: disposableCrashCallback(preparation, 'AFTER_VERIFIED_PUBLISHED')
+      });
     }
     throw categoricalError('DEV_REMEDIATION_MODE_INVALID');
   } finally {

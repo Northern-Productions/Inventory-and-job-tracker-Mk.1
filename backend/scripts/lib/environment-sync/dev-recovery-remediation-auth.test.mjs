@@ -10,6 +10,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   AUTH_CERTIFICATE_FORMAT,
+  AUTH_EPHEMERA_MODES,
+  AUTH_TABLE_CLASSIFICATION,
   LIVE_EDGE_API_BASE,
   LIVE_SUPABASE_ORIGIN,
   assertExactRemediationUrls,
@@ -20,6 +22,7 @@ import {
   fetchFreshEdgeIdentity,
   runFreshAuthenticationCanary
 } from './dev-recovery-remediation-auth.mjs';
+import { CURRENT_AUTH_TABLES } from './constants.mjs';
 import {
   initializeRemediationJournal,
   readRemediationAuthCanaries,
@@ -111,6 +114,7 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   const afterLogout = certificate({ lastSignIn: '2026-08-29T10:01:00.000Z' });
   assert.notDeepEqual(afterLogout, before);
   assert.equal(assertRemediationAuthTransition(before, afterLogout, {
+    mode: AUTH_EPHEMERA_MODES.STRICT_CLEAN,
     logoutSucceeded: true
   }).copiedUsersExact, true);
   const afterFailedLogout = certificate({
@@ -120,12 +124,15 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   });
   assert.notDeepEqual(afterFailedLogout, before);
   assert.equal(assertRemediationAuthTransition(before, afterFailedLogout, {
+    mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
     logoutSucceeded: false
   }).boundedEphemera, true);
   const allowed = assertRemediationAuthTransition(before, afterFailedLogout, {
+    mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
     logoutSucceeded: false
   }).allowedNativeEphemera;
   assert.equal(assertRemediationAuthTransition(before, before, {
+    mode: AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY,
     logoutSucceeded: true,
     requireFreshLogin: false,
     allowedNativeEphemera: allowed
@@ -133,6 +140,7 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   assert.throws(() => assertRemediationAuthTransition(before, certificate({
     lastSignIn: '2026-08-29T10:02:00.000Z', sessions: ['unexplained']
   }), {
+    mode: AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY,
     logoutSucceeded: false,
     requireFreshLogin: false,
     allowedNativeEphemera: allowed
@@ -142,7 +150,10 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   }), { logoutSucceeded: true }), { code: 'DEV_REMEDIATION_AUTH_STABLE_STATE_DRIFT' });
   assert.throws(() => assertRemediationAuthTransition(before, certificate({
     lastSignIn: '2026-08-29T10:01:00.000Z', sessions: ['one', 'two']
-  }), { logoutSucceeded: false }), { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT' });
+  }), {
+    mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
+    logoutSucceeded: false
+  }), { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT' });
   for (const mutate of [
     (value) => { value.stable.copiedIdentities.digest = 'changed-identities'; },
     (value) => { value.stable.nativeUsers.digest = 'changed-native-stable'; },
@@ -154,6 +165,28 @@ test('semantic Auth parity permits only native login volatility and bounded logo
       logoutSucceeded: true
     }), { code: 'DEV_REMEDIATION_AUTH_STABLE_STATE_DRIFT' });
   }
+});
+
+test('Auth table classification is complete and strict-clean is the omitted default', () => {
+  assert.deepEqual(Object.keys(AUTH_TABLE_CLASSIFICATION), CURRENT_AUTH_TABLES);
+  assert.equal(AUTH_TABLE_CLASSIFICATION.audit_log_entries.category, 'provider_audit_state');
+  assert.equal(AUTH_TABLE_CLASSIFICATION.audit_log_entries.prerequisite, 'postgres_audit_storage_disabled');
+  for (const tableName of ['users', 'identities']) {
+    assert.equal(AUTH_TABLE_CLASSIFICATION[tableName].copiedState, 'stable_exact');
+    assert.equal(AUTH_TABLE_CLASSIFICATION[tableName].nativeStableState, 'stable_exact');
+    assert.equal(AUTH_TABLE_CLASSIFICATION[tableName].nativeVolatileState, 'monotonic_volatile');
+  }
+  for (const tableName of ['sessions', 'refresh_tokens']) {
+    assert.equal(AUTH_TABLE_CLASSIFICATION[tableName].state, 'bounded_native_smoke_ephemera');
+    assert.equal(AUTH_TABLE_CLASSIFICATION[tableName].binding, 'exact_attempt_owned_allowance');
+  }
+  assert.equal(AUTH_TABLE_CLASSIFICATION.schema_migrations.plane, 'outside_remediation_owned_plane');
+  assert.ok(Object.values(AUTH_TABLE_CLASSIFICATION).every((entry) =>
+    entry.dml === 'none' && entry.recoveryOwned === false
+  ));
+  assert.throws(() => assertRemediationAuthTransition(certificate(), certificate({
+    sessions: ['unlisted-session']
+  })), { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT' });
 });
 
 test('Auth audit posture requires the exact disabled provider prerequisite', async () => {
@@ -254,7 +287,7 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
       response.end(JSON.stringify({ data: [] }));
     } else if (request.url === '/functions/v1/api?path=%2Fjobs%2Flist&limit=1') {
       response.end(JSON.stringify({ data: [] }));
-    } else if (request.url === '/auth/v1/logout') {
+    } else if (request.url === '/auth/v1/logout?scope=local') {
       response.end('{}');
     } else {
       response.writeHead(404);
@@ -292,7 +325,7 @@ test('credential-bearing canary accepts the exact empty warehouse preference wit
       'GET /functions/v1/api?path=%2Ffilm-data%2Fcatalog',
       'GET /functions/v1/api?path=%2Fboxes%2Fsearch&warehouse=ALL&q=CODEX_REMEDIATION_READ_ONLY_NO_MATCH',
       'GET /functions/v1/api?path=%2Fjobs%2Flist&limit=1',
-      'POST /auth/v1/logout'
+      'POST /auth/v1/logout?scope=local'
     ]);
     assert.deepEqual(lifecycle, [
       'LOGIN_STARTED', 'LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED', 'LOGOUT_SUCCEEDED', 'CANARY_COMPLETE'
@@ -353,7 +386,7 @@ test('credential-bearing canary attempts logout after a read failure', async () 
     } else if (request.url === '/functions/v1/api?path=%2Fauth%2Fcontext') {
       response.writeHead(503);
       response.end('{}');
-    } else if (request.url === '/auth/v1/logout') {
+    } else if (request.url === '/auth/v1/logout?scope=local') {
       response.end('{}');
     } else {
       response.writeHead(404);
@@ -384,7 +417,7 @@ test('credential-bearing canary attempts logout after a read failure', async () 
     assert.deepEqual(requests, [
       'POST /auth/v1/token?grant_type=password',
       'GET /functions/v1/api?path=%2Fauth%2Fcontext',
-      'POST /auth/v1/logout'
+      'POST /auth/v1/logout?scope=local'
     ]);
     assert.deepEqual(lifecycle, [
       'LOGIN_STARTED', 'LOGIN_SUCCEEDED', 'LOGOUT_ATTEMPTED', 'LOGOUT_SUCCEEDED', 'CANARY_COMPLETE'
@@ -414,7 +447,7 @@ test('credential-bearing canary records bounded ephemera when logout fails', asy
       request.url === '/functions/v1/api?path=%2Fjobs%2Flist&limit=1'
     ) {
       response.end(JSON.stringify({ data: [] }));
-    } else if (request.url === '/auth/v1/logout') {
+    } else if (request.url === '/auth/v1/logout?scope=local') {
       response.writeHead(503);
       response.end('{}');
     } else {
@@ -553,7 +586,11 @@ test('a real child killed after token issuance leaves durable bounded-ephemera e
       canaryCount: 1,
       completedCount: 0,
       sessionRevoked: false,
-      boundedEphemeraPossible: true
+      boundedEphemeraPossible: true,
+      unresolvedCount: 1,
+      unresolvedPurposes: ['AUTH_RUNTIME'],
+      unboundCanaryCount: 1,
+      allowedNativeEphemera: { sessions: [], refreshTokens: [] }
     });
   } finally {
     key.fill(0);

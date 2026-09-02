@@ -1,12 +1,19 @@
 import crypto from 'node:crypto';
 
 import { canonicalDigest, canonicalSerialize } from '../readonly-diagnostics.mjs';
+import { AUTH_RECOVERY_TABLE_CLASSIFICATION } from './constants.mjs';
 import { DEV_PROJECT_REF } from './dev-certified-contract.mjs';
 
 const LIVE_SUPABASE_ORIGIN = `https://${DEV_PROJECT_REF}.supabase.co`;
 const LIVE_EDGE_API_BASE = `${LIVE_SUPABASE_ORIGIN}/functions/v1/api`;
 const AUTH_CERTIFICATE_FORMAT = 'dev-recovery-remediation-semantic-auth-v1';
 const AUTH_AUDIT_POSTURE_FORMAT = 'dev-recovery-remediation-auth-audit-posture-v1';
+const AUTH_EPHEMERA_MODES = Object.freeze({
+  STRICT_CLEAN: 'STRICT_CLEAN',
+  IMMEDIATE_CANARY_DISCOVERY: 'IMMEDIATE_CANARY_DISCOVERY',
+  FROZEN_ATTEMPT_PARITY: 'FROZEN_ATTEMPT_PARITY'
+});
+const AUTH_TABLE_CLASSIFICATION = AUTH_RECOVERY_TABLE_CLASSIFICATION;
 
 function categoricalError(code) {
   const error = new Error(code);
@@ -203,24 +210,51 @@ function timestamp(value) {
   return parsed;
 }
 
-function assertSetPreserved(beforeValues, afterValues, maxAdditions, allowedValues) {
+function assertIdentifierSet(values) {
+  if (!Array.isArray(values) || new Set(values).size !== values.length || values.some((value) =>
+    typeof value !== 'string' || value.length < 1 || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)
+  )) throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_ALLOWANCE_INVALID');
+  return values;
+}
+
+function compareEphemeraSet(beforeValues, afterValues, mode, allowedValues = []) {
+  assertIdentifierSet(beforeValues);
+  assertIdentifierSet(afterValues);
+  assertIdentifierSet(allowedValues);
   const before = new Set(beforeValues);
   const after = new Set(afterValues);
   const additions = [...after].filter((value) => !before.has(value));
-  const allowed = allowedValues === undefined ? null : new Set(allowedValues);
-  if (
-    [...before].some((value) => !after.has(value)) || additions.length > maxAdditions ||
-    (allowed && additions.some((value) => !allowed.has(value)))
-  ) {
+  const removals = [...before].filter((value) => !after.has(value));
+  const allowed = new Set(allowedValues);
+  if (removals.length > 0) {
     throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT');
   }
-  return additions;
+  if (mode === AUTH_EPHEMERA_MODES.STRICT_CLEAN) {
+    if (additions.length > 0 || allowed.size > 0) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT');
+    }
+  } else if (mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY) {
+    const discovered = additions.filter((value) => !allowed.has(value));
+    if (discovered.length > 1) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT');
+    }
+    return { additions: discovered, presentAllowed: additions.filter((value) => allowed.has(value)) };
+  } else if (mode === AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY) {
+    if (additions.some((value) => !allowed.has(value)) ||
+        [...allowed].some((value) => before.has(value))) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_DRIFT');
+    }
+  } else {
+    throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_MODE_INVALID');
+  }
+  return { additions, presentAllowed: additions.filter((value) => allowed.has(value)) };
 }
 
 function assertRemediationAuthTransition(before, after, {
+  mode = AUTH_EPHEMERA_MODES.STRICT_CLEAN,
   logoutSucceeded,
-  requireFreshLogin = true,
-  allowedNativeEphemera
+  requireFreshLogin = false,
+  allowedNativeEphemera = { sessions: [], refreshTokens: [] }
 } = {}) {
   if (
     before?.format !== AUTH_CERTIFICATE_FORMAT || after?.format !== AUTH_CERTIFICATE_FORMAT ||
@@ -233,17 +267,17 @@ function assertRemediationAuthTransition(before, after, {
       (requireFreshLogin && advanced.length === 0)) {
     throw categoricalError('DEV_REMEDIATION_AUTH_VOLATILITY_INVALID');
   }
-  const sessionAdditions = assertSetPreserved(
+  const sessions = compareEphemeraSet(
     before.nativeEphemera.sessions,
     after.nativeEphemera.sessions,
-    1,
-    allowedNativeEphemera?.sessions
+    mode,
+    allowedNativeEphemera.sessions
   );
-  const refreshTokenAdditions = assertSetPreserved(
+  const refreshTokens = compareEphemeraSet(
     before.nativeEphemera.refreshTokens,
     after.nativeEphemera.refreshTokens,
-    1,
-    allowedNativeEphemera?.refreshTokens
+    mode,
+    allowedNativeEphemera.refreshTokens
   );
   return {
     stableStateExact: true,
@@ -253,10 +287,19 @@ function assertRemediationAuthTransition(before, after, {
     ownerRelationshipExact: true,
     approvedVolatileFieldCount: advanced.length,
     boundedEphemera: true,
+    ephemeraMode: mode,
     sessionRevoked: logoutSucceeded === true,
     allowedNativeEphemera: {
-      sessions: sessionAdditions,
-      refreshTokens: refreshTokenAdditions
+      sessions: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY
+        ? sessions.additions
+        : [...allowedNativeEphemera.sessions],
+      refreshTokens: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY
+        ? refreshTokens.additions
+        : [...allowedNativeEphemera.refreshTokens]
+    },
+    presentAttemptEphemera: {
+      sessions: sessions.presentAllowed,
+      refreshTokens: refreshTokens.presentAllowed
     }
   };
 }
@@ -281,7 +324,8 @@ async function fetchJson(url, options, code) {
 async function runFreshAuthenticationCanary({
   preparation,
   values = process.env,
-  onLifecycle = async () => {}
+  onLifecycle = async () => {},
+  onCheckpoint = async () => {}
 } = {}) {
   const disposable = preparation?.mode === 'disposable-managed-local';
   const { authUrl, apiUrl } = assertExactRemediationUrls(values, { disposable });
@@ -312,7 +356,7 @@ async function runFreshAuthenticationCanary({
     logoutAttempted = true;
     await transition('LOGOUT_ATTEMPTED');
     try {
-      await fetchJson(`${authUrl}/auth/v1/logout`, {
+      await fetchJson(`${authUrl}/auth/v1/logout?scope=local`, {
         method: 'POST',
         headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` }
       }, 'DEV_REMEDIATION_LOGOUT_FAILED');
@@ -350,6 +394,7 @@ async function runFreshAuthenticationCanary({
       asText(context.role).toLowerCase() !== 'owner' ||
       asText(context.defaultWarehouse) !== expectedWarehouse
     ) throw categoricalError('DEV_REMEDIATION_AUTH_CONTEXT_INVALID');
+    await onCheckpoint('APPLICATION_READ_STARTED');
     await read('/film-data/catalog', {}, 'DEV_REMEDIATION_FILM_CATALOG_READ_FAILED');
     await read('/boxes/search', {
       warehouse: 'ALL', q: 'CODEX_REMEDIATION_READ_ONLY_NO_MATCH'
@@ -535,6 +580,8 @@ async function fetchFreshEdgeIdentity({ preparation, values = process.env } = {}
 export {
   AUTH_AUDIT_POSTURE_FORMAT,
   AUTH_CERTIFICATE_FORMAT,
+  AUTH_EPHEMERA_MODES,
+  AUTH_TABLE_CLASSIFICATION,
   LIVE_EDGE_API_BASE,
   LIVE_SUPABASE_ORIGIN,
   assertExactRemediationUrls,
