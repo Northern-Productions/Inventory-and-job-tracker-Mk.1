@@ -30,6 +30,7 @@ import {
   generateCurrentDatabaseRecoveryPackage
 } from './managed-restore-rehearsal.mjs';
 import {
+  buildManagedOverlayTargetGuard,
   executeManagedOverlayPackage,
   verifyManagedOverlayPackageForExecution
 } from './managed-restore.mjs';
@@ -328,13 +329,13 @@ function disposableLoopbackOverlayGuard() {
 }
 
 function managedDevOverlayGuard(packageResult) {
-  return {
+  return buildManagedOverlayTargetGuard({
+    packageResult,
     target: 'dev',
     projectRef: DEV_PROJECT_REF,
     mutationGuardPassed: true,
-    projectRefMatched: true,
-    ...packageResult.targetCompatibility
-  };
+    projectRefMatched: true
+  });
 }
 
 function remediationDatabaseOverlayGuard(context, packageResult) {
@@ -886,10 +887,21 @@ async function databaseSessionEvidence(context, stage) {
 async function executeKnownRestore(context, {
   stage,
   packageResult,
+  expectedPackageAuthentication,
   expected,
   expectedLabel,
   diagnosticName
 } = {}) {
+  const overlayGuard = remediationDatabaseOverlayGuard(context, packageResult);
+  const packageAuthentication = verifyManagedOverlayPackageForExecution({
+    connectionString: context.connectionString,
+    packageResult,
+    targetGuard: overlayGuard
+  });
+  if (
+    !expectedPackageAuthentication ||
+    canonicalDigest(packageAuthentication) !== canonicalDigest(expectedPackageAuthentication)
+  ) throw categoricalError('DEV_REMEDIATION_PACKAGE_PREVALIDATION_DRIFT');
   const authBefore = await captureRemediationAuthCertificate(context.connectionString, {
     ...identity(context),
     expectedDefaultWarehouse: context.preparation.targetSession.smokeDefaultWarehouse
@@ -917,7 +929,7 @@ async function executeKnownRestore(context, {
       psqlPath: resolvePostgresTools(context.preparation.targetSession.postgresBin || '').psql,
       connectionString: context.connectionString,
       packageResult,
-      targetGuard: remediationDatabaseOverlayGuard(context, packageResult),
+      targetGuard: overlayGuard,
       diagnosticDirectory: diagnosticsDirectory(context, diagnosticName)
     });
   } catch (error) {
@@ -991,6 +1003,7 @@ async function runRestoreOriginalY2(context) {
   const restored = await runSubstep('ORIGINAL_Y2_MANAGED_OVERLAY', () => executeKnownRestore(context, {
     stage: 'RESTORE_ORIGINAL_Y2',
     packageResult: r3.originalY2RecoveryPackage,
+    expectedPackageAuthentication: r3.originalY2PackageAuthentication,
     expected: original.y2.before,
     expectedLabel: 'ORIGINAL_Y2',
     diagnosticName: 'original-y2-restore-diagnostics-private'
@@ -1172,6 +1185,9 @@ async function runRemediationRecoveryPrecheck(context) {
       packageResult: r3.recoveryPackage,
       targetGuard: remediationDatabaseOverlayGuard(context, r3.recoveryPackage)
     }));
+  if (canonicalDigest(packageAuthentication) !== canonicalDigest(r3.recoveryPackageAuthentication)) {
+    throw categoricalError('DEV_REMEDIATION_R3_PACKAGE_PREVALIDATION_DRIFT');
+  }
   await runSubstep('RECOVERY_PRECHECK_AUTH_RECONCILIATION', () => reconcileAuthCanaryState(context));
   const disposition = await runSubstep('RECOVERY_PRECHECK_AUTH_DISPOSITION', () =>
     authRuntimeDisposition(context));
@@ -1261,11 +1277,14 @@ async function runRemediationRecoveryDatabase(context) {
     journal.current.state !== 'REMEDIATION_RECOVERY_DATABASE_BOUNDARY' ||
     !journal.recovery || !journal.recoveryBoundary
   ) throw categoricalError('DEV_REMEDIATION_RECOVERY_DATABASE_BOUNDARY_INVALID');
-  verifyManagedOverlayPackageForExecution({
+  const packageAuthentication = verifyManagedOverlayPackageForExecution({
     connectionString: context.connectionString,
     packageResult: r3.recoveryPackage,
     targetGuard: remediationDatabaseOverlayGuard(context, r3.recoveryPackage)
   });
+  if (canonicalDigest(packageAuthentication) !== canonicalDigest(r3.recoveryPackageAuthentication)) {
+    throw categoricalError('DEV_REMEDIATION_R3_PACKAGE_PREVALIDATION_DRIFT');
+  }
   const committed = readOptionalStageState(stateOptions(context, 'REMEDIATION_RECOVERY_DATABASE'));
   if (committed) {
     if (
@@ -1325,6 +1344,7 @@ async function runRemediationRecoveryDatabase(context) {
   const restored = await runSubstep('R3_MANAGED_OVERLAY', () => executeKnownRestore(context, {
       stage: 'REMEDIATION_RECOVERY_DATABASE',
       packageResult: r3.recoveryPackage,
+      expectedPackageAuthentication: r3.recoveryPackageAuthentication,
       expected: r3.before,
       expectedLabel: 'R3',
       diagnosticName: 'r3-recovery-diagnostics-private'

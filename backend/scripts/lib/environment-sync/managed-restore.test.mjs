@@ -19,6 +19,7 @@ import { postgresChildEnvironment } from './encrypted-baseline.mjs';
 import {
   AUTH_IDENTITIES_COPY_COLUMNS,
   AUTH_USERS_COPY_COLUMNS,
+  MANAGED_OVERLAY_COMPATIBILITY_BINDING_FIELDS,
   MANAGED_RESTORE_CATEGORIES,
   applicationContentRestoreList,
   applicationRestoreList,
@@ -34,6 +35,7 @@ import {
   buildAuthPreservationAuthority,
   buildExactAuthRecoveryAuthority,
   buildManagedOverlaySql,
+  buildManagedOverlayTargetGuard,
   buildManagedRestoreManifest,
   canonicalizePsqlRestrictionTokens,
   captureExactAuthRecoveryEvidence,
@@ -44,6 +46,91 @@ import {
   verifyAuthPreservationAuthority,
   verifyManagedRestoreManifest
 } from './managed-restore.mjs';
+
+test('managed overlay compatibility field matrix is canonical and fail-closed', () => {
+  const digest = (value) => `sha256:${crypto.createHash('sha256').update(value).digest('hex')}`;
+  const projectRef = 'd'.repeat(20);
+  const packageResult = {
+    targetCompatibility: {
+      authShapeDigest: digest('auth-shape'),
+      catalogDigest: digest('catalog'),
+      managedProfileDigest: digest('profile'),
+      managedProfileId: 'dev-managed-profile-v1',
+      managedProfileTarget: { environment: 'dev', projectRef },
+      managedProfileSecurityDigest: digest('profile-security'),
+      applicationReplacementDigest: digest('application-replacement')
+    },
+    manifest: { planDigest: digest('restore-plan') }
+  };
+  const expectedMatrix = [
+    ['managedCatalogDigest', 'targetCompatibility.catalogDigest'],
+    ['managedProfileDigest', 'targetCompatibility.managedProfileDigest'],
+    ['managedProfileId', 'targetCompatibility.managedProfileId'],
+    ['managedProfileSecurityDigest', 'targetCompatibility.managedProfileSecurityDigest'],
+    ['managedProfileTarget', 'targetCompatibility.managedProfileTarget'],
+    ['authShapeDigest', 'targetCompatibility.authShapeDigest'],
+    ['applicationReplacementDigest', 'targetCompatibility.applicationReplacementDigest'],
+    ['restorePlanDigest', 'manifest.planDigest']
+  ];
+  assert.deepEqual(
+    MANAGED_OVERLAY_COMPATIBILITY_BINDING_FIELDS.map(({ guardField, packageField }) => [
+      guardField,
+      packageField
+    ]),
+    expectedMatrix
+  );
+  const guard = buildManagedOverlayTargetGuard({
+    packageResult,
+    target: 'dev',
+    projectRef,
+    mutationGuardPassed: true,
+    projectRefMatched: true
+  });
+  assert.deepEqual(Object.keys(guard), [
+    'target',
+    'projectRef',
+    'mutationGuardPassed',
+    'projectRefMatched',
+    ...expectedMatrix.map(([guardField]) => guardField)
+  ]);
+  assert.equal(guard.managedCatalogDigest, packageResult.targetCompatibility.catalogDigest);
+  assert.equal(guard.restorePlanDigest, packageResult.manifest.planDigest);
+  assert.deepEqual(guard.managedProfileTarget, packageResult.targetCompatibility.managedProfileTarget);
+  assert.notEqual(guard.managedProfileTarget, packageResult.targetCompatibility.managedProfileTarget);
+
+  for (const mutate of [
+    (value) => { value.targetCompatibility = null; },
+    (value) => { value.manifest = null; },
+    (value) => { value.targetCompatibility.catalogDigest = ''; },
+    (value) => { value.targetCompatibility.managedProfileId = ''; },
+    (value) => { value.targetCompatibility.managedProfileTarget = null; },
+    (value) => { value.manifest.planDigest = 'sha256:invalid'; }
+  ]) {
+    const changed = structuredClone(packageResult);
+    mutate(changed);
+    assert.throws(() => buildManagedOverlayTargetGuard({
+      packageResult: changed,
+      target: 'dev',
+      projectRef,
+      mutationGuardPassed: true,
+      projectRefMatched: true
+    }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_INVALID' });
+  }
+  assert.throws(() => buildManagedOverlayTargetGuard({
+    packageResult,
+    target: 'sandbox',
+    projectRef,
+    mutationGuardPassed: true,
+    projectRefMatched: true
+  }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_INVALID' });
+  assert.throws(() => buildManagedOverlayTargetGuard({
+    packageResult,
+    target: 'dev',
+    projectRef,
+    mutationGuardPassed: false,
+    projectRefMatched: true
+  }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_INVALID' });
+});
 
 test('all 23 Auth tables have one exact no-DML recovery classification', () => {
   assert.deepEqual(Object.keys(AUTH_RECOVERY_TABLE_CLASSIFICATION), CURRENT_AUTH_TABLES);

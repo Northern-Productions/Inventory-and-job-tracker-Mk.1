@@ -43,7 +43,11 @@ import {
   generateCurrentDatabaseRecoveryPackage,
   probeFutureObjectDefaults
 } from './managed-restore-rehearsal.mjs';
-import { executeManagedOverlayPackage } from './managed-restore.mjs';
+import {
+  buildManagedOverlayTargetGuard,
+  executeManagedOverlayPackage,
+  verifyManagedOverlayPackageForExecution
+} from './managed-restore.mjs';
 import {
   captureNativeSmokePreservation,
   verifyNativeSmokePreservation
@@ -111,13 +115,13 @@ function targetGuard(preparation, packageResult) {
   if (preparation.mode === 'disposable-managed-local') {
     return { mode: 'disposable-managed-local', loopback: true };
   }
-  return {
+  return buildManagedOverlayTargetGuard({
+    packageResult,
     target: 'dev',
     projectRef: DEV_PROJECT_REF,
     mutationGuardPassed: true,
-    projectRefMatched: true,
-    ...packageResult.targetCompatibility
-  };
+    projectRefMatched: true
+  });
 }
 
 async function withClient(connectionString, callback) {
@@ -407,19 +411,31 @@ async function runDatabaseCutover(context) {
   const tools = resolvePostgresTools(session.postgresBin || '');
   const diagnostics = path.join(context.rootDirectory, 'diagnostics-private');
   if (!fs.existsSync(diagnostics)) createPrivateDirectory(diagnostics);
-  await executeManagedOverlayPackage({
+  const overlayGuard = targetGuard(context.preparation, session.devRefreshPackage);
+  const packageAuthentication = verifyManagedOverlayPackageForExecution({
+    connectionString: context.connectionString,
+    packageResult: session.devRefreshPackage,
+    targetGuard: overlayGuard
+  });
+  const overlay = await executeManagedOverlayPackage({
     psqlPath: tools.psql,
     connectionString: context.connectionString,
     packageResult: session.devRefreshPackage,
-    targetGuard: targetGuard(context.preparation, session.devRefreshPackage),
+    targetGuard: overlayGuard,
     diagnosticDirectory: diagnostics
   });
+  if (overlay.targetBindingDigest !== packageAuthentication.targetBindingDigest) {
+    throw categoricalError('DEV_REFRESH_DATABASE_CUTOVER_TARGET_BINDING_DRIFT');
+  }
   const migrations = context.preparation.postGoldenMigrations.map((entry) => ({
     version: entry.version,
     sql: fs.readFileSync(path.join(context.repoRoot, 'backend', 'migrations', entry.backendFile), 'utf8')
   }));
   const applied = await applyPostOverlayMigrations(context.connectionString, migrations);
-  writeStageState({ ...stateOptions(context, context.key, 'DATABASE_CUTOVER'), value: { applied } });
+  writeStageState({
+    ...stateOptions(context, context.key, 'DATABASE_CUTOVER'),
+    value: { applied, targetBindingDigest: packageAuthentication.targetBindingDigest }
+  });
   return {
     migrations: POST_GOLDEN_MIGRATIONS.map(({ id, version, digest }) => ({ id, version, digest })),
     managedOverlay: true,
@@ -612,18 +628,32 @@ async function runRecoveryDatabase(context) {
   await runSubstep('DIAGNOSTIC_DIRECTORY_PREPARATION', () => {
     if (!fs.existsSync(diagnostics)) createPrivateDirectory(diagnostics);
   });
-  await runSubstep('MANAGED_OVERLAY_EXECUTION', () => executeManagedOverlayPackage({
+  const overlayGuard = await runSubstep('TARGET_BINDING_BUILD', () =>
+    targetGuard(context.preparation, y2.recoveryPackage));
+  const packageAuthentication = await runSubstep('PACKAGE_PREVALIDATION', () =>
+    verifyManagedOverlayPackageForExecution({
+      connectionString: context.connectionString,
+      packageResult: y2.recoveryPackage,
+      targetGuard: overlayGuard
+    }));
+  const overlay = await runSubstep('MANAGED_OVERLAY_EXECUTION', () => executeManagedOverlayPackage({
     psqlPath: tools.psql,
     connectionString: context.connectionString,
     packageResult: y2.recoveryPackage,
-    targetGuard: targetGuard(context.preparation, y2.recoveryPackage),
+    targetGuard: overlayGuard,
     diagnosticDirectory: diagnostics
   }));
+  if (overlay.targetBindingDigest !== packageAuthentication.targetBindingDigest) {
+    throw categoricalError('DEV_REFRESH_RECOVERY_TARGET_BINDING_DRIFT');
+  }
   const current = await runSubstep('POST_RESTORE_FINGERPRINT', () =>
     captureCoreState(context.preparation)
   );
   await runSubstep('STAGE_STATE_WRITE', () =>
-    writeStageState({ ...stateOptions(context, context.key, 'RECOVERY_DATABASE'), value: current })
+    writeStageState({
+      ...stateOptions(context, context.key, 'RECOVERY_DATABASE'),
+      value: { ...current, targetBindingDigest: packageAuthentication.targetBindingDigest }
+    })
   );
   return { applicationRestored: true, migrationRestored: true, aclRestored: true, relationalAuthRestored: true };
 }

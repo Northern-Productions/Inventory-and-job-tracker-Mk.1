@@ -12,6 +12,8 @@ import pg from 'pg';
 
 import {
   DEV_PROJECT_REF,
+  PROD_PROJECT_REF,
+  SANDBOX_PROJECT_REF,
   verifyAuthenticatedCertifiedRefreshContract
 } from './dev-certified-contract.mjs';
 import { createOperationExecutor } from './dev-certified-operation-executor.mjs';
@@ -45,7 +47,10 @@ import {
   writePrivateBytesExclusive
 } from './private-artifacts.mjs';
 import { applyManagedAuthPrivilegeProfile } from './managed-restore-rehearsal.mjs';
-import { verifyManagedOverlayPackageForExecution } from './managed-restore.mjs';
+import {
+  buildManagedOverlayTargetGuard,
+  verifyManagedOverlayPackageForExecution
+} from './managed-restore.mjs';
 
 const { Client } = pg;
 
@@ -871,6 +876,109 @@ test('real disposable failed recovery is remediated from original Y2 with R3 fal
       attemptId: recovery.contract.remediationAttemptId,
       stage: 'R3_VALIDATED'
     });
+    const managedProdConnection =
+      `postgresql://postgres:synthetic@db.${PROD_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
+    const managedSandboxConnection =
+      `postgresql://postgres:synthetic@db.${SANDBOX_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
+    const managedPackages = [
+      recoveryFailure.preparation.targetBefore.session.devRefreshPackage,
+      recoveryFailure.y2.recoveryPackage
+    ];
+    for (const managedPackage of managedPackages) {
+      assert.equal(managedPackage.targetCompatibility.managedProfileTarget.environment, 'dev');
+      const managedProjectRef = managedPackage.targetCompatibility.managedProfileTarget.projectRef;
+      assert.match(managedProjectRef, /^[a-z0-9]{20}$/);
+      const managedDevConnection =
+        `postgresql://postgres:synthetic@db.${managedProjectRef}.supabase.co:5432/postgres?sslmode=require`;
+      const managedGuard = buildManagedOverlayTargetGuard({
+        packageResult: managedPackage,
+        target: 'dev',
+        projectRef: managedProjectRef,
+        mutationGuardPassed: true,
+        projectRefMatched: true
+      });
+      const verified = verifyManagedOverlayPackageForExecution({
+        connectionString: managedDevConnection,
+        packageResult: managedPackage,
+        targetGuard: managedGuard
+      });
+      assert.equal(verified.authenticated, true);
+      assert.match(verified.targetBindingDigest, /^sha256:[a-f0-9]{64}$/);
+
+      const oldGuard = {
+        target: 'dev',
+        projectRef: managedProjectRef,
+        mutationGuardPassed: true,
+        projectRefMatched: true,
+        ...managedPackage.targetCompatibility
+      };
+      assert.equal(Object.hasOwn(oldGuard, 'managedCatalogDigest'), false);
+      assert.equal(Object.hasOwn(oldGuard, 'restorePlanDigest'), false);
+      assert.throws(() => verifyManagedOverlayPackageForExecution({
+        connectionString: managedDevConnection,
+        packageResult: managedPackage,
+        targetGuard: oldGuard
+      }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_REJECTED' });
+
+      for (const field of [
+        'managedCatalogDigest',
+        'restorePlanDigest',
+        'managedProfileDigest',
+        'managedProfileId',
+        'managedProfileSecurityDigest',
+        'managedProfileTarget',
+        'authShapeDigest',
+        'applicationReplacementDigest'
+      ]) {
+        const missing = structuredClone(managedGuard);
+        delete missing[field];
+        assert.throws(() => verifyManagedOverlayPackageForExecution({
+          connectionString: managedDevConnection,
+          packageResult: managedPackage,
+          targetGuard: missing
+        }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_REJECTED' });
+        const wrong = structuredClone(managedGuard);
+        wrong[field] = field === 'managedProfileTarget'
+          ? { environment: 'dev', projectRef: 'z'.repeat(20) }
+          : `${String(wrong[field])}-wrong`;
+        assert.throws(() => verifyManagedOverlayPackageForExecution({
+          connectionString: managedDevConnection,
+          packageResult: managedPackage,
+          targetGuard: wrong
+        }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_REJECTED' });
+      }
+      for (const connectionString of [managedProdConnection, managedSandboxConnection]) {
+        assert.throws(() => verifyManagedOverlayPackageForExecution({
+          connectionString,
+          packageResult: managedPackage,
+          targetGuard: managedGuard
+        }), { code: 'MANAGED_OVERLAY_TARGET_GUARD_REJECTED' });
+      }
+      assert.throws(() => verifyManagedOverlayPackageForExecution({
+        connectionString: recoveryFailure.preparation.targetBefore.session.connectionString,
+        packageResult: managedPackage,
+        targetGuard: managedGuard
+      }), { code: 'MANAGED_OVERLAY_TARGET_GUARD_REJECTED' });
+      assert.throws(() => verifyManagedOverlayPackageForExecution({
+        connectionString: managedDevConnection,
+        packageResult: managedPackage,
+        targetGuard: { mode: 'disposable-managed-local', loopback: true }
+      }), { code: 'MANAGED_OVERLAY_TARGET_GUARD_REJECTED' });
+      const tamperedManifestPackage = structuredClone(managedPackage);
+      tamperedManifestPackage.manifest.planDigest = `sha256:${'0'.repeat(64)}`;
+      assert.throws(() => verifyManagedOverlayPackageForExecution({
+        connectionString: managedDevConnection,
+        packageResult: tamperedManifestPackage,
+        targetGuard: managedGuard
+      }));
+    }
+    assert.throws(() => buildManagedOverlayTargetGuard({
+      packageResult: r3.recoveryPackage,
+      target: 'dev',
+      projectRef: DEV_PROJECT_REF,
+      mutationGuardPassed: true,
+      projectRefMatched: true
+    }), { code: 'MANAGED_OVERLAY_COMPATIBILITY_BINDING_INVALID' });
     const packageVerification = {
       connectionString: recoveryFailure.preparation.targetBefore.session.connectionString,
       packageResult: r3.recoveryPackage,

@@ -593,7 +593,18 @@ test('remediation overlay guards are selected by the actual mutation destination
   const managedDev = `postgresql://postgres:synthetic@db.${DEV_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
   const managedSandbox = `postgresql://postgres:synthetic@db.${SANDBOX_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
   const managedProd = `postgresql://postgres:synthetic@db.${PROD_PROJECT_REF}.supabase.co:5432/postgres?sslmode=require`;
-  const packageResult = { targetCompatibility: {} };
+  const packageResult = {
+    targetCompatibility: {
+      authShapeDigest: digest('auth-shape'),
+      catalogDigest: digest('catalog'),
+      managedProfileDigest: digest('profile'),
+      managedProfileId: 'dev-managed-profile-v1',
+      managedProfileTarget: { environment: 'dev', projectRef: DEV_PROJECT_REF },
+      managedProfileSecurityDigest: digest('profile-security'),
+      applicationReplacementDigest: digest('application-replacement')
+    },
+    manifest: { planDigest: digest('restore-plan') }
+  };
   const localGuard = disposableLoopbackOverlayGuard();
   const devGuard = managedDevOverlayGuard(packageResult);
 
@@ -645,8 +656,30 @@ test('R3 canonical overlays are loopback-guarded while remediation restores rema
   );
   assert.match(
     knownRestore,
-    /connectionString:\s*context\.connectionString[\s\S]*targetGuard:\s*remediationDatabaseOverlayGuard\(context, packageResult\)/
+    /const overlayGuard = remediationDatabaseOverlayGuard\(context, packageResult\);[\s\S]*verifyManagedOverlayPackageForExecution\([\s\S]*targetGuard:\s*overlayGuard[\s\S]*executeManagedOverlayPackage\([\s\S]*targetGuard:\s*overlayGuard/
   );
+  assert.match(
+    knownRestore,
+    /expectedPackageAuthentication[\s\S]*canonicalDigest\(packageAuthentication\) !== canonicalDigest\(expectedPackageAuthentication\)/
+  );
+  assert.match(
+    source,
+    /packageResult:\s*r3\.originalY2RecoveryPackage,\s*expectedPackageAuthentication:\s*r3\.originalY2PackageAuthentication/
+  );
+  assert.match(
+    source,
+    /packageResult:\s*r3\.recoveryPackage,\s*expectedPackageAuthentication:\s*r3\.recoveryPackageAuthentication/
+  );
+  assert.match(source, /function managedDevOverlayGuard\(packageResult\)[\s\S]*buildManagedOverlayTargetGuard\(\{/);
+  assert.doesNotMatch(source, /\.\.\.packageResult\.targetCompatibility/);
+
+  const refreshSource = fs.readFileSync(path.join(REPO_ROOT, REFRESH_WORKER_REPO_PATH), 'utf8');
+  assert.match(refreshSource, /function targetGuard\(preparation, packageResult\)[\s\S]*buildManagedOverlayTargetGuard\(\{/);
+  assert.equal(
+    refreshSource.match(/targetGuard\(context\.preparation,\s*(?:session\.devRefreshPackage|y2\.recoveryPackage)\)/g)?.length,
+    2
+  );
+  assert.doesNotMatch(refreshSource, /\.\.\.packageResult\.targetCompatibility/);
 });
 
 test('fallback authenticates and executes the prevalidated R3 package without postfailure regeneration', () => {

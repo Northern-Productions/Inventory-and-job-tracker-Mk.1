@@ -47,6 +47,22 @@ const DEV_Y2_AUTH_RECOVERY_FORMAT = 'dev-y2-exact-auth-recovery-v1';
 const DEV_Y2_AUTH_RECOVERY_MODE = 'exact-dev-y2-recovery';
 const DEV_REMEDIATION_AUTH_PRESERVATION_FORMAT = 'dev-remediation-auth-preservation-v1';
 const DEV_REMEDIATION_AUTH_PRESERVATION_MODE = 'preserve-target-native-auth';
+const MANAGED_OVERLAY_COMPATIBILITY_BINDING_FIELDS = Object.freeze([
+  Object.freeze({ guardField: 'managedCatalogDigest', packageField: 'targetCompatibility.catalogDigest' }),
+  Object.freeze({ guardField: 'managedProfileDigest', packageField: 'targetCompatibility.managedProfileDigest' }),
+  Object.freeze({ guardField: 'managedProfileId', packageField: 'targetCompatibility.managedProfileId' }),
+  Object.freeze({
+    guardField: 'managedProfileSecurityDigest',
+    packageField: 'targetCompatibility.managedProfileSecurityDigest'
+  }),
+  Object.freeze({ guardField: 'managedProfileTarget', packageField: 'targetCompatibility.managedProfileTarget' }),
+  Object.freeze({ guardField: 'authShapeDigest', packageField: 'targetCompatibility.authShapeDigest' }),
+  Object.freeze({
+    guardField: 'applicationReplacementDigest',
+    packageField: 'targetCompatibility.applicationReplacementDigest'
+  }),
+  Object.freeze({ guardField: 'restorePlanDigest', packageField: 'manifest.planDigest' })
+]);
 const MANAGED_RESTORE_ACTIONS = Object.freeze([
   'restore',
   'transform',
@@ -120,6 +136,74 @@ function categoricalError(code) {
 
 function sha256(value) {
   return `sha256:${crypto.createHash('sha256').update(value).digest('hex')}`;
+}
+
+function managedOverlayCompatibilityBinding(packageResult) {
+  const compatibility = packageResult?.targetCompatibility;
+  const manifest = packageResult?.manifest;
+  const binding = {
+    managedCatalogDigest: compatibility?.catalogDigest,
+    managedProfileDigest: compatibility?.managedProfileDigest,
+    managedProfileId: compatibility?.managedProfileId,
+    managedProfileSecurityDigest: compatibility?.managedProfileSecurityDigest,
+    managedProfileTarget: compatibility?.managedProfileTarget,
+    authShapeDigest: compatibility?.authShapeDigest,
+    applicationReplacementDigest: compatibility?.applicationReplacementDigest,
+    restorePlanDigest: manifest?.planDigest
+  };
+  const digestFields = [
+    'managedCatalogDigest',
+    'managedProfileDigest',
+    'managedProfileSecurityDigest',
+    'authShapeDigest',
+    'applicationReplacementDigest',
+    'restorePlanDigest'
+  ];
+  if (
+    !packageResult || typeof packageResult !== 'object' || Array.isArray(packageResult) ||
+    !compatibility || typeof compatibility !== 'object' || Array.isArray(compatibility) ||
+    !manifest || typeof manifest !== 'object' || Array.isArray(manifest) ||
+    Object.keys(binding).join(',') !==
+      MANAGED_OVERLAY_COMPATIBILITY_BINDING_FIELDS.map(({ guardField }) => guardField).join(',') ||
+    digestFields.some((name) => !/^sha256:[a-f0-9]{64}$/.test(String(binding[name] || ''))) ||
+    !/^[a-z][a-z0-9._-]{2,95}$/.test(String(binding.managedProfileId || '')) ||
+    !binding.managedProfileTarget || typeof binding.managedProfileTarget !== 'object' ||
+    Array.isArray(binding.managedProfileTarget) ||
+    !['dev', 'sandbox'].includes(binding.managedProfileTarget.environment) ||
+    !/^[a-z0-9]{20}$/.test(String(binding.managedProfileTarget.projectRef || ''))
+  ) {
+    throw categoricalError('MANAGED_OVERLAY_COMPATIBILITY_BINDING_INVALID');
+  }
+  return {
+    ...binding,
+    managedProfileTarget: { ...binding.managedProfileTarget }
+  };
+}
+
+function buildManagedOverlayTargetGuard({
+  packageResult,
+  target,
+  projectRef,
+  mutationGuardPassed,
+  projectRefMatched
+} = {}) {
+  const binding = managedOverlayCompatibilityBinding(packageResult);
+  if (
+    mutationGuardPassed !== true || projectRefMatched !== true ||
+    !['dev', 'sandbox'].includes(target) ||
+    !/^[a-z0-9]{20}$/.test(String(projectRef || '')) ||
+    binding.managedProfileTarget.environment !== target ||
+    binding.managedProfileTarget.projectRef !== projectRef
+  ) {
+    throw categoricalError('MANAGED_OVERLAY_COMPATIBILITY_BINDING_INVALID');
+  }
+  return {
+    target,
+    projectRef,
+    mutationGuardPassed,
+    projectRefMatched,
+    ...binding
+  };
 }
 
 function safeCount(value, code = 'MANAGED_RESTORE_COUNT_INVALID') {
@@ -1913,7 +1997,7 @@ async function executeManagedOverlayPackage({
   targetGuard,
   diagnosticDirectory
 } = {}) {
-  const { executionTarget, scriptPath } = verifyManagedOverlayPackageForExecution({
+  const { executionTarget, scriptPath, targetBindingDigest } = verifyManagedOverlayPackageForExecution({
     connectionString,
     packageResult,
     targetGuard
@@ -1939,7 +2023,13 @@ async function executeManagedOverlayPackage({
     }
     throw error;
   }
-  return { applied: true, atomic: true, diagnostic: result.safeDiagnostic, executionTarget };
+  return {
+    applied: true,
+    atomic: true,
+    diagnostic: result.safeDiagnostic,
+    executionTarget,
+    targetBindingDigest
+  };
 }
 
 function verifyManagedOverlayPackageForExecution({
@@ -1957,24 +2047,32 @@ function verifyManagedOverlayPackageForExecution({
     throw categoricalError('MANAGED_OVERLAY_ACL_CONTRACT_BINDING_REJECTED');
   }
   const targetCompatibility = packageResult?.targetCompatibility;
+  let authenticatedTargetGuard;
+  if (executionTarget.loopback !== true) {
+    try {
+      authenticatedTargetGuard = buildManagedOverlayTargetGuard({
+        packageResult,
+        target: executionTarget.target,
+        projectRef: executionTarget.projectRef,
+        mutationGuardPassed: true,
+        projectRefMatched: true
+      });
+    } catch {
+      throw categoricalError('MANAGED_OVERLAY_COMPATIBILITY_BINDING_REJECTED');
+    }
+  }
   if (
     !targetCompatibility ||
-    (executionTarget.loopback !== true && (
-      targetGuard?.managedCatalogDigest !== targetCompatibility.catalogDigest ||
-      targetGuard?.managedProfileDigest !== targetCompatibility.managedProfileDigest ||
-      targetGuard?.managedProfileId !== targetCompatibility.managedProfileId ||
-      targetGuard?.managedProfileSecurityDigest !== targetCompatibility.managedProfileSecurityDigest ||
-      canonicalSerialize(targetGuard?.managedProfileTarget) !==
-        canonicalSerialize(targetCompatibility.managedProfileTarget) ||
-      targetCompatibility.managedProfileTarget?.environment !== executionTarget.target ||
-      targetCompatibility.managedProfileTarget?.projectRef !== executionTarget.projectRef ||
-      targetGuard?.authShapeDigest !== targetCompatibility.authShapeDigest ||
-      targetGuard?.applicationReplacementDigest !== targetCompatibility.applicationReplacementDigest ||
-      targetGuard?.restorePlanDigest !== packageResult.manifest.planDigest
-    ))
+    (executionTarget.loopback !== true &&
+      canonicalSerialize(targetGuard) !== canonicalSerialize(authenticatedTargetGuard))
   ) {
     throw categoricalError('MANAGED_OVERLAY_COMPATIBILITY_BINDING_REJECTED');
   }
+  const targetBindingDigest = canonicalDigest(
+    executionTarget.loopback === true
+      ? { mode: 'disposable-managed-local', loopback: true }
+      : authenticatedTargetGuard
+  );
   const scriptPath = packageResult?.paths?.scriptPath;
   const aclContractPath = packageResult?.paths?.aclContractPath;
   const authRecoveryAuthorityPath = packageResult?.paths?.authRecoveryAuthorityPath;
@@ -2036,7 +2134,13 @@ function verifyManagedOverlayPackageForExecution({
   } finally {
     scriptBytes.fill(0);
   }
-  return { authenticated: true, executionTarget, scriptPath, artifactCount: artifactNames.length };
+  return {
+    authenticated: true,
+    executionTarget,
+    scriptPath,
+    artifactCount: artifactNames.length,
+    targetBindingDigest
+  };
 }
 
 export {
@@ -2052,6 +2156,7 @@ export {
   MANAGED_RESTORE_CANONICALIZATION,
   MANAGED_RESTORE_CATEGORIES,
   MANAGED_RESTORE_MANIFEST_FORMAT,
+  MANAGED_OVERLAY_COMPATIBILITY_BINDING_FIELDS,
   REQUIRED_MANAGED_ROLES,
   TARGET_NATIVE_SCHEMAS,
   applicationContentRestoreList,
@@ -2068,6 +2173,7 @@ export {
   buildExactAuthRecoveryAuthority,
   buildApplicationPlaneResetSql,
   buildManagedOverlaySql,
+  buildManagedOverlayTargetGuard,
   buildManagedRestoreManifest,
   captureAuthOverlaySourceEvidence,
   captureExactAuthRecoveryEvidence,
