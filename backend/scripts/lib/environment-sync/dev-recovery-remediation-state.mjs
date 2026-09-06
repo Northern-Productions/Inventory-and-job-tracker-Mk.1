@@ -456,14 +456,24 @@ function readAuthCanaryDirectory(directory, key, journal) {
     allowance.canaryId !== records[0].canaryId || allowance.purpose !== records[0].purpose ||
     allowance.source !== 'immediate-canary-discovery' ||
     !Array.isArray(allowance.sessions) || !Array.isArray(allowance.refreshTokens) ||
+    !Array.isArray(allowance.sessionRows) || !Array.isArray(allowance.refreshTokenRows) ||
     new Set(allowance.sessions).size !== allowance.sessions.length ||
     new Set(allowance.refreshTokens).size !== allowance.refreshTokens.length ||
     allowance.sessions.length > 1 || allowance.refreshTokens.length > 1 ||
+    allowance.sessionRows.length !== allowance.sessions.length ||
+    allowance.refreshTokenRows.length !== allowance.refreshTokens.length ||
+    allowance.sessionRows.some((row, index) =>
+      row?.sessionId !== allowance.sessions[index] || !/^sha256:[0-9a-f]{64}$/.test(row?.digest)) ||
+    allowance.refreshTokenRows.some((row, index) =>
+      row?.refreshTokenId !== allowance.refreshTokens[index] ||
+      typeof row?.sessionId !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(row?.digest)) ||
     [...allowance.sessions, ...allowance.refreshTokens].some((value) =>
       typeof value !== 'string' || value.length < 1 || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)
     ) || allowance.allowanceDigest !== canonicalDigest({
       sessions: allowance.sessions,
-      refreshTokens: allowance.refreshTokens
+      refreshTokens: allowance.refreshTokens,
+      sessionRows: allowance.sessionRows,
+      refreshTokenRows: allowance.refreshTokenRows
     })
   )) throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_ALLOWANCE_INVALID');
   return { directory, records, current: records.at(-1), initial: records[0], allowance };
@@ -544,7 +554,9 @@ function beginRemediationAuthCanary(rootDirectory, key, purpose, recordedAt = ne
 
 function freezeRemediationAuthCanaryAllowance(rootDirectory, key, canaryId, {
   sessions = [],
-  refreshTokens = []
+  refreshTokens = [],
+  sessionRows = [],
+  refreshTokenRows = []
 } = {}, recordedAt = new Date().toISOString()) {
   const canary = readRemediationAuthCanaries(rootDirectory, key)
     .find((entry) => entry.current.canaryId === canaryId);
@@ -558,6 +570,15 @@ function freezeRemediationAuthCanaryAllowance(rootDirectory, key, canaryId, {
       throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_ALLOWANCE_INVALID');
     }
   }
+  if (
+    !Array.isArray(sessionRows) || !Array.isArray(refreshTokenRows) ||
+    sessionRows.length !== sessions.length || refreshTokenRows.length !== refreshTokens.length ||
+    sessionRows.some((row, index) =>
+      row?.sessionId !== sessions[index] || !/^sha256:[0-9a-f]{64}$/.test(row?.digest)) ||
+    refreshTokenRows.some((row, index) =>
+      row?.refreshTokenId !== refreshTokens[index] || typeof row?.sessionId !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/.test(row?.digest))
+  ) throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_ALLOWANCE_INVALID');
   const payload = {
     format: REMEDIATION_AUTH_EPHEMERA_FORMAT,
     remediationAttemptId: canary.current.remediationAttemptId,
@@ -567,7 +588,9 @@ function freezeRemediationAuthCanaryAllowance(rootDirectory, key, canaryId, {
     source: 'immediate-canary-discovery',
     sessions: [...sessions],
     refreshTokens: [...refreshTokens],
-    allowanceDigest: canonicalDigest({ sessions, refreshTokens }),
+    sessionRows: [...sessionRows],
+    refreshTokenRows: [...refreshTokenRows],
+    allowanceDigest: canonicalDigest({ sessions, refreshTokens, sessionRows, refreshTokenRows }),
     recordedAt
   };
   writePrivateJsonExclusive(
@@ -625,7 +648,9 @@ function remediationAuthCanaryDisposition(rootDirectory, key) {
     entry.records.some((record) => record.state === 'CANARY_COMPLETE'));
   const allowances = {
     sessions: unresolved.flatMap((entry) => entry.allowance?.sessions || []),
-    refreshTokens: unresolved.flatMap((entry) => entry.allowance?.refreshTokens || [])
+    refreshTokens: unresolved.flatMap((entry) => entry.allowance?.refreshTokens || []),
+    sessionRows: unresolved.flatMap((entry) => entry.allowance?.sessionRows || []),
+    refreshTokenRows: unresolved.flatMap((entry) => entry.allowance?.refreshTokenRows || [])
   };
   return {
     canaryCount: canaries.length,

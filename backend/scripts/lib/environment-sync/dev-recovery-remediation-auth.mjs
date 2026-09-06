@@ -14,6 +14,9 @@ const AUTH_EPHEMERA_MODES = Object.freeze({
   FROZEN_ATTEMPT_PARITY: 'FROZEN_ATTEMPT_PARITY'
 });
 const AUTH_TABLE_CLASSIFICATION = AUTH_RECOVERY_TABLE_CLASSIFICATION;
+const STABLE_EXACT_AUTH_TABLES = Object.freeze(Object.entries(AUTH_TABLE_CLASSIFICATION)
+  .filter(([, classification]) => classification.state === 'stable_exact')
+  .map(([tableName]) => tableName));
 
 function categoricalError(code) {
   const error = new Error(code);
@@ -94,20 +97,43 @@ async function capturedRows(client, sql, values = []) {
   return { count: rows.length, digest: canonicalDigest(rows) };
 }
 
+async function captureStableAuthTablesFromClient(client) {
+  const tables = {};
+  for (const tableName of STABLE_EXACT_AUTH_TABLES) {
+    // Names come only from the frozen classification above, never from runtime input.
+    tables[tableName] = await capturedRows(client, `
+      select to_jsonb(row_value) as value from auth."${tableName}" row_value
+       order by pg_catalog.convert_to(pg_catalog.to_jsonb(row_value)::text, 'UTF8')`);
+  }
+  return tables;
+}
+
 async function nativeEphemera(client, userId) {
-  const sessions = (await client.query(
-    'select id::text as value from auth.sessions where user_id=$1::uuid order by id::text', [userId]
-  )).rows.map((row) => String(row.value));
+  const sessionRows = (await client.query(
+    `select id::text as value,
+            'sha256:' || encode(extensions.digest(
+              pg_catalog.convert_to(pg_catalog.to_jsonb(s)::text, 'UTF8'), 'sha256'
+            ), 'hex') as row_digest
+       from auth.sessions s where user_id=$1::uuid order by id::text`, [userId]
+  )).rows;
   const refreshRows = (await client.query(
-    `select id::text as value, coalesce(session_id::text, '') as session_id
-       from auth.refresh_tokens where user_id=$1::text order by id::text`, [userId]
+    `select id::text as value, coalesce(session_id::text, '') as session_id,
+            'sha256:' || encode(extensions.digest(
+              pg_catalog.convert_to(pg_catalog.to_jsonb(r)::text, 'UTF8'), 'sha256'
+            ), 'hex') as row_digest
+       from auth.refresh_tokens r where user_id=$1::text order by id::text`, [userId]
   )).rows;
   return {
-    sessions,
+    sessions: sessionRows.map((row) => String(row.value)),
+    sessionRows: sessionRows.map((row) => ({
+      sessionId: String(row.value).toLowerCase(),
+      digest: String(row.row_digest).toLowerCase()
+    })),
     refreshTokens: refreshRows.map((row) => String(row.value)),
-    refreshTokenSessions: refreshRows.map((row) => ({
+    refreshTokenRows: refreshRows.map((row) => ({
       refreshTokenId: String(row.value),
-      sessionId: String(row.session_id || '').toLowerCase()
+      sessionId: String(row.session_id || '').toLowerCase(),
+      digest: String(row.row_digest).toLowerCase()
     }))
   };
 }
@@ -152,9 +178,7 @@ async function captureRemediationAuthCertificateFromClient(client, {
       select to_jsonb(r) as value from auth.refresh_tokens r
        where r.user_id is distinct from $1::text order by r.id`, [nativeUserId])
   };
-  const auditLog = await capturedRows(client, `
-    select to_jsonb(a) as value from auth.audit_log_entries a
-     order by pg_catalog.convert_to(pg_catalog.to_jsonb(a)::text, 'UTF8')`);
+  const stableTables = await captureStableAuthTablesFromClient(client);
   const relationshipRows = (await client.query(`
     select to_jsonb(m) as membership,
            to_jsonb(o) as organization,
@@ -191,7 +215,7 @@ async function captureRemediationAuthCertificateFromClient(client, {
     copiedUsers,
     copiedIdentities,
     copiedEphemera,
-    auditLog,
+    stableTables,
     nativeUsers,
     nativeIdentities,
     relationshipDigest: canonicalDigest(relationshipRows.map((row) => ({
@@ -225,19 +249,40 @@ function assertIdentifierSet(values) {
   return values;
 }
 
-function assertRefreshTokenSessions(values) {
+function assertEphemeraRows(values, { refreshTokens = false } = {}) {
   if (!Array.isArray(values) || values.some((entry) =>
     !entry || typeof entry !== 'object' || Array.isArray(entry) ||
-    typeof entry.refreshTokenId !== 'string' || typeof entry.sessionId !== 'string' ||
-    entry.refreshTokenId.length < 1 || entry.refreshTokenId.length > 256 ||
-    /[\x00-\x1f\x7f]/.test(entry.refreshTokenId) ||
-    (entry.sessionId !== '' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.sessionId))
+    typeof entry[refreshTokens ? 'refreshTokenId' : 'sessionId'] !== 'string' ||
+    typeof entry.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(entry.digest) ||
+    (refreshTokens && (typeof entry.sessionId !== 'string' ||
+      (entry.sessionId !== '' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.sessionId))))
   )) throw categoricalError('DEV_REMEDIATION_AUTH_REFRESH_SESSION_BINDING_INVALID');
-  const keys = values.map((entry) => entry.refreshTokenId);
+  const keys = values.map((entry) => entry[refreshTokens ? 'refreshTokenId' : 'sessionId']);
   if (new Set(keys).size !== keys.length) {
     throw categoricalError('DEV_REMEDIATION_AUTH_REFRESH_SESSION_BINDING_INVALID');
   }
   return values;
+}
+
+function assertExactEphemeraRows(beforeRows, afterRows, allowedRows, addedIds, {
+  refreshTokens = false,
+  permitDiscovery = false
+} = {}) {
+  assertEphemeraRows(beforeRows, { refreshTokens });
+  assertEphemeraRows(afterRows, { refreshTokens });
+  assertEphemeraRows(allowedRows, { refreshTokens });
+  const key = refreshTokens ? 'refreshTokenId' : 'sessionId';
+  const before = new Map(beforeRows.map((row) => [row[key], row]));
+  const after = new Map(afterRows.map((row) => [row[key], row]));
+  const allowed = new Map(allowedRows.map((row) => [row[key], row]));
+  for (const [id, row] of after) {
+    const expected = before.get(id) || allowed.get(id) ||
+      (permitDiscovery && addedIds.includes(id) ? row : undefined);
+    if (!expected || canonicalSerialize(row) !== canonicalSerialize(expected)) {
+      throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_ROW_DRIFT');
+    }
+  }
+  return addedIds.map((id) => after.get(id));
 }
 
 function compareEphemeraSet(beforeValues, afterValues, mode, allowedValues = []) {
@@ -277,7 +322,7 @@ function assertRemediationAuthTransition(before, after, {
   mode = AUTH_EPHEMERA_MODES.STRICT_CLEAN,
   logoutSucceeded,
   requireFreshLogin = false,
-  allowedNativeEphemera = { sessions: [], refreshTokens: [] },
+  allowedNativeEphemera = { sessions: [], refreshTokens: [], sessionRows: [], refreshTokenRows: [] },
   expectedCanarySessionId = ''
 } = {}) {
   if (
@@ -303,11 +348,21 @@ function assertRemediationAuthTransition(before, after, {
     mode,
     allowedNativeEphemera.refreshTokens
   );
+  const discoveredSessionRows = assertExactEphemeraRows(
+    before.nativeEphemera.sessionRows, after.nativeEphemera.sessionRows,
+    allowedNativeEphemera.sessionRows || [], sessions.additions,
+    { permitDiscovery: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY }
+  );
+  const discoveredRefreshTokenRows = assertExactEphemeraRows(
+    before.nativeEphemera.refreshTokenRows, after.nativeEphemera.refreshTokenRows,
+    allowedNativeEphemera.refreshTokenRows || [], refreshTokens.additions,
+    { refreshTokens: true, permitDiscovery: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY }
+  );
   if (expectedCanarySessionId) {
     const sessionId = assertUuid(
       expectedCanarySessionId, 'DEV_REMEDIATION_AUTH_CANARY_SESSION_ID_INVALID'
     );
-    const bindings = assertRefreshTokenSessions(after.nativeEphemera.refreshTokenSessions);
+    const bindings = assertEphemeraRows(after.nativeEphemera.refreshTokenRows, { refreshTokens: true });
     const addedBindings = bindings.filter((entry) => refreshTokens.additions.includes(entry.refreshTokenId));
     if (
       mode !== AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY ||
@@ -333,7 +388,13 @@ function assertRemediationAuthTransition(before, after, {
         : [...allowedNativeEphemera.sessions],
       refreshTokens: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY
         ? refreshTokens.additions
-        : [...allowedNativeEphemera.refreshTokens]
+        : [...allowedNativeEphemera.refreshTokens],
+      sessionRows: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY
+        ? discoveredSessionRows
+        : [...(allowedNativeEphemera.sessionRows || [])],
+      refreshTokenRows: mode === AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY
+        ? discoveredRefreshTokenRows
+        : [...(allowedNativeEphemera.refreshTokenRows || [])]
     },
     presentAttemptEphemera: {
       sessions: sessions.presentAllowed,
@@ -668,6 +729,7 @@ export {
   assertExactRemediationUrls,
   assertRemediationAuthTransition,
   captureQuietWindowFromClient,
+  captureStableAuthTablesFromClient,
   captureRemediationAuthCertificateFromClient,
   captureRuntimeSideEffectPostureFromClient,
   fetchFreshEdgeIdentity,

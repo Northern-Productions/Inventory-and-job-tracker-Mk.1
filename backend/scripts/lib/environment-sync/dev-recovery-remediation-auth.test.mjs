@@ -63,6 +63,8 @@ function certificate({
     refreshTokenId,
     sessionId: sessions.length === 1 ? sessions[0] : ''
   })),
+  sessionSecurity = {},
+  refreshTokenSecurity = {},
   copiedDigest = 'copied'
 } = {}) {
   const stable = {
@@ -72,7 +74,9 @@ function certificate({
       sessions: { count: 0, digest: 'sessions' },
       refreshTokens: { count: 0, digest: 'refresh' }
     },
-    auditLog: { count: 0, digest: 'audit' },
+    stableTables: Object.fromEntries(Object.entries(AUTH_TABLE_CLASSIFICATION)
+      .filter(([, classification]) => classification.state === 'stable_exact')
+      .map(([tableName]) => [tableName, { count: 0, digest: `${tableName}-digest` }])),
     nativeUsers: { count: 1, digest: 'native-user' },
     nativeIdentities: { count: 1, digest: 'native-identity' },
     relationshipDigest: 'relationship',
@@ -88,7 +92,19 @@ function certificate({
       identity_last_sign_in_at: lastSignIn,
       identity_updated_at: lastSignIn
     },
-    nativeEphemera: { sessions, refreshTokens, refreshTokenSessions }
+    nativeEphemera: {
+      sessions,
+      refreshTokens,
+      sessionRows: sessions.map((sessionId) => ({
+        sessionId,
+        digest: `sha256:${crypto.createHash('sha256').update(`session:${sessionId}:${sessionSecurity[sessionId] || ''}`).digest('hex')}`
+      })),
+      refreshTokenRows: refreshTokenSessions.map(({ refreshTokenId, sessionId }) => ({
+        refreshTokenId,
+        sessionId,
+        digest: `sha256:${crypto.createHash('sha256').update(`refresh:${refreshTokenId}:${sessionId}:${refreshTokenSecurity[refreshTokenId] || ''}`).digest('hex')}`
+      }))
+    }
   };
 }
 
@@ -120,6 +136,7 @@ test('exact remediation URL guards reject lookalikes, credentials, paths, ports,
 
 test('semantic Auth parity permits only native login volatility and bounded logout-failure ephemera', () => {
   const before = certificate();
+  const privateSessionId = crypto.randomUUID();
   const afterLogout = certificate({ lastSignIn: '2026-08-29T10:01:00.000Z' });
   assert.notDeepEqual(afterLogout, before);
   assert.equal(assertRemediationAuthTransition(before, afterLogout, {
@@ -128,7 +145,7 @@ test('semantic Auth parity permits only native login volatility and bounded logo
   }).copiedUsersExact, true);
   const afterFailedLogout = certificate({
     lastSignIn: '2026-08-29T10:01:00.000Z',
-    sessions: ['private-session'],
+    sessions: [privateSessionId],
     refreshTokens: ['private-refresh']
   });
   assert.notDeepEqual(afterFailedLogout, before);
@@ -190,10 +207,10 @@ test('immediate canary discovery binds the exact JWT session to exactly one refr
     requireFreshLogin: true,
     expectedCanarySessionId: sessionId
   });
-  assert.deepEqual(result.allowedNativeEphemera, {
-    sessions: [sessionId],
-    refreshTokens: ['1001']
-  });
+  assert.deepEqual(result.allowedNativeEphemera.sessions, [sessionId]);
+  assert.deepEqual(result.allowedNativeEphemera.refreshTokens, ['1001']);
+  assert.equal(result.allowedNativeEphemera.sessionRows.length, 1);
+  assert.equal(result.allowedNativeEphemera.refreshTokenRows.length, 1);
   assert.throws(() => assertRemediationAuthTransition(before, certificate({
     lastSignIn: '2026-08-29T10:01:00.000Z',
     sessions: [sessionId],
@@ -205,6 +222,43 @@ test('immediate canary discovery binds the exact JWT session to exactly one refr
     requireFreshLogin: true,
     expectedCanarySessionId: sessionId
   }), { code: 'DEV_REMEDIATION_AUTH_CANARY_SESSION_BINDING_MISMATCH' });
+});
+
+test('frozen canary evidence rejects mutable session, refresh-token, and linkage drift', () => {
+  const sessionId = crypto.randomUUID();
+  const before = certificate();
+  const discovered = certificate({ sessions: [sessionId], refreshTokens: ['1001'] });
+  const allowance = assertRemediationAuthTransition(before, discovered, {
+    mode: AUTH_EPHEMERA_MODES.IMMEDIATE_CANARY_DISCOVERY,
+    logoutSucceeded: false
+  }).allowedNativeEphemera;
+  for (const changed of [
+    certificate({ sessions: [sessionId], refreshTokens: ['1001'], sessionSecurity: { [sessionId]: 'aal-changed' } }),
+    certificate({ sessions: [sessionId], refreshTokens: ['1001'], refreshTokenSecurity: { 1001: 'revoked-changed' } }),
+    certificate({
+      sessions: [sessionId],
+      refreshTokens: ['1001'],
+      refreshTokenSessions: [{ refreshTokenId: '1001', sessionId: crypto.randomUUID() }]
+    })
+  ]) {
+    assert.throws(() => assertRemediationAuthTransition(before, changed, {
+      mode: AUTH_EPHEMERA_MODES.FROZEN_ATTEMPT_PARITY,
+      logoutSucceeded: false,
+      allowedNativeEphemera: allowance
+    }), { code: 'DEV_REMEDIATION_AUTH_EPHEMERA_ROW_DRIFT' });
+  }
+});
+
+test('every stable_exact Auth table participates in fail-closed semantic parity', () => {
+  for (const [tableName, classification] of Object.entries(AUTH_TABLE_CLASSIFICATION)) {
+    if (classification.state !== 'stable_exact') continue;
+    const before = certificate();
+    const after = certificate();
+    after.stable.stableTables[tableName].digest = `changed-${tableName}`;
+    assert.throws(() => assertRemediationAuthTransition(before, after), {
+      code: 'DEV_REMEDIATION_AUTH_STABLE_STATE_DRIFT'
+    });
+  }
 });
 
 test('Auth table classification is complete and strict-clean is the omitted default', () => {
@@ -276,7 +330,6 @@ test('semantic Auth certificate preserves an absent warehouse preference as the 
     [{ value: { id: 'identity' } }],
     [],
     [],
-    [],
     [{
       membership: { role: 'owner', status: 'active' },
       organization: { status: 'active' },
@@ -294,7 +347,8 @@ test('semantic Auth certificate preserves an absent warehouse preference as the 
     []
   ];
   const client = {
-    async query() {
+    async query(sql) {
+      if (sql.includes('select to_jsonb(row_value)')) return { rows: [] };
       return { rows: responses.shift() };
     }
   };
@@ -687,7 +741,9 @@ test('a real child killed after token issuance leaves durable bounded-ephemera e
       unresolvedCount: 1,
       unresolvedPurposes: ['AUTH_RUNTIME'],
       unboundCanaryCount: 1,
-      allowedNativeEphemera: { sessions: [], refreshTokens: [] }
+      allowedNativeEphemera: {
+        sessions: [], refreshTokens: [], sessionRows: [], refreshTokenRows: []
+      }
     });
   } finally {
     key.fill(0);

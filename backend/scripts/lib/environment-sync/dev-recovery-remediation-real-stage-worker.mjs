@@ -213,14 +213,17 @@ function authRuntimeDisposition(context) {
 }
 
 function mergeEphemeraAllowances(...allowances) {
-  const merged = { sessions: [], refreshTokens: [] };
+  const merged = { sessions: [], refreshTokens: [], sessionRows: [], refreshTokenRows: [] };
   for (const allowance of allowances) {
-    for (const name of ['sessions', 'refreshTokens']) {
-      for (const identifier of allowance?.[name] || []) {
-        if (merged[name].includes(identifier)) {
+    for (const [name, key] of [
+      ['sessions', null], ['refreshTokens', null],
+      ['sessionRows', 'sessionId'], ['refreshTokenRows', 'refreshTokenId']
+    ]) {
+      for (const value of allowance?.[name] || []) {
+        if (merged[name].some((existing) => key ? existing[key] === value[key] : existing === value)) {
           throw categoricalError('DEV_REMEDIATION_AUTH_EPHEMERA_ALLOWANCE_OVERLAP');
         }
-        merged[name].push(identifier);
+        merged[name].push(value);
       }
     }
   }

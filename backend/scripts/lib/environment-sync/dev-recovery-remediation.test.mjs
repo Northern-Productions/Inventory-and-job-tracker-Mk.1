@@ -87,6 +87,7 @@ const PREPARE_ENTRY = fileURLToPath(new URL('../../environment-prepare-dev-recov
 const REMEDIATE_ENTRY = fileURLToPath(new URL('../../environment-remediate-dev-recovery-certified.mjs', import.meta.url));
 const RECOVER_ENTRY = fileURLToPath(new URL('../../environment-recover-dev-recovery-remediation-certified.mjs', import.meta.url));
 const RUNBOOK = fileURLToPath(new URL('../../../../docs/automation/nonprod-environment-sync.md', import.meta.url));
+const CI_WORKFLOW = fileURLToPath(new URL('../../../../.github/workflows/ci.yml', import.meta.url));
 const TEST_WORKER = fileURLToPath(new URL('./dev-certified-test-worker.mjs', import.meta.url));
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const HISTORICAL_TOOLING_COMMIT = 'ecdde2894b28300f8cb90ac8cb44e46509c09577';
@@ -96,6 +97,15 @@ const REFRESH_SYNTHETIC_REPO_PATH = 'backend/scripts/lib/environment-sync/dev-ce
 function digest(value) {
   return `sha256:${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
 }
+
+test('CI materializes complete history required by immutable provenance checks', () => {
+  const workflow = fs.readFileSync(CI_WORKFLOW, 'utf8');
+  const checkoutSteps = workflow.split('uses: actions/checkout@v4').slice(1);
+  assert.equal(checkoutSteps.length, 2);
+  for (const step of checkoutSteps) {
+    assert.match(step.split('- name:', 1)[0], /fetch-depth:\s*0/);
+  }
+});
 
 function syntheticAccessToken(userId, sessionId) {
   const encode = (value) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -827,7 +837,9 @@ test('historical refresh provenance remains exact while a signed successor bridg
         sessionRevoked: true,
         ephemeralSessionException: false,
         ephemeraMode: 'IMMEDIATE_CANARY_DISCOVERY',
-        allowedNativeEphemera: { sessions: [], refreshTokens: [] }
+        allowedNativeEphemera: {
+          sessions: [], refreshTokens: [], sessionRows: [], refreshTokenRows: []
+        }
       },
       readiness: {
         realQuietWindow: true,
@@ -1148,7 +1160,9 @@ test('attempt-bound Auth canary evidence is durable, monotonic, credential-free,
       unresolvedCount: 1,
       unresolvedPurposes: ['AUTH_RUNTIME'],
       unboundCanaryCount: 1,
-      allowedNativeEphemera: { sessions: [], refreshTokens: [] }
+      allowedNativeEphemera: {
+        sessions: [], refreshTokens: [], sessionRows: [], refreshTokenRows: []
+      }
     });
     assert.throws(() => appendRemediationAuthCanaryState(
       root, key, canary.canaryId, 'CANARY_COMPLETE'
@@ -1189,7 +1203,12 @@ test('per-purpose Auth canary ceiling blocks accumulation until exact ephemera i
     appendRemediationAuthCanaryState(root, key, canary.canaryId, 'CANARY_COMPLETE');
     freezeRemediationAuthCanaryAllowance(root, key, canary.canaryId, {
       sessions: ['attempt-owned-session'],
-      refreshTokens: ['attempt-owned-refresh']
+      refreshTokens: ['attempt-owned-refresh'],
+      sessionRows: [{ sessionId: 'attempt-owned-session', digest: digest('session-row') }],
+      refreshTokenRows: [{
+        refreshTokenId: 'attempt-owned-refresh', sessionId: 'attempt-owned-session',
+        digest: digest('refresh-row')
+      }]
     });
     assert.throws(
       () => beginRemediationAuthCanary(root, key, 'RECOVERY_VERIFICATION'),
@@ -1222,7 +1241,12 @@ test('completed logout with frozen database rows stays unresolved and recovery v
     appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGIN_SUCCEEDED');
     freezeRemediationAuthCanaryAllowance(root, key, orphan.canaryId, {
       sessions: ['attempt-owned-session'],
-      refreshTokens: ['attempt-owned-refresh']
+      refreshTokens: ['attempt-owned-refresh'],
+      sessionRows: [{ sessionId: 'attempt-owned-session', digest: digest('session-row') }],
+      refreshTokenRows: [{
+        refreshTokenId: 'attempt-owned-refresh', sessionId: 'attempt-owned-session',
+        digest: digest('refresh-row')
+      }]
     });
     appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGOUT_ATTEMPTED');
     appendRemediationAuthCanaryState(root, key, orphan.canaryId, 'LOGOUT_SUCCEEDED');
@@ -1232,7 +1256,12 @@ test('completed logout with frozen database rows stays unresolved and recovery v
     assert.equal(unresolved.unresolvedCount, 1);
     assert.deepEqual(unresolved.allowedNativeEphemera, {
       sessions: ['attempt-owned-session'],
-      refreshTokens: ['attempt-owned-refresh']
+      refreshTokens: ['attempt-owned-refresh'],
+      sessionRows: [{ sessionId: 'attempt-owned-session', digest: digest('session-row') }],
+      refreshTokenRows: [{
+        refreshTokenId: 'attempt-owned-refresh', sessionId: 'attempt-owned-session',
+        digest: digest('refresh-row')
+      }]
     });
     const continuation = beginRemediationAuthCanary(
       root,
@@ -1273,7 +1302,11 @@ test('authenticated Auth allowances reject tampering and overlap across canaries
     appendRemediationAuthCanaryState(root, key, canary.canaryId, 'LOGIN_SUCCEEDED');
     freezeRemediationAuthCanaryAllowance(root, key, canary.canaryId, {
       sessions: [session],
-      refreshTokens: [refreshToken]
+      refreshTokens: [refreshToken],
+      sessionRows: [{ sessionId: session, digest: digest(`session:${session}`) }],
+      refreshTokenRows: [{
+        refreshTokenId: refreshToken, sessionId: session, digest: digest(`refresh:${refreshToken}`)
+      }]
     });
     return canary;
   };
@@ -1417,7 +1450,9 @@ test('a real post-login child kill reaches recovery-required and permits stored-
       unresolvedCount: 1,
       unresolvedPurposes: ['AUTH_RUNTIME'],
       unboundCanaryCount: 1,
-      allowedNativeEphemera: { sessions: [], refreshTokens: [] }
+      allowedNativeEphemera: {
+        sessions: [], refreshTokens: [], sessionRows: [], refreshTokenRows: []
+      }
     });
     const recovered = await runDevRecoveryRemediationRecovery({
       rootDirectory: root,

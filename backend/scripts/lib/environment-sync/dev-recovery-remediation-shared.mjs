@@ -14,7 +14,8 @@ import {
   verifyNativeSmokePreservation
 } from './native-smoke-preservation.mjs';
 import {
-  captureRemediationAuthCertificateFromClient
+  captureRemediationAuthCertificateFromClient,
+  captureStableAuthTablesFromClient
 } from './dev-recovery-remediation-auth.mjs';
 
 const { Client } = pg;
@@ -51,6 +52,7 @@ async function withReadOnlySnapshot(connectionString, callback, applicationName 
 async function captureRecoveryOwnedStateFromClient(client, { userId, organizationId } = {}) {
   const application = await captureApplicationPlaneFromClient(client);
   const auth = await captureAuthParityFromClient(client, { excludeNativeSmoke: true });
+  auth.stableTables = await captureStableAuthTablesFromClient(client);
   const managed = await captureManagedPlaneFingerprintFromClient(client);
   const nativeSmoke = await captureNativeSmokePreservation(client, { userId, organizationId });
   verifyNativeSmokePreservation(nativeSmoke);
