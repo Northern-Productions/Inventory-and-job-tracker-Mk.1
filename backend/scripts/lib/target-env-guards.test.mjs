@@ -7,6 +7,8 @@ import test from 'node:test';
 import {
   DEV_PROJECT_REF,
   PROD_PROJECT_REF,
+  SANDBOX_PROJECT_REF_VARIABLE,
+  buildMutationTargetReport,
   buildTargetEnvReport,
   extractDbProjectRef,
   extractSupabaseProjectRef,
@@ -14,6 +16,8 @@ import {
   loadEnvFile,
   parseEnvContents
 } from './target-env-guards.mjs';
+
+const SANDBOX_PROJECT_REF = 'sandboxref0000000001';
 
 test('target env guard accepts expected DEV refs', () => {
   const envValues = parseEnvContents(`
@@ -55,6 +59,110 @@ SUPABASE_DB_URL=postgresql://postgres:secret@db.${PROD_PROJECT_REF}.supabase.co:
   const allowed = buildTargetEnvReport({ envValues, expect: 'prod', allowProd: true });
   assert.equal(allowed.ok, true);
   assert.equal(allowed.refs[0].target, 'prod');
+});
+
+test('target env guard accepts a configured future SANDBOX ref and refuses an unset ref', () => {
+  assert.throws(
+    () => buildTargetEnvReport({ envValues: {}, expect: 'sandbox' }),
+    new RegExp(SANDBOX_PROJECT_REF_VARIABLE)
+  );
+
+  const envValues = parseEnvContents(`
+${SANDBOX_PROJECT_REF_VARIABLE}=${SANDBOX_PROJECT_REF}
+SUPABASE_URL=https://${SANDBOX_PROJECT_REF}.supabase.co
+SANDBOX_DATABASE_URL=postgresql://postgres:secret@db.${SANDBOX_PROJECT_REF}.supabase.co:5432/postgres
+`);
+  const report = buildTargetEnvReport({ envValues, expect: 'sandbox' });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.expected.ref, SANDBOX_PROJECT_REF);
+  assert.equal(report.refs[0].target, 'sandbox');
+});
+
+test('mutation target guard requires an explicit known target', () => {
+  assert.throws(() => buildMutationTargetReport({}), /explicit target/);
+  assert.throws(
+    () => buildMutationTargetReport({ requestedTarget: 'mystery' }),
+    /Unknown mutation target/
+  );
+});
+
+test('mutation target guard rejects every cross-target credential combination', () => {
+  const devValues = parseEnvContents(`SUPABASE_URL=https://${DEV_PROJECT_REF}.supabase.co`);
+  const prodValues = parseEnvContents(`SUPABASE_URL=https://${PROD_PROJECT_REF}.supabase.co`);
+  const sandboxValues = parseEnvContents(`
+${SANDBOX_PROJECT_REF_VARIABLE}=${SANDBOX_PROJECT_REF}
+SUPABASE_URL=https://${SANDBOX_PROJECT_REF}.supabase.co
+`);
+
+  assert.equal(
+    buildMutationTargetReport({ envValues: devValues, requestedTarget: 'dev' }).ok,
+    true
+  );
+  assert.equal(
+    buildMutationTargetReport({
+      envValues: prodValues,
+      requestedTarget: 'prod',
+      allowProd: true
+    }).ok,
+    true
+  );
+  assert.equal(
+    buildMutationTargetReport({ envValues: sandboxValues, requestedTarget: 'sandbox' }).ok,
+    true
+  );
+
+  for (const [envValues, requestedTarget] of [
+    [devValues, 'prod'],
+    [devValues, 'sandbox'],
+    [prodValues, 'dev'],
+    [prodValues, 'sandbox'],
+    [sandboxValues, 'dev'],
+    [sandboxValues, 'prod']
+  ]) {
+    let report;
+    try {
+      report = buildMutationTargetReport({
+        envValues,
+        requestedTarget,
+        allowProd: requestedTarget === 'prod'
+      });
+    } catch (error) {
+      assert.match(error.message, /SANDBOX project ref is unset/);
+      continue;
+    }
+    assert.equal(report.ok, false);
+  }
+});
+
+test('mutation target guard rejects all linked mutation configuration', () => {
+  const envValues = parseEnvContents(`SUPABASE_URL=https://${DEV_PROJECT_REF}.supabase.co`);
+
+  const ambiguous = buildMutationTargetReport({
+    envValues,
+    requestedTarget: 'dev',
+    linked: true
+  });
+  assert.equal(ambiguous.ok, false);
+  assert.match(ambiguous.errors.join(' '), /Mutating --linked usage is forbidden/);
+
+  const matching = buildMutationTargetReport({
+    envValues,
+    requestedTarget: 'dev',
+    linked: true,
+    linkedRef: DEV_PROJECT_REF
+  });
+  assert.equal(matching.ok, false);
+  assert.match(matching.errors.join(' '), /Mutating --linked usage is forbidden/);
+
+  const stale = buildMutationTargetReport({
+    envValues,
+    requestedTarget: 'dev',
+    linked: true,
+    linkedRef: PROD_PROJECT_REF
+  });
+  assert.equal(stale.ok, false);
+  assert.match(stale.errors.join(' '), /Mutating --linked usage is forbidden/);
 });
 
 test('target env guard extracts refs from Supabase URLs and DB URLs', () => {
